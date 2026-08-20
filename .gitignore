@@ -1,0 +1,13 @@
+/build/
+/build-battle/
+/build-qt663/
+/build-check/
+/.vs/
+/KQPetData/
+/**/KQPetData/
+/release/
+*.user
+*.zip
+CMakeUserPresets.json
+__pycache__/
+*.pyc

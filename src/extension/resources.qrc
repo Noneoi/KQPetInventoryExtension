@@ -1,0 +1,7 @@
+<RCC>
+  <qresource prefix="/kqpet">
+    <file alias="pet-detail-data.json">../../assets/pet-detail-data.json</file>
+    <file alias="pet-image-urls.json">../../assets/pet-image-urls.json</file>
+    <file alias="attribute-icons.png">../../assets/attribute-icons.png</file>
+  </qresource>
+</RCC>
