@@ -1,5 +1,7 @@
 #include "extension_context.h"
 
+#include "asset_analysis_controller.h"
+#include "asset_analysis_window.h"
 #include "diagnostic_logger.h"
 #include "original_bridge.h"
 #include "pet_refresh_controller.h"
@@ -71,6 +73,8 @@ ExtensionContext::ExtensionContext(QObject* parent) : QObject(parent) {
       });
   connect(bridge_, &OriginalBridge::packetReceived, routineController_,
           &RoutineOverviewController::handlePacket);
+  assetAnalysisController_ = new AssetAnalysisController(
+      repository_, shopController_, routineController_, this);
   connect(repository_, &PetRepository::accountSessionChanged, this,
           [](const QString& account, quint64 generation) {
             DiagnosticLogger::info(
@@ -126,6 +130,7 @@ void ExtensionContext::attachToOriginalWindow() {
     if (!window || window->objectName() == QStringLiteral("KQPetInventoryWindow") ||
         window->objectName() == QStringLiteral("KQPetShopWindow") ||
         window->objectName() == QStringLiteral("KQRoutineOverviewWindow") ||
+        window->objectName() == QStringLiteral("KQAssetAnalysisWindow") ||
         !window->isVisible())
       continue;
     const qint64 area = static_cast<qint64>(window->width()) * window->height();
@@ -181,6 +186,19 @@ void ExtensionContext::attachToOriginalWindow() {
   connect(routineButton_, &QPushButton::clicked, this,
           &ExtensionContext::showRoutineWindow);
 
+  analysisButton_ = new QPushButton(QStringLiteral("资产分析"), originalWindow_);
+  analysisButton_->setObjectName(QStringLiteral("KQAssetAnalysisButton"));
+  analysisButton_->setAttribute(Qt::WA_NativeWindow, true);
+  analysisButton_->setFixedSize(74, 26);
+  analysisButton_->setFocusPolicy(Qt::StrongFocus);
+  analysisButton_->setCursor(Qt::PointingHandCursor);
+  analysisButton_->setStyleSheet(QStringLiteral(
+      "QPushButton#KQAssetAnalysisButton{color:white;background:#7c3aed;border:0;border-radius:5px;"
+      "font-size:11px;font-weight:600;}QPushButton#KQAssetAnalysisButton:hover{background:#8b5cf6;}"
+      "QPushButton#KQAssetAnalysisButton:pressed{background:#6d28d9;}"));
+  connect(analysisButton_, &QPushButton::clicked, this,
+          &ExtensionContext::showAssetAnalysisWindow);
+
   positionButton();
   openButton_->show();
   openButton_->winId();
@@ -191,6 +209,9 @@ void ExtensionContext::attachToOriginalWindow() {
   routineButton_->show();
   routineButton_->winId();
   routineButton_->raise();
+  analysisButton_->show();
+  analysisButton_->winId();
+  analysisButton_->raise();
 }
 
 bool ExtensionContext::eventFilter(QObject* watched, QEvent* event) {
@@ -217,6 +238,12 @@ void ExtensionContext::positionButton() {
     const int shopX = shopButton_ ? shopButton_->x() : x - routineButton_->width() - 8;
     routineButton_->move(qMax(8, shopX - routineButton_->width() - 8), 3);
     routineButton_->raise();
+  }
+  if (analysisButton_) {
+    const int routineX = routineButton_ ? routineButton_->x()
+                                        : x - analysisButton_->width() - 8;
+    analysisButton_->move(qMax(8, routineX - analysisButton_->width() - 8), 3);
+    analysisButton_->raise();
   }
 }
 
@@ -354,6 +381,24 @@ void ExtensionContext::showRoutineWindow() {
   routineWindow_->show();
   routineWindow_->raise();
   routineWindow_->activateWindow();
+}
+
+void ExtensionContext::showAssetAnalysisWindow() {
+  if (!analysisWindow_) {
+    analysisWindow_ = new AssetAnalysisWindow(assetAnalysisController_, nullptr);
+    connect(analysisWindow_, &AssetAnalysisWindow::petRequested, this,
+            [this](qint64 instanceId) {
+              showPetWindow();
+              if (petWindow_) petWindow_->focusPet(instanceId);
+            });
+    connect(analysisWindow_, &AssetAnalysisWindow::shopRequested, this,
+            &ExtensionContext::showShopWindow);
+    connect(analysisWindow_, &AssetAnalysisWindow::routineRequested, this,
+            &ExtensionContext::showRoutineWindow);
+  }
+  analysisWindow_->show();
+  analysisWindow_->raise();
+  analysisWindow_->activateWindow();
 }
 
 void ExtensionContext::routeMoveReplacement(

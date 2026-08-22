@@ -35,6 +35,7 @@ public:
                                         bool fetchingLatest = false);
 
 public slots:
+  void focusPet(qint64 instanceId);
   void setListRefreshRunning(bool running);
   void setDetailProgress(bool running, bool paused, int completed, int total,
                          int succeeded, int failed, qint64 currentInstanceId,

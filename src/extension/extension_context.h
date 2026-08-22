@@ -5,6 +5,8 @@
 #include <QPointer>
 
 class OriginalBridge;
+class AssetAnalysisController;
+class AssetAnalysisWindow;
 class PetRefreshController;
 class PetRepository;
 class PetWindow;
@@ -29,6 +31,7 @@ private slots:
   void showPetWindow();
   void showShopWindow();
   void showRoutineWindow();
+  void showAssetAnalysisWindow();
   void showSettings();
 
 private:
@@ -43,13 +46,16 @@ private:
   PetRefreshController* refreshController_ = nullptr;
   ShopExchangeController* shopController_ = nullptr;
   RoutineOverviewController* routineController_ = nullptr;
+  AssetAnalysisController* assetAnalysisController_ = nullptr;
   PetRepository* repository_ = nullptr;
   QPointer<QWidget> originalWindow_;
   QPointer<QPushButton> openButton_;
   QPointer<QPushButton> shopButton_;
   QPointer<QPushButton> routineButton_;
+  QPointer<QPushButton> analysisButton_;
   QPointer<PetWindow> petWindow_;
   QPointer<ShopWindow> shopWindow_;
   QPointer<RoutineOverviewWindow> routineWindow_;
+  QPointer<AssetAnalysisWindow> analysisWindow_;
   MoveUiOrigin moveUiOrigin_ = MoveUiOrigin::None;
 };

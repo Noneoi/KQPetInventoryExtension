@@ -1,6 +1,6 @@
 cmake_minimum_required(VERSION 3.24)
 
-project(KQPetInventoryExtension VERSION 1.2.0 LANGUAGES CXX)
+project(KQPetInventoryExtension VERSION 1.3.0 LANGUAGES CXX)
 
 if(NOT WIN32 OR NOT CMAKE_SIZEOF_VOID_P EQUAL 8)
   message(FATAL_ERROR "This project only supports 64-bit Windows.")
@@ -93,6 +93,8 @@ target_compile_options(KQPetLauncher PRIVATE $<$<CXX_COMPILER_ID:MSVC>:/utf-8>)
 target_link_libraries(KQPetLauncher PRIVATE user32)
 
 add_library(KQPetCore STATIC
+  src/extension/asset_analysis_controller.cpp
+  src/extension/asset_analysis_controller.h
   src/extension/pet_detail_analyzer.cpp
   src/extension/pet_detail_analyzer.h
   src/extension/pet_detail_catalog.cpp
@@ -140,6 +142,8 @@ target_link_libraries(KQPetBridge PUBLIC KQPetDiagnostics Qt6::Core Qt6::Gui Qt6
 add_library(KQPet::Bridge ALIAS KQPetBridge)
 
 add_library(KQPetUi STATIC
+  src/extension/asset_analysis_window.cpp
+  src/extension/asset_analysis_window.h
   src/extension/pet_filter_proxy_model.cpp
   src/extension/pet_filter_proxy_model.h
   src/extension/pet_image_cache.cpp
@@ -228,6 +232,15 @@ target_compile_options(KQPetTableModelSmoke PRIVATE $<$<CXX_COMPILER_ID:MSVC>:/u
 target_link_libraries(KQPetTableModelSmoke PRIVATE KQPetUi)
 add_test(NAME pet_table_model_smoke COMMAND KQPetTableModelSmoke)
 
+add_executable(KQAssetAnalysisSmoke
+  tests/asset_analysis_smoke.cpp
+  src/extension/resources.qrc
+)
+target_include_directories(KQAssetAnalysisSmoke PRIVATE src/extension)
+target_compile_options(KQAssetAnalysisSmoke PRIVATE $<$<CXX_COMPILER_ID:MSVC>:/utf-8 /wd4828>)
+target_link_libraries(KQAssetAnalysisSmoke PRIVATE KQPetCore)
+add_test(NAME asset_analysis_smoke COMMAND KQAssetAnalysisSmoke)
+
 add_executable(KQPetShopSmoke
   tests/shop_exchange_smoke.cpp
   src/extension/resources.qrc
@@ -267,7 +280,7 @@ get_filename_component(KQ_QT_RUNTIME_DIR "${KQ_QT_CORE_RUNTIME}" DIRECTORY)
 set_tests_properties(
   pet_detail_catalog_smoke pet_repository_smoke pet_refresh_controller_smoke
   pet_move_controller_smoke pet_search_smoke pet_table_model_smoke shop_exchange_smoke
-  routine_overview_smoke protocol_fixture_smoke
+  asset_analysis_smoke routine_overview_smoke protocol_fixture_smoke
   PROPERTIES ENVIRONMENT_MODIFICATION "PATH=path_list_prepend:${KQ_QT_RUNTIME_DIR}"
 )
 
@@ -297,18 +310,29 @@ target_compile_options(KQRoutineUiPreview PRIVATE $<$<CXX_COMPILER_ID:MSVC>:/utf
 target_link_libraries(KQRoutineUiPreview PRIVATE KQPetUi)
 kqpet_use_build_info(KQRoutineUiPreview)
 
+add_executable(KQAssetAnalysisUiPreview
+  tests/asset_analysis_ui_preview.cpp
+  src/extension/resources.qrc
+)
+target_include_directories(KQAssetAnalysisUiPreview PRIVATE src/extension)
+target_compile_options(KQAssetAnalysisUiPreview PRIVATE $<$<CXX_COMPILER_ID:MSVC>:/utf-8 /wd4828>)
+target_link_libraries(KQAssetAnalysisUiPreview PRIVATE KQPetUi)
+kqpet_use_build_info(KQAssetAnalysisUiPreview)
+
 add_test(NAME pet_ui_preview_smoke COMMAND KQPetUiPreview)
 add_test(NAME shop_ui_preview_smoke COMMAND KQShopUiPreview)
 add_test(NAME routine_ui_preview_smoke COMMAND KQRoutineUiPreview)
+add_test(NAME asset_analysis_ui_preview_smoke COMMAND KQAssetAnalysisUiPreview)
 set_tests_properties(
   pet_ui_preview_smoke shop_ui_preview_smoke routine_ui_preview_smoke
+  asset_analysis_ui_preview_smoke
   PROPERTIES
     ENVIRONMENT "QT_QPA_PLATFORM=offscreen;KQPET_PREVIEW_SELF_TEST=1;KQPET_PREVIEW_EXIT_MS=3000"
     ENVIRONMENT_MODIFICATION "PATH=path_list_prepend:${KQ_QT_RUNTIME_DIR}"
     TIMEOUT 15
 )
 
-foreach(target KQPetDiagnostics KQPetCore KQPetBridge KQPetUi KQPetLauncher KQPetInventory KQPetCatalogSmoke KQPetRepositorySmoke KQPetRefreshSmoke KQPetMoveSmoke KQPetSearchSmoke KQPetTableModelSmoke KQPetShopSmoke KQRoutineOverviewSmoke KQProtocolFixtureSmoke KQPetUiPreview KQShopUiPreview KQRoutineUiPreview)
+foreach(target KQPetDiagnostics KQPetCore KQPetBridge KQPetUi KQPetLauncher KQPetInventory KQPetCatalogSmoke KQPetRepositorySmoke KQPetRefreshSmoke KQPetMoveSmoke KQPetSearchSmoke KQPetTableModelSmoke KQAssetAnalysisSmoke KQPetShopSmoke KQRoutineOverviewSmoke KQProtocolFixtureSmoke KQPetUiPreview KQShopUiPreview KQRoutineUiPreview KQAssetAnalysisUiPreview)
   set_target_properties(${target} PROPERTIES
     RUNTIME_OUTPUT_DIRECTORY "${CMAKE_BINARY_DIR}/bin"
     LIBRARY_OUTPUT_DIRECTORY "${CMAKE_BINARY_DIR}/bin"

@@ -8,8 +8,12 @@
 
 ## 当前已实现
 
+- v1.3.0 增加账号资产总览、养成诊断中心和账号隔离的轻量历史快照；完整分析严格改为用户手动触发，后台刷新不会反复遍历全部详情或重建诊断表。
 - v1.2.0 在安装 Hook 前执行统一兼容性检查；KQPro 身份、x64 架构、Qt 6.6.3、QCefView 或协议入口不满足时安全停止扩展，原版程序继续运行。
 - 诊断日志写入 `KQPetData\logs\latest.log`，旧日志按启动时间归档；账号只记录不可逆摘要，不默认记录完整协议内容。精灵窗口提供“复制诊断”。
+- 增加统一“资产分析”窗口，完全复用当前账号本地缓存，不新增协议：账号资产总览可按背包、普通仓库、精英仓库、培养缺口、缺少详情和商店可提升等指标跳转到精灵列表。60 秒列表同步只更新轻量的四项位置数量；完整培养分析仅在用户点击“刷新资产分析”后执行。
+- 养成诊断中心汇总当前/最高战斗力、完成度以及红星、星轮、神源兽、元魂缺口；双击精灵会回到现有精灵仓库并定位对应实例，不复制详情逻辑。
+- 历史快照按账号、按日期保存轻量状态，可显示新增精灵、达到满培养、红星完成、星轮突破和总战力变化，并查看单个实例 ID 的历史；可选择在每次手动刷新资产分析后同步更新当日快照，后台列表与详情刷新不会隐式执行完整分析。
 
 - 登录并识别账号后每 60 秒异步刷新一次背包与仓库；先发送 `PJXExtension / 2_1_10 / {}`，1 秒后发送 `PJXExtension / 2_1_S / null`，单项 10 秒超时且任务不重叠。
 - “刷新背包/仓库”可立即触发同一刷新批次；刷新期间按钮禁用，失败或超时保留旧缓存。
@@ -117,12 +121,14 @@ build-qt663\bin\Release\KQPetMoveSmoke.exe
 build-qt663\bin\Release\KQPetTableModelSmoke.exe
 build-qt663\bin\Release\KQPetShopSmoke.exe
 build-qt663\bin\Release\KQRoutineOverviewSmoke.exe
+build-qt663\bin\Release\KQAssetAnalysisSmoke.exe
 build-qt663\bin\Release\KQPetUiPreview.exe
 build-qt663\bin\Release\KQShopUiPreview.exe
 build-qt663\bin\Release\KQRoutineUiPreview.exe
+build-qt663\bin\Release\KQAssetAnalysisUiPreview.exe
 ```
 
-三个 `*UiPreview.exe` 只用于开发期预览；预览使用匿名模拟数据，不连接原版桥接，也不会发送游戏命令。
+四个 `*UiPreview.exe` 只用于开发期预览；预览使用匿名模拟数据，不连接原版桥接，也不会发送游戏命令。
 
 `build.ps1` 会同时编译字典、schema 3 账号/实例隔离缓存测试、异步刷新队列测试和安全移动状态机测试。需要更新官方数据时，可重新运行：
 
@@ -163,6 +169,8 @@ KQPetData\
 ├─ accounts\<账号ID>\details\<精灵实例ID>.json
 ├─ accounts\<账号ID>\shops.json
 ├─ accounts\<账号ID>\routines.json
+├─ accounts\<账号ID>\asset-analysis.json
+├─ accounts\<账号ID>\snapshots\<日期>.json
 ├─ catalog\pet-detail-data.json       可选的新版外部元数据字典
 ├─ catalog\shop-exchange-data.json    动态解析的官方商店项目缓存
 ├─ catalog\routine-overview.json       动态解析的日常/周常/活动配置

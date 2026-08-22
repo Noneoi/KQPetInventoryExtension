@@ -568,6 +568,51 @@ PetWindow::PetWindow(PetRepository* repository, QWidget* parent)
 
 void PetWindow::setStatus(const QString& status) { status_->setText(status); }
 
+void PetWindow::focusPet(qint64 instanceId) {
+  if (!repository_ || instanceId <= 0) return;
+  {
+    const QSignalBlocker searchBlocker(search_);
+    const QSignalBlocker attributeBlocker(attributeFilter_);
+    const QSignalBlocker jobBlocker(jobFilter_);
+    const QSignalBlocker eraBlocker(eraFilter_);
+    search_->clear();
+    attributeFilter_->setCurrentIndex(0);
+    jobFilter_->setCurrentIndex(0);
+    eraFilter_->setCurrentIndex(0);
+  }
+  refreshViews();
+
+  const QJsonObject backpack = repository_->backpackPet(instanceId);
+  if (!backpack.isEmpty()) {
+    const QList<QJsonObject> pets =
+        filteredAndSorted(repository_->backpackPets(), true);
+    for (int index = 0; index < pets.size(); ++index) {
+      if (petInstanceId(pets.at(index)) != instanceId) continue;
+      setBackpackPage(index / 12);
+      const int row = index % 12;
+      backpackTable_->selectRow(row);
+      selectBackpack(row, 0);
+      return;
+    }
+  }
+
+  const QJsonObject warehouse = repository_->warehousePet(instanceId);
+  if (warehouse.isEmpty()) return;
+  const bool elite = warehouse.value(QStringLiteral("_warehouseGroup")).toString() ==
+                     QStringLiteral("elite");
+  QTableView* table = elite ? eliteWarehouseTable_ : warehouseTable_;
+  warehouseTabs_->setCurrentIndex(elite ? 1 : 0);
+  for (int row = 0; row < table->model()->rowCount(); ++row) {
+    const QModelIndex index = table->model()->index(row, 0);
+    if (index.data(PetTableModel::InstanceIdRole).toLongLong() != instanceId)
+      continue;
+    table->setCurrentIndex(index);
+    table->scrollTo(index, QAbstractItemView::PositionAtCenter);
+    selectWarehouse(index);
+    return;
+  }
+}
+
 void PetWindow::setListRefreshRunning(bool running) {
   listRefreshRunning_ = running;
   refresh_->setEnabled(!running && !moveRunning_);
