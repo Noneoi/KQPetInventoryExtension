@@ -1,5 +1,6 @@
 #include "pet_refresh_controller.h"
 
+#include "diagnostic_logger.h"
 #include "pet_move_policy.h"
 #include "pet_repository.h"
 
@@ -36,10 +37,16 @@ PetRefreshController::PetRefreshController(PetRepository* repository, QObject* p
   connect(&listGapTimer_, &QTimer::timeout, this,
           &PetRefreshController::sendWarehouseListRequest);
   connect(&backpackTimeoutTimer_, &QTimer::timeout, this, [this]() {
+    DiagnosticLogger::warning(QStringLiteral("timeout"),
+                              QStringLiteral("backpack request timed out generation=%1")
+                                  .arg(listRequestGeneration_));
     repository_->cancelListPart(QStringLiteral("2_1_10"), listRequestGeneration_);
     finishListPart(QStringLiteral("2_1_10"), false, QStringLiteral("背包请求超时"));
   });
   connect(&warehouseTimeoutTimer_, &QTimer::timeout, this, [this]() {
+    DiagnosticLogger::warning(QStringLiteral("timeout"),
+                              QStringLiteral("warehouse request timed out generation=%1")
+                                  .arg(listRequestGeneration_));
     repository_->cancelListPart(QStringLiteral("2_1_S"), listRequestGeneration_);
     finishListPart(QStringLiteral("2_1_S"), false, QStringLiteral("仓库请求超时"));
   });
@@ -50,11 +57,19 @@ PetRefreshController::PetRefreshController(PetRepository* repository, QObject* p
       sendNextDetail();
   });
   connect(&detailTimeoutTimer_, &QTimer::timeout, this, [this]() {
+    DiagnosticLogger::warning(
+        QStringLiteral("timeout"),
+        QStringLiteral("detail request timed out instance=%1 generation=%2")
+            .arg(currentDetailId_).arg(currentDetailGeneration_));
     repository_->cancelDetailRequest(currentDetailId_, currentDetailGeneration_);
     retryOrFinishCurrent(QStringLiteral("详情请求超时"));
   });
   connect(&moveTimeoutTimer_, &QTimer::timeout, this, [this]() {
     if (movePhase_ != MovePhase::AwaitingWrite) return;
+    DiagnosticLogger::warning(
+        QStringLiteral("timeout"),
+        QStringLiteral("move write timed out; no retry generation=%1")
+            .arg(moveRequestGeneration_));
     repository_->cancelSequenceUpdate(moveRequestGeneration_);
     startMoveVerification(
         QStringLiteral("移动请求响应超时；不会重复写入，正在读取服务器最终状态……"));
@@ -320,6 +335,12 @@ void PetRefreshController::finishListPart(const QString& command, bool succeeded
 void PetRefreshController::maybeFinishListRefresh() {
   if (!listRunning_ || !backpackDone_ || !warehouseDone_) return;
   listRunning_ = false;
+  DiagnosticLogger::info(
+      QStringLiteral("request"),
+      QStringLiteral("list refresh completed generation=%1 backpack=%2 warehouse=%3")
+          .arg(listRequestGeneration_)
+          .arg(backpackSucceeded_ ? QStringLiteral("ok") : QStringLiteral("failed"))
+          .arg(warehouseSucceeded_ ? QStringLiteral("ok") : QStringLiteral("failed")));
   emit listRefreshRunningChanged(false);
   if (backpackSucceeded_ && warehouseSucceeded_) {
     emit statusChanged(QStringLiteral("背包/仓库列表刷新完成；下一次自动刷新在60秒后。"));
@@ -544,9 +565,15 @@ void PetRefreshController::finishCurrentDetail(bool succeeded, const QString& re
     else ++batchFailed_;
   }
   if (succeeded) {
+    DiagnosticLogger::info(QStringLiteral("detail"),
+                           QStringLiteral("completed instance=%1").arg(finishedId));
     emit statusChanged(QStringLiteral("实例 %1 的详情已写入当前账号本地缓存。")
                            .arg(finishedId));
   } else {
+    DiagnosticLogger::error(
+        QStringLiteral("detail"),
+        QStringLiteral("failed instance=%1 reason=%2; old cache retained")
+            .arg(finishedId).arg(reason));
     emit statusChanged(QStringLiteral("实例 %1 详情更新失败：%2；旧缓存已保留。")
                            .arg(finishedId).arg(reason));
   }
@@ -575,6 +602,10 @@ void PetRefreshController::finishDetailBatchIfDone() {
   if (!batchRunning_ || !batchIds_.isEmpty() || currentDetailId_ > 0) return;
   batchRunning_ = false;
   batchPaused_ = false;
+  DiagnosticLogger::info(
+      QStringLiteral("detail"),
+      QStringLiteral("batch completed succeeded=%1 failed=%2 total=%3")
+          .arg(batchSucceeded_).arg(batchFailed_).arg(batchTotal_));
   emitDetailProgress();
   emit statusChanged(QStringLiteral("仓库详情刷新完成：成功 %1，失败 %2。")
                          .arg(batchSucceeded_).arg(batchFailed_));
@@ -620,6 +651,12 @@ void PetRefreshController::beginMove(MoveKind kind, qint64 instanceId) {
   moveTargetSequence_.clear();
   moveWriteRejected_ = false;
   moveWriteFailureReason_.clear();
+  DiagnosticLogger::info(
+      QStringLiteral("move"),
+      QStringLiteral("started kind=%1 instance=%2 session_generation=%3")
+          .arg(kind == MoveKind::ToWarehouse ? QStringLiteral("to-warehouse")
+                                             : QStringLiteral("to-backpack"))
+          .arg(instanceId).arg(moveSessionGeneration_));
   batchWasRunningBeforeMove_ = batchRunning_;
   batchWasPausedBeforeMove_ = batchPaused_;
   automaticTimer_.stop();

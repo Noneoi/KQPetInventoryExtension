@@ -1,5 +1,7 @@
 #include "shop_window.h"
 
+#include "build_info.h"
+
 #include "pet_detail_catalog.h"
 #include "pet_identity.h"
 #include "pet_image_cache.h"
@@ -114,7 +116,8 @@ qint64 numericValue(const QJsonObject& pet, const QString& key) {
 ShopWindow::ShopWindow(PetRepository* repository, QWidget* parent)
     : QDialog(parent), repository_(repository) {
   setObjectName(QStringLiteral("KQPetShopWindow"));
-  setWindowTitle(QStringLiteral("原版氪奇 · 培养兑换商店"));
+  setWindowTitle(QStringLiteral("原版氪奇 · 培养兑换商店 · %1")
+                     .arg(BuildInfo::displayVersion()));
   resize(1420, 860);
   setMinimumSize(1100, 680);
   setAttribute(Qt::WA_DeleteOnClose, false);

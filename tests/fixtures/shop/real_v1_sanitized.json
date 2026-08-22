@@ -1,0 +1,17 @@
+{
+  "_cmd": "1008_20260313_es_0",
+  "r": 1,
+  "si1": {
+    "ulw": 4,
+    "pr": 5,
+    "bi0": {"pl": 1},
+    "bi1": {"pl": 0, "pv": {"pl": [{"po": true, "pg": true}, {"po": false, "pg": false}]}},
+    "bi20": {"tl": 1, "pv": {"pl": [{"sg": true}, {"sg": false}, null]}}
+  },
+  "si2": {"bi0": {"ml": 0, "pv": {"pl": [{"po": true, "pg": true}]}}, "bi15": {"tl": 1, "pv": {"sg": true}}},
+  "si3": {"st": 31, "bi11": {"pl": 1, "pv": {"pl": [null, null]}}, "bi29": {"tl": 1}},
+  "si4": {"bi13": {"pl": 0, "pv": {"pl": [{"sg": true}, {"sg": false}]}}},
+  "si5": {"ac": 2668, "bi4": {"pl": 1, "pv": {"pl": [{"sg": true}, null]}}},
+  "si6": {"ulv": 7, "hu": true, "bi1": {"ml": 0, "pv": {"po": true, "pg": true}}},
+  "si8": {"wrt": 3, "wrd": [0, 1, 1, 0], "wrp": [12, 5, 11, 10], "bi0": {"wl": 3}}
+}

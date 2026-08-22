@@ -9,6 +9,8 @@ class QLineEdit;
 class QComboBox;
 class QHBoxLayout;
 class QPushButton;
+class QModelIndex;
+class QTableView;
 class QTableWidget;
 class QTabWidget;
 class QTimer;
@@ -17,7 +19,9 @@ class QTreeWidget;
 class QTreeWidgetItem;
 class QJsonValue;
 class PetImageCache;
+class PetFilterProxyModel;
 class PetRepository;
+class PetTableModel;
 
 class PetWindow final : public QDialog {
   Q_OBJECT
@@ -47,6 +51,7 @@ signals:
   void warehouseDetailCancelRequested();
   void detailRequested(qint64 instanceId);
   void settingsRequested();
+  void copyDiagnosticsRequested();
   void moveToWarehouseRequested(qint64 instanceId);
   void moveToBackpackRequested(qint64 instanceId);
   void moveReplacementChosen(qint64 outgoingInstanceId);
@@ -56,7 +61,7 @@ private slots:
   void rebuild();
   void applyFilter();
   void selectBackpack(int row, int column);
-  void selectWarehouse(int row, int column);
+  void selectWarehouse(const QModelIndex& index);
   void updateCurrentDetail(qint64 instanceId);
   void updateCurrentImage(const QString& visualKey, const QString& localPath);
   void setBackpackPage(int page);
@@ -98,6 +103,7 @@ private:
   QPushButton* pauseDetails_ = nullptr;
   QPushButton* cancelDetails_ = nullptr;
   QPushButton* settings_ = nullptr;
+  QPushButton* diagnostics_ = nullptr;
   QPushButton* moveToWarehouse_ = nullptr;
   QPushButton* moveToBackpack_ = nullptr;
   QLabel* progress_ = nullptr;
@@ -105,8 +111,12 @@ private:
   QHBoxLayout* backpackPages_ = nullptr;
   QTabWidget* warehouseTabs_ = nullptr;
   QTableWidget* backpackTable_ = nullptr;
-  QTableWidget* warehouseTable_ = nullptr;
-  QTableWidget* eliteWarehouseTable_ = nullptr;
+  QTableView* warehouseTable_ = nullptr;
+  QTableView* eliteWarehouseTable_ = nullptr;
+  PetTableModel* warehouseModel_ = nullptr;
+  PetTableModel* eliteWarehouseModel_ = nullptr;
+  PetFilterProxyModel* warehouseProxy_ = nullptr;
+  PetFilterProxyModel* eliteWarehouseProxy_ = nullptr;
   QTabWidget* detailTabs_ = nullptr;
   QTextBrowser* detailView_ = nullptr;
   QTreeWidget* rawTree_ = nullptr;

@@ -1,5 +1,6 @@
 #include "routine_overview_controller.h"
 
+#include "diagnostic_logger.h"
 #include "pet_repository.h"
 #include "routine_overview_catalog.h"
 
@@ -63,6 +64,10 @@ RoutineOverviewController::RoutineOverviewController(PetRepository* repository, 
   timeout_ = new QTimer(this);
   timeout_->setSingleShot(true);
   connect(timeout_, &QTimer::timeout, this, [this]() {
+    DiagnosticLogger::warning(
+        QStringLiteral("timeout"),
+        QStringLiteral("routine refresh timed out pending_count=%1")
+            .arg(pendingCommands_.size()));
     for (const QString& command : std::as_const(pendingCommands_))
       requestWarnings_.append(QStringLiteral("%1超时").arg(requestLabels_.value(command, command)));
     pendingCommands_.clear();
@@ -106,6 +111,9 @@ bool RoutineOverviewController::requestRefresh() {
   requestLabels_.clear();
   requestWarnings_.clear();
   running_ = true;
+  DiagnosticLogger::info(QStringLiteral("routine"),
+                         QStringLiteral("refresh started session_generation=%1")
+                             .arg(requestSessionGeneration_));
   emit runningChanged(true);
   emit statusChanged(QStringLiteral("正在手动查询任务、活动红点和玩法剩余次数……"));
   const auto sendRequest = [this](const QString& service, const QString& command,
@@ -221,6 +229,12 @@ void RoutineOverviewController::finish(bool publish, const QString& status) {
   timeout_->stop();
   pendingCommands_.clear();
   running_ = false;
+  if (publish)
+    DiagnosticLogger::info(QStringLiteral("routine"),
+                           QStringLiteral("refresh completed: %1").arg(status));
+  else
+    DiagnosticLogger::error(QStringLiteral("routine"),
+                            QStringLiteral("refresh ended without update: %1").arg(status));
   emit runningChanged(false);
   emit statusChanged(status);
   if (publish) emit dataUpdated();

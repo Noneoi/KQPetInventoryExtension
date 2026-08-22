@@ -8,6 +8,9 @@
 
 ## 当前已实现
 
+- v1.2.0 在安装 Hook 前执行统一兼容性检查；KQPro 身份、x64 架构、Qt 6.6.3、QCefView 或协议入口不满足时安全停止扩展，原版程序继续运行。
+- 诊断日志写入 `KQPetData\logs\latest.log`，旧日志按启动时间归档；账号只记录不可逆摘要，不默认记录完整协议内容。精灵窗口提供“复制诊断”。
+
 - 登录并识别账号后每 60 秒异步刷新一次背包与仓库；先发送 `PJXExtension / 2_1_10 / {}`，1 秒后发送 `PJXExtension / 2_1_S / null`，单项 10 秒超时且任务不重叠。
 - “刷新背包/仓库”可立即触发同一刷新批次；刷新期间按钮禁用，失败或超时保留旧缓存。
 - “刷新仓库详情”按无缓存优先、缓存最旧优先刷新当前账号全部仓库精灵：严格单并发、每批 12 只、每只间隔 1 秒、批间休息 2 秒、单只 8 秒超时并重试 1 次，支持暂停、继续和取消。
@@ -76,6 +79,16 @@
    └─ AI工程交接文档.md       后续 AI 的权威上手入口
 ```
 
+扩展仍然发布为单个 `KQPetInventory.dll`，内部构建按职责拆成三个静态模块：
+
+- `KQPetCore`：Repository、Catalog、Identity、搜索、分析、移动策略及可测试 Controller。
+- `KQPetBridge`：Hook 和原版 Qt/协议入口桥接。
+- `KQPetUi`：精灵、商店、日常窗口及图片缓存。
+
+最终 DLL 由 `Core + Bridge + UI` 组合；Smoke Tests 只链接 `Core`，UI Preview 链接 `Core + UI`。Qt Resource 由最终 DLL/EXE 注册，避免静态库资源对象被链接器裁掉。
+
+精灵列表正在渐进迁移到 Qt Model/View：普通仓库和精英仓库已经采用 `PetTableModel → PetFilterProxyModel → QTableView`，搜索、筛选、排序和详情增量更新不再重建 `QTableWidgetItem`；背包分页暂时保留原实现，待后续独立迁移。
+
 ## 编译环境
 
 - Windows x64
@@ -101,6 +114,7 @@ build-qt663\bin\Release\KQPetCatalogSmoke.exe
 build-qt663\bin\Release\KQPetRepositorySmoke.exe
 build-qt663\bin\Release\KQPetRefreshSmoke.exe
 build-qt663\bin\Release\KQPetMoveSmoke.exe
+build-qt663\bin\Release\KQPetTableModelSmoke.exe
 build-qt663\bin\Release\KQPetShopSmoke.exe
 build-qt663\bin\Release\KQRoutineOverviewSmoke.exe
 build-qt663\bin\Release\KQPetUiPreview.exe

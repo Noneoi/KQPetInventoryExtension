@@ -2,6 +2,16 @@
 
 这是面向原版氪奇登录器的非官方精灵背包/仓库扩展。扩展通过独立启动器加载，不覆盖、不重打包、不修改原版 `KQPro*.exe`。
 
+## v1.2.0 稳定化
+
+- 版本号统一由根 `CMakeLists.txt` 生成，并贯通 DLL 导出、窗口标题和诊断信息；同时记录 Git commit、UTC 构建时间、目标架构和 Qt 版本。
+- 启动前新增 fail-closed 兼容性检查：验证 KQPro 身份、x64、Qt6Core/Qt6Widgets 6.6.3、QCefView symbol 和三个协议入口；任一关键项失败时不安装 Hook、不发协议、不创建扩展业务窗口。
+- 新增 `KQPetData\logs\latest.log` 和历史日志、账号脱敏、请求/超时/拒绝/缓存/移动/商店/日常关键事件，以及界面“复制诊断”。
+- 新增 Windows x64 GitHub Actions：Qt 6.6.3、Release 构建和完整 CTest。
+- 新增脱敏真实协议 fixture 回归，并保留 synthetic 边界样本覆盖缺字段、换皮肤和部分请求失败。
+- 将详情分析、语义 ViewModel 与 HTML 渲染从 `PetWindow` 分离；内部 CMake target 整理为 `KQPetCore`、`KQPetBridge`、`KQPetUi`，测试和预览不再重复编译同一批业务源文件。
+- 普通/精英仓库开始迁移到 Qt Model/View，使用 `PetTableModel` 和 `PetFilterProxyModel` 处理显示、搜索、筛选、排序及单行详情更新；背包分页行为暂时保持不变。
+
 ## 主要功能
 
 - 背包、普通仓库、精英仓库分区显示，背包每页最多 12 只，仓库使用滚动列表。

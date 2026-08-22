@@ -1,5 +1,6 @@
 #include "shop_exchange_controller.h"
 
+#include "diagnostic_logger.h"
 #include "pet_repository.h"
 
 #include <QDateTime>
@@ -75,6 +76,9 @@ bool ShopExchangeController::requestInfo() {
   requestAccount_ = account_;
   requestSessionGeneration_ = sessionGeneration_;
   running_ = true;
+  DiagnosticLogger::info(QStringLiteral("shop"),
+                         QStringLiteral("refresh started session_generation=%1")
+                             .arg(requestSessionGeneration_));
   shopResponseReceived_ = false;
   materialResponseReceived_ = false;
   emit runningChanged(true);
@@ -162,6 +166,12 @@ void ShopExchangeController::handlePacket(const QString& method, const QString& 
 void ShopExchangeController::finish(bool ok, const QString& status) {
   timeout_->stop();
   running_ = false;
+  if (ok)
+    DiagnosticLogger::info(QStringLiteral("shop"),
+                           QStringLiteral("refresh completed: %1").arg(status));
+  else
+    DiagnosticLogger::error(QStringLiteral("shop"),
+                            QStringLiteral("refresh failed: %1").arg(status));
   emit runningChanged(false);
   emit statusChanged(status);
   if (ok) emit infoUpdated();

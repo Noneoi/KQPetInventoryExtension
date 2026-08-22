@@ -1,5 +1,6 @@
 #include "extension_context.h"
 
+#include "diagnostic_logger.h"
 #include "original_bridge.h"
 #include "pet_refresh_controller.h"
 #include "pet_repository.h"
@@ -11,6 +12,7 @@
 #include "routine_overview_window.h"
 
 #include <QApplication>
+#include <QClipboard>
 #include <QEvent>
 #include <QMessageBox>
 #include <QPushButton>
@@ -31,10 +33,13 @@ ExtensionContext::ExtensionContext(QObject* parent) : QObject(parent) {
   repository_ = new PetRepository(this);
   bridge_ = new OriginalBridge(this);
   if (!bridge_->install()) {
+    DiagnosticLogger::error(QStringLiteral("bridge"), bridge_->lastError());
     QMessageBox::critical(nullptr, QStringLiteral("原版氪奇精灵扩展"),
                           QStringLiteral("扩展没有启动：\n%1").arg(bridge_->lastError()));
     return;
   }
+  DiagnosticLogger::info(QStringLiteral("bridge"),
+                         QStringLiteral("protocol bridge and dispatch hook installed"));
   connect(QCoreApplication::instance(), &QCoreApplication::aboutToQuit,
           bridge_, &OriginalBridge::disableCapture, Qt::DirectConnection);
 
@@ -66,6 +71,50 @@ ExtensionContext::ExtensionContext(QObject* parent) : QObject(parent) {
       });
   connect(bridge_, &OriginalBridge::packetReceived, routineController_,
           &RoutineOverviewController::handlePacket);
+  connect(repository_, &PetRepository::accountSessionChanged, this,
+          [](const QString& account, quint64 generation) {
+            DiagnosticLogger::info(
+                QStringLiteral("session"),
+                QStringLiteral("account=%1 generation=%2")
+                    .arg(DiagnosticLogger::maskedAccount(account))
+                    .arg(generation));
+          });
+  connect(repository_, &PetRepository::detailResponseRejected, this,
+          [](qint64 instanceId, quint64 generation, const QString& reason) {
+            DiagnosticLogger::warning(
+                QStringLiteral("detail"),
+                QStringLiteral("rejected instance=%1 request_generation=%2 reason=%3")
+                    .arg(instanceId).arg(generation).arg(reason));
+          });
+  connect(repository_, &PetRepository::sequenceUpdateRejected, this,
+          [](quint64 generation, const QString& reason) {
+            DiagnosticLogger::warning(
+                QStringLiteral("move"),
+                QStringLiteral("write response rejected request_generation=%1 reason=%2")
+                    .arg(generation).arg(reason));
+          });
+  connect(refreshController_, &PetRefreshController::commandSent, this,
+          [](const QString& command, qint64 instanceId, quint64 generation) {
+            DiagnosticLogger::info(
+                QStringLiteral("request"),
+                QStringLiteral("started command=%1 instance=%2 request_generation=%3")
+                    .arg(command).arg(instanceId).arg(generation));
+          });
+  connect(refreshController_, &PetRefreshController::moveFinished, this,
+          [](bool succeeded, const QString& message) {
+            if (succeeded)
+              DiagnosticLogger::info(QStringLiteral("move"), message);
+            else
+              DiagnosticLogger::error(QStringLiteral("move"), message);
+          });
+  connect(shopController_, &ShopExchangeController::statusChanged, this,
+          [](const QString& status) {
+            DiagnosticLogger::info(QStringLiteral("shop"), status);
+          });
+  connect(routineController_, &RoutineOverviewController::statusChanged, this,
+          [](const QString& status) {
+            DiagnosticLogger::info(QStringLiteral("routine"), status);
+          });
   QTimer::singleShot(0, this, &ExtensionContext::attachToOriginalWindow);
 }
 
@@ -191,6 +240,12 @@ void ExtensionContext::showPetWindow() {
             &PetRefreshController::requestSingleDetail);
     connect(petWindow_, &PetWindow::settingsRequested, this,
             &ExtensionContext::showSettings);
+    connect(petWindow_, &PetWindow::copyDiagnosticsRequested, this, [this]() {
+      QApplication::clipboard()->setText(DiagnosticLogger::diagnosticText());
+      if (petWindow_)
+        petWindow_->setStatus(QStringLiteral("诊断信息已复制到剪贴板；日志：%1")
+                                  .arg(DiagnosticLogger::logPath()));
+    });
     connect(petWindow_, &PetWindow::moveToWarehouseRequested, this,
             [this](qint64 id) {
               if (!refreshController_->moveRunning())

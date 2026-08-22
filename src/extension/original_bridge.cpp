@@ -1,5 +1,7 @@
 #include "original_bridge.h"
 
+#include "target_compatibility_guard.h"
+
 #include <windows.h>
 
 #include <QApplication>
@@ -9,72 +11,8 @@
 #include <QVariant>
 #include <QWidget>
 
-#include <array>
 #include <cstdint>
 #include <cstring>
-
-namespace {
-
-constexpr std::uintptr_t kDispatchRva = 0x115920;
-constexpr std::uintptr_t kServiceGetterRva = 0x115450;
-constexpr std::uintptr_t kCommandSenderRva = 0x116470;
-
-constexpr std::array<unsigned char, 17> kDispatchPrologue = {
-    0x48, 0x89, 0x5C, 0x24, 0x10, 0x55, 0x56, 0x57, 0x41,
-    0x56, 0x41, 0x57, 0x48, 0x8D, 0x6C, 0x24, 0xD1};
-
-constexpr std::array<unsigned char, 21> kCommandSenderPrologue = {
-    0x48, 0x89, 0x5C, 0x24, 0x18, 0x55, 0x56, 0x57, 0x41, 0x54, 0x41,
-    0x55, 0x41, 0x56, 0x41, 0x57, 0x48, 0x8D, 0x6C, 0x24, 0xD9};
-
-constexpr std::array<unsigned char, 16> kServiceGetterPrologue = {
-    0x40, 0x53, 0x48, 0x83, 0xEC, 0x40, 0x48, 0x8B,
-    0x05, 0x8B, 0x7F, 0x10, 0x00, 0x48, 0x85, 0xC0};
-
-template <size_t Size>
-void* scanExecutableSections(HMODULE module,
-                             const std::array<unsigned char, Size>& pattern) {
-  auto* base = reinterpret_cast<unsigned char*>(module);
-  const auto* dos = reinterpret_cast<const IMAGE_DOS_HEADER*>(base);
-  if (dos->e_magic != IMAGE_DOS_SIGNATURE) return nullptr;
-  const auto* nt = reinterpret_cast<const IMAGE_NT_HEADERS64*>(base + dos->e_lfanew);
-  if (nt->Signature != IMAGE_NT_SIGNATURE) return nullptr;
-  const IMAGE_SECTION_HEADER* sections = IMAGE_FIRST_SECTION(nt);
-  unsigned char* match = nullptr;
-  for (WORD sectionIndex = 0; sectionIndex < nt->FileHeader.NumberOfSections;
-       ++sectionIndex) {
-    const IMAGE_SECTION_HEADER& section = sections[sectionIndex];
-    if ((section.Characteristics & IMAGE_SCN_MEM_EXECUTE) == 0) continue;
-    const size_t sectionSize = (std::min)(
-        static_cast<size_t>(section.Misc.VirtualSize),
-        static_cast<size_t>(nt->OptionalHeader.SizeOfImage - section.VirtualAddress));
-    if (sectionSize < Size) continue;
-    unsigned char* begin = base + section.VirtualAddress;
-    for (size_t offset = 0; offset + Size <= sectionSize; ++offset) {
-      if (std::memcmp(begin + offset, pattern.data(), Size) != 0) continue;
-      if (match) return nullptr;  // Ambiguous signatures are unsafe to hook.
-      match = begin + offset;
-    }
-  }
-  return match;
-}
-
-template <size_t Size>
-void* resolveFunction(HMODULE module, std::uintptr_t knownRva,
-                      const std::array<unsigned char, Size>& pattern) {
-  auto* base = reinterpret_cast<unsigned char*>(module);
-  const auto* dos = reinterpret_cast<const IMAGE_DOS_HEADER*>(base);
-  if (dos->e_magic != IMAGE_DOS_SIGNATURE) return nullptr;
-  const auto* nt = reinterpret_cast<const IMAGE_NT_HEADERS64*>(base + dos->e_lfanew);
-  if (nt->Signature != IMAGE_NT_SIGNATURE) return nullptr;
-  if (knownRva + Size <= nt->OptionalHeader.SizeOfImage) {
-    auto* known = base + knownRva;
-    if (std::memcmp(known, pattern.data(), Size) == 0) return known;
-  }
-  return scanExecutableSections(module, pattern);
-}
-
-}  // namespace
 
 std::atomic<OriginalBridge*> OriginalBridge::instance_{nullptr};
 std::atomic_bool OriginalBridge::captureEnabled_{false};
@@ -88,28 +26,21 @@ bool OriginalBridge::install() {
     return false;
   }
 
-  const HMODULE module = GetModuleHandleW(nullptr);
-  if (!module) {
-    lastError_ = QStringLiteral("无法取得当前氪奇主程序模块。");
+  const TargetCompatibilityReport& compatibility = TargetCompatibilityGuard::lastReport();
+  if (!compatibility.supported) {
+    lastError_ = QStringLiteral("兼容性检查未通过，桥接和 Hook 已禁用。");
     return false;
   }
-  void* dispatch = resolveFunction(module, kDispatchRva, kDispatchPrologue);
-  void* serviceGetterAddress =
-      resolveFunction(module, kServiceGetterRva, kServiceGetterPrologue);
-  void* commandSenderAddress =
-      resolveFunction(module, kCommandSenderRva, kCommandSenderPrologue);
-  if (!dispatch || !serviceGetterAddress || !commandSenderAddress) {
-    lastError_ = QStringLiteral(
-        "当前氪奇版本的协议入口签名无法唯一识别。为避免未知偏移导致崩溃，扩展已安全停止；"
-        "请使用该版本程序更新一次扩展签名。");
-    return false;
-  }
+  void* dispatch = reinterpret_cast<void*>(compatibility.dispatch.address);
+  void* serviceGetterAddress = reinterpret_cast<void*>(compatibility.serviceGetter.address);
+  void* commandSenderAddress = reinterpret_cast<void*>(compatibility.commandSender.address);
   serviceGetter_ = reinterpret_cast<ServiceGetter>(serviceGetterAddress);
   commandSender_ = reinterpret_cast<CommandSender>(commandSenderAddress);
 
   instance_.store(this, std::memory_order_release);
   if (!hook_.install(dispatch, reinterpret_cast<void*>(&OriginalBridge::dispatchDetour),
-                     kDispatchPrologue.data(), kDispatchPrologue.size())) {
+                     compatibility.dispatch.signature.data(),
+                     compatibility.dispatch.signatureSize)) {
     instance_.store(nullptr, std::memory_order_release);
     lastError_ = QStringLiteral("原版消息入口校验失败：%1")
                      .arg(QString::fromLatin1(hook_.error()));

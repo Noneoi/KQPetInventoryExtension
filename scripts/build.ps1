@@ -57,8 +57,9 @@ $buildArguments = @('--build', $buildRoot)
 if ($Clean) { $buildArguments += '--clean-first' }
 $buildArguments += @('--target', 'KQPetLauncher', 'KQPetInventory', 'KQPetCatalogSmoke',
                      'KQPetRepositorySmoke', 'KQPetRefreshSmoke', 'KQPetMoveSmoke',
-                     'KQPetSearchSmoke', 'KQPetShopSmoke', 'KQPetUiPreview',
-                     'KQRoutineOverviewSmoke', 'KQShopUiPreview', 'KQRoutineUiPreview')
+                     'KQPetSearchSmoke', 'KQPetTableModelSmoke', 'KQPetShopSmoke',
+                     'KQRoutineOverviewSmoke', 'KQProtocolFixtureSmoke', 'KQPetUiPreview',
+                     'KQShopUiPreview', 'KQRoutineUiPreview')
 & $cmakeCommand @buildArguments
 if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
 

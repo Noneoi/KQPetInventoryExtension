@@ -1,5 +1,6 @@
 #include "pet_repository.h"
 
+#include "diagnostic_logger.h"
 #include "pet_detail_catalog.h"
 #include "pet_identity.h"
 
@@ -42,9 +43,18 @@ QJsonObject readObject(const QString& path) {
 bool writeObject(const QString& path, const QJsonObject& object) {
   QDir().mkpath(QFileInfo(path).absolutePath());
   QSaveFile file(path);
-  if (!file.open(QIODevice::WriteOnly)) return false;
+  if (!file.open(QIODevice::WriteOnly)) {
+    DiagnosticLogger::error(QStringLiteral("cache"),
+                            QStringLiteral("atomic write open failed file=%1 error=%2")
+                                .arg(QFileInfo(path).fileName(), file.errorString()));
+    return false;
+  }
   file.write(QJsonDocument(object).toJson(QJsonDocument::Compact));
-  return file.commit();
+  if (file.commit()) return true;
+  DiagnosticLogger::error(QStringLiteral("cache"),
+                          QStringLiteral("atomic write commit failed file=%1 error=%2")
+                              .arg(QFileInfo(path).fileName(), file.errorString()));
+  return false;
 }
 
 QString safeAccountName(const QString& account) {
@@ -596,7 +606,11 @@ void PetRepository::handlePacket(const QString& method, const QString& payload) 
   }
 
   if (command == QStringLiteral("2_1_10")) {
-    if (!expectationMatches(backpackExpectation_)) return;
+    if (!expectationMatches(backpackExpectation_)) {
+      DiagnosticLogger::warning(QStringLiteral("response"),
+                                QStringLiteral("rejected stale backpack response"));
+      return;
+    }
     const quint64 generation = backpackExpectation_.requestGeneration;
     if (!parseBackpack(packet)) return;
     backpackExpectation_.active = false;
@@ -608,7 +622,11 @@ void PetRepository::handlePacket(const QString& method, const QString& payload) 
     return;
   }
   if (command == QStringLiteral("2_1_S")) {
-    if (!expectationMatches(warehouseExpectation_)) return;
+    if (!expectationMatches(warehouseExpectation_)) {
+      DiagnosticLogger::warning(QStringLiteral("response"),
+                                QStringLiteral("rejected stale warehouse response"));
+      return;
+    }
     const quint64 generation = warehouseExpectation_.requestGeneration;
     if (!parseWarehouse(packet)) return;
     warehouseExpectation_.active = false;
@@ -620,13 +638,21 @@ void PetRepository::handlePacket(const QString& method, const QString& payload) 
     return;
   }
   if (command == QStringLiteral("2_1_R")) {
-    if (!expectationMatches(detailExpectation_)) return;
+    if (!expectationMatches(detailExpectation_)) {
+      DiagnosticLogger::warning(QStringLiteral("response"),
+                                QStringLiteral("rejected stale detail response"));
+      return;
+    }
     const quint64 generation = detailExpectation_.requestGeneration;
     parseDetail(packet, generation);
     return;
   }
   if (command == QStringLiteral("2_1_11")) {
-    if (!expectationMatches(sequenceExpectation_)) return;
+    if (!expectationMatches(sequenceExpectation_)) {
+      DiagnosticLogger::warning(QStringLiteral("response"),
+                                QStringLiteral("rejected stale move-write response"));
+      return;
+    }
     const quint64 generation = sequenceExpectation_.requestGeneration;
     sequenceExpectation_.active = false;
     if (packet.contains(QStringLiteral("r")) &&

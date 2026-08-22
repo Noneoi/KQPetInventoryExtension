@@ -1,5 +1,7 @@
 #include "routine_overview_window.h"
 
+#include "build_info.h"
+
 #include "routine_overview_catalog.h"
 
 #include <QAbstractItemView>
@@ -55,7 +57,8 @@ QString rewardState(int active, int threshold, bool claimed) {
 
 RoutineOverviewWindow::RoutineOverviewWindow(QWidget* parent) : QDialog(parent) {
   setObjectName(QStringLiteral("KQRoutineOverviewWindow"));
-  setWindowTitle(QStringLiteral("原版氪奇 · 日常 / 周常 / 活动概要"));
+  setWindowTitle(QStringLiteral("原版氪奇 · 日常 / 周常 / 活动概要 · %1")
+                     .arg(BuildInfo::displayVersion()));
   resize(1260, 820);
   setMinimumSize(980, 640);
   setAttribute(Qt::WA_DeleteOnClose, false);
