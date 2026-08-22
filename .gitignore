@@ -1,11 +1,14 @@
 /build/
+/build-*/
 /build-battle/
 /build-qt663/
+/build-codex-shop/
+/build-codex-shop-v2/
+/build-codex-shop-v3/
 /build-check/
 /.vs/
 /KQPetData/
 /**/KQPetData/
-/release/
 *.user
 *.zip
 CMakeUserPresets.json

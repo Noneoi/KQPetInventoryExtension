@@ -183,6 +183,29 @@ def parse_badges(path: Path) -> dict[str, dict]:
     return result
 
 
+def parse_named_constructors(root: Path, filename_glob: str, ctor: str) -> dict[str, dict]:
+    pattern = re.compile(
+        rf'"(?P<id>\d+)"\s*:\s*new {re.escape(ctor)}\(\s*(?P<id2>\d+)\s*,\s*"(?P<name>[^"]*)"',
+        re.S,
+    )
+    result: dict[str, dict] = {}
+    for path in sorted(root.rglob(filename_glob)):
+        source = path.read_text(encoding="utf-8", errors="replace")
+        for match in pattern.finditer(source):
+            result[match.group("id")] = {"name": match.group("name")}
+    return result
+
+
+def parse_items(root: Path) -> dict[str, dict]:
+    items = parse_named_constructors(root, "ItemData*.as", "Item")
+    items.update(parse_named_constructors(root, "ItemData*.as", "ItemForEssence"))
+    return items
+
+
+def parse_money(root: Path) -> dict[str, dict]:
+    return parse_named_constructors(root, "MoneyData*.as", "Money")
+
+
 def parse_sacred(source_path: Path) -> dict[str, dict]:
     source = source_path.read_text(encoding="utf-8")
     result: dict[str, dict] = {}
@@ -253,6 +276,8 @@ def main() -> None:
         "sacredEquipment": parse_sacred(sacred_as),
         "astrolabe": astrolabe,
         "stargods": stargods,
+        "items": parse_items(root),
+        "money": parse_money(root),
     }
     args.output.parent.mkdir(parents=True, exist_ok=True)
     args.output.write_text(
@@ -262,7 +287,8 @@ def main() -> None:
     print(
         f"generated {args.output}: pets={len(catalog['pets'])}, "
         f"badges={len(catalog['badges'])}, sacred={len(catalog['sacredEquipment'])}, "
-        f"astrolabe={len(catalog['astrolabe'])}, stargods={len(catalog['stargods'])}"
+        f"astrolabe={len(catalog['astrolabe'])}, stargods={len(catalog['stargods'])}, "
+        f"items={len(catalog['items'])}, money={len(catalog['money'])}"
     )
 
 

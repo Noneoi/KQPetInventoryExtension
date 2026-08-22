@@ -1,12 +1,14 @@
 param(
     [string]$QtRoot = 'D:\Qt\6.6.3\msvc2019_64',
     [ValidateSet('Debug', 'Release', 'RelWithDebInfo')]
-    [string]$Configuration = 'Release'
+    [string]$Configuration = 'Release',
+    [string]$BuildDirectory = '',
+    [switch]$Clean
 )
 
 $ErrorActionPreference = 'Stop'
 $projectRoot = Split-Path -Parent $PSScriptRoot
-$buildRoot = Join-Path $projectRoot 'build-qt663'
+$buildRoot = if ($BuildDirectory) { $BuildDirectory } else { Join-Path $projectRoot 'build-qt663' }
 $cmakeCommand = $null
 $generator = 'Ninja'
 
@@ -51,7 +53,13 @@ if (-not (Test-Path -LiteralPath (Join-Path $QtRoot 'lib\cmake\Qt6\Qt6Config.cma
 & $cmakeCommand -S $projectRoot -B $buildRoot -G $generator "-DCMAKE_BUILD_TYPE=$Configuration" "-DCMAKE_PREFIX_PATH=$QtRoot"
 if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
 
-& $cmakeCommand --build $buildRoot --target KQPetLauncher KQPetInventory KQPetCatalogSmoke KQPetRepositorySmoke KQPetRefreshSmoke KQPetSearchSmoke KQPetUiPreview
+$buildArguments = @('--build', $buildRoot)
+if ($Clean) { $buildArguments += '--clean-first' }
+$buildArguments += @('--target', 'KQPetLauncher', 'KQPetInventory', 'KQPetCatalogSmoke',
+                     'KQPetRepositorySmoke', 'KQPetRefreshSmoke', 'KQPetMoveSmoke',
+                     'KQPetSearchSmoke', 'KQPetShopSmoke', 'KQPetUiPreview',
+                     'KQRoutineOverviewSmoke', 'KQShopUiPreview', 'KQRoutineUiPreview')
+& $cmakeCommand @buildArguments
 if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
 
 Write-Host "Build complete: $(Join-Path $buildRoot "bin\$Configuration")"

@@ -5,6 +5,10 @@
 #include "pet_repository.h"
 #include "pet_settings_dialog.h"
 #include "pet_window.h"
+#include "shop_exchange_controller.h"
+#include "shop_window.h"
+#include "routine_overview_controller.h"
+#include "routine_overview_window.h"
 
 #include <QApplication>
 #include <QEvent>
@@ -17,7 +21,10 @@ ExtensionContext* ExtensionContext::instance_ = nullptr;
 
 void ExtensionContext::start() {
   if (!instance_)
-    instance_ = new ExtensionContext(QCoreApplication::instance());
+    // The protocol detour remains installed until Windows tears down the
+    // process.  Keep its QObject graph alive for the same lifetime so a late
+    // Flash callback cannot target freed Qt objects during application exit.
+    instance_ = new ExtensionContext(nullptr);
 }
 
 ExtensionContext::ExtensionContext(QObject* parent) : QObject(parent) {
@@ -28,6 +35,8 @@ ExtensionContext::ExtensionContext(QObject* parent) : QObject(parent) {
                           QStringLiteral("扩展没有启动：\n%1").arg(bridge_->lastError()));
     return;
   }
+  connect(QCoreApplication::instance(), &QCoreApplication::aboutToQuit,
+          bridge_, &OriginalBridge::disableCapture, Qt::DirectConnection);
 
   connect(bridge_, &OriginalBridge::packetReceived, repository_, &PetRepository::handlePacket);
   refreshController_ = new PetRefreshController(repository_, this);
@@ -35,6 +44,28 @@ ExtensionContext::ExtensionContext(QObject* parent) : QObject(parent) {
       [this](const QString& service, const QString& command, const QString& parameters) {
         return bridge_->send(service, command, parameters);
       });
+  refreshController_->setFlashInvoker(
+      [this](const QString& method, const QString& argument) {
+        return bridge_->invokeFlash(method, argument);
+      });
+  connect(refreshController_, &PetRefreshController::replacementRequired,
+          this, &ExtensionContext::routeMoveReplacement);
+  connect(refreshController_, &PetRefreshController::moveFinished, this,
+          [this](bool, const QString&) { moveUiOrigin_ = MoveUiOrigin::None; });
+  shopController_ = new ShopExchangeController(repository_, this);
+  shopController_->setSender(
+      [this](const QString& service, const QString& command, const QString& parameters) {
+        return bridge_->send(service, command, parameters);
+      });
+  connect(bridge_, &OriginalBridge::packetReceived, shopController_,
+          &ShopExchangeController::handlePacket);
+  routineController_ = new RoutineOverviewController(repository_, this);
+  routineController_->setSender(
+      [this](const QString& service, const QString& command, const QString& parameters) {
+        return bridge_->send(service, command, parameters);
+      });
+  connect(bridge_, &OriginalBridge::packetReceived, routineController_,
+          &RoutineOverviewController::handlePacket);
   QTimer::singleShot(0, this, &ExtensionContext::attachToOriginalWindow);
 }
 
@@ -44,6 +75,8 @@ void ExtensionContext::attachToOriginalWindow() {
   const QWidgetList windows = QApplication::topLevelWidgets();
   for (QWidget* window : windows) {
     if (!window || window->objectName() == QStringLiteral("KQPetInventoryWindow") ||
+        window->objectName() == QStringLiteral("KQPetShopWindow") ||
+        window->objectName() == QStringLiteral("KQRoutineOverviewWindow") ||
         !window->isVisible())
       continue;
     const qint64 area = static_cast<qint64>(window->width()) * window->height();
@@ -73,10 +106,42 @@ void ExtensionContext::attachToOriginalWindow() {
       "font-size:11px;font-weight:600;}QPushButton#KQPetInventoryButton:hover{background:#7180ff;}"
       "QPushButton#KQPetInventoryButton:pressed{background:#4656db;}"));
   connect(openButton_, &QPushButton::clicked, this, &ExtensionContext::showPetWindow);
+
+  shopButton_ = new QPushButton(QStringLiteral("兑换商店"), originalWindow_);
+  shopButton_->setObjectName(QStringLiteral("KQPetShopButton"));
+  shopButton_->setAttribute(Qt::WA_NativeWindow, true);
+  shopButton_->setFixedSize(74, 26);
+  shopButton_->setFocusPolicy(Qt::StrongFocus);
+  shopButton_->setCursor(Qt::PointingHandCursor);
+  shopButton_->setStyleSheet(QStringLiteral(
+      "QPushButton#KQPetShopButton{color:white;background:#2f9e7a;border:0;border-radius:5px;"
+      "font-size:11px;font-weight:600;}QPushButton#KQPetShopButton:hover{background:#3cb58c;}"
+      "QPushButton#KQPetShopButton:pressed{background:#248868;}"));
+  connect(shopButton_, &QPushButton::clicked, this, &ExtensionContext::showShopWindow);
+
+  routineButton_ = new QPushButton(QStringLiteral("日常活动"), originalWindow_);
+  routineButton_->setObjectName(QStringLiteral("KQRoutineOverviewButton"));
+  routineButton_->setAttribute(Qt::WA_NativeWindow, true);
+  routineButton_->setFixedSize(74, 26);
+  routineButton_->setFocusPolicy(Qt::StrongFocus);
+  routineButton_->setCursor(Qt::PointingHandCursor);
+  routineButton_->setStyleSheet(QStringLiteral(
+      "QPushButton#KQRoutineOverviewButton{color:white;background:#d97706;border:0;border-radius:5px;"
+      "font-size:11px;font-weight:600;}QPushButton#KQRoutineOverviewButton:hover{background:#ea8c16;}"
+      "QPushButton#KQRoutineOverviewButton:pressed{background:#b85f00;}"));
+  connect(routineButton_, &QPushButton::clicked, this,
+          &ExtensionContext::showRoutineWindow);
+
   positionButton();
   openButton_->show();
   openButton_->winId();
   openButton_->raise();
+  shopButton_->show();
+  shopButton_->winId();
+  shopButton_->raise();
+  routineButton_->show();
+  routineButton_->winId();
+  routineButton_->raise();
 }
 
 bool ExtensionContext::eventFilter(QObject* watched, QEvent* event) {
@@ -95,6 +160,15 @@ void ExtensionContext::positionButton() {
                        originalWindow_->width() - openButton_->width() - 8);
   openButton_->move(x, 3);
   openButton_->raise();
+  if (shopButton_) {
+    shopButton_->move(qMax(8, x - shopButton_->width() - 8), 3);
+    shopButton_->raise();
+  }
+  if (routineButton_) {
+    const int shopX = shopButton_ ? shopButton_->x() : x - routineButton_->width() - 8;
+    routineButton_->move(qMax(8, shopX - routineButton_->width() - 8), 3);
+    routineButton_->raise();
+  }
 }
 
 void ExtensionContext::showPetWindow() {
@@ -117,17 +191,127 @@ void ExtensionContext::showPetWindow() {
             &PetRefreshController::requestSingleDetail);
     connect(petWindow_, &PetWindow::settingsRequested, this,
             &ExtensionContext::showSettings);
+    connect(petWindow_, &PetWindow::moveToWarehouseRequested, this,
+            [this](qint64 id) {
+              if (!refreshController_->moveRunning())
+                moveUiOrigin_ = MoveUiOrigin::PetWindow;
+              refreshController_->requestMoveToWarehouse(id);
+            });
+    connect(petWindow_, &PetWindow::moveToBackpackRequested, this,
+            [this](qint64 id) {
+              if (!refreshController_->moveRunning())
+                moveUiOrigin_ = MoveUiOrigin::PetWindow;
+              refreshController_->requestMoveToBackpack(id);
+            });
+    connect(petWindow_, &PetWindow::moveReplacementChosen, refreshController_,
+            &PetRefreshController::chooseMoveReplacement);
+    connect(petWindow_, &PetWindow::moveCancelRequested, refreshController_,
+            &PetRefreshController::cancelMove);
     connect(refreshController_, &PetRefreshController::statusChanged, petWindow_,
             &PetWindow::setStatus);
     connect(refreshController_, &PetRefreshController::listRefreshRunningChanged,
             petWindow_, &PetWindow::setListRefreshRunning);
     connect(refreshController_, &PetRefreshController::detailProgressChanged,
             petWindow_, &PetWindow::setDetailProgress);
+    connect(refreshController_, &PetRefreshController::moveRunningChanged,
+            petWindow_, &PetWindow::setMoveRunning);
     refreshController_->publishState();
   }
+  refreshController_->requestFormationLoad();
   petWindow_->show();
   petWindow_->raise();
   petWindow_->activateWindow();
+}
+
+void ExtensionContext::showShopWindow() {
+  if (!shopWindow_) {
+    shopWindow_ = new ShopWindow(repository_, nullptr);
+    connect(shopWindow_, &ShopWindow::refreshRequested, shopController_,
+            &ShopExchangeController::requestInfo);
+    connect(shopWindow_, &ShopWindow::catalogRefreshRequested, shopController_,
+            &ShopExchangeController::updateCatalog);
+    connect(shopWindow_, &ShopWindow::detailRequested, refreshController_,
+            &PetRefreshController::requestSingleDetail);
+    connect(shopWindow_, &ShopWindow::moveToBackpackRequested, this,
+            [this](qint64 id) {
+              if (!refreshController_->moveRunning())
+                moveUiOrigin_ = MoveUiOrigin::ShopWindow;
+              refreshController_->requestMoveToBackpack(id);
+            });
+    connect(shopWindow_, &ShopWindow::moveReplacementChosen, refreshController_,
+            &PetRefreshController::chooseMoveReplacement);
+    connect(shopWindow_, &ShopWindow::moveCancelRequested, refreshController_,
+            &PetRefreshController::cancelMove);
+    connect(shopController_, &ShopExchangeController::statusChanged, shopWindow_,
+            &ShopWindow::setStatus);
+    connect(shopController_, &ShopExchangeController::runningChanged, shopWindow_,
+            &ShopWindow::setRefreshRunning);
+    connect(refreshController_, &PetRefreshController::statusChanged, shopWindow_,
+            &ShopWindow::setStatus);
+    connect(refreshController_, &PetRefreshController::moveRunningChanged,
+            shopWindow_, &ShopWindow::setMoveRunning);
+    connect(refreshController_, &PetRefreshController::detailRequestFinished,
+            shopWindow_, &ShopWindow::finishDetailRefresh);
+    connect(shopController_, &ShopExchangeController::infoUpdated, shopWindow_, [this]() {
+      if (shopWindow_) {
+        shopWindow_->setPacket(shopController_->packet(), shopController_->hasPacket());
+        shopWindow_->setMaterialCounts(shopController_->materialCounts(),
+                                       shopController_->hasMaterialCounts());
+      }
+    });
+    connect(shopController_, &ShopExchangeController::catalogUpdated, shopWindow_, [this]() {
+      if (shopWindow_)
+        shopWindow_->setPacket(shopController_->packet(), shopController_->hasPacket());
+    });
+    refreshController_->publishState();
+  }
+  shopWindow_->setPacket(shopController_->packet(), shopController_->hasPacket());
+  shopWindow_->setMaterialCounts(shopController_->materialCounts(),
+                                 shopController_->hasMaterialCounts());
+  shopWindow_->show();
+  shopWindow_->raise();
+  shopWindow_->activateWindow();
+}
+
+void ExtensionContext::showRoutineWindow() {
+  if (!routineWindow_) {
+    routineWindow_ = new RoutineOverviewWindow(nullptr);
+    connect(routineWindow_, &RoutineOverviewWindow::refreshRequested,
+            routineController_, &RoutineOverviewController::requestRefresh);
+    connect(routineController_, &RoutineOverviewController::statusChanged,
+            routineWindow_, &RoutineOverviewWindow::setStatus);
+    connect(routineController_, &RoutineOverviewController::runningChanged,
+            routineWindow_, &RoutineOverviewWindow::setRunning);
+    const auto publish = [this]() {
+      if (!routineWindow_) return;
+      routineWindow_->setData(routineController_->dailyPacket(),
+                              routineController_->hasDailyPacket(),
+                              routineController_->activeRedPoints(),
+                              routineController_->hasRedPointPacket(),
+                              routineController_->opportunityPackets());
+    };
+    connect(routineController_, &RoutineOverviewController::dataUpdated,
+            routineWindow_, publish);
+    connect(routineController_, &RoutineOverviewController::catalogUpdated,
+            routineWindow_, &RoutineOverviewWindow::rebuild);
+    publish();
+  }
+  routineWindow_->show();
+  routineWindow_->raise();
+  routineWindow_->activateWindow();
+}
+
+void ExtensionContext::routeMoveReplacement(
+    qint64 incomingInstanceId, const QList<qint64>& eligibleBackpackIds) {
+  if (moveUiOrigin_ == MoveUiOrigin::ShopWindow && shopWindow_) {
+    shopWindow_->requestReplacement(incomingInstanceId, eligibleBackpackIds);
+    return;
+  }
+  if (moveUiOrigin_ == MoveUiOrigin::PetWindow && petWindow_) {
+    petWindow_->requestReplacement(incomingInstanceId, eligibleBackpackIds);
+    return;
+  }
+  refreshController_->cancelMove();
 }
 
 void ExtensionContext::showSettings() {

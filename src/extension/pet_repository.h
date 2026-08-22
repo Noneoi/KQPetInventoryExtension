@@ -5,6 +5,8 @@
 #include <QJsonObject>
 #include <QList>
 #include <QObject>
+#include <QSet>
+#include <QStringList>
 
 class QJsonValue;
 
@@ -16,8 +18,12 @@ public:
 
   QList<QJsonObject> backpackPets() const;
   QList<QJsonObject> warehousePets() const;
+  QJsonObject backpackPet(qint64 instanceId) const;
   QJsonObject detailFor(qint64 instanceId) const;
   QJsonObject warehousePet(qint64 instanceId) const;
+  QList<qint64> backpackIds(int packType = 0) const;
+  int backpackCapacity(int packType = 0) const;
+  bool preserveBackpackDetail(qint64 instanceId);
   QList<qint64> warehouseIdsByDetailAge() const;
   bool hasCachedDetail(qint64 instanceId) const;
   QDateTime detailSavedAt(qint64 instanceId) const;
@@ -29,6 +35,8 @@ public:
   bool isOnlineData() const { return onlineData_; }
   bool isAuthenticated() const { return authenticated_; }
   quint64 sessionGeneration() const { return sessionGeneration_; }
+  bool formationKnown() const { return formationKnown_; }
+  bool isDeployed(qint64 instanceId) const;
 
   void beginListRefresh(quint64 requestGeneration, const QString& account,
                         quint64 sessionGeneration);
@@ -38,6 +46,9 @@ public:
   void expectDetail(qint64 instanceId, quint64 requestGeneration,
                     const QString& account, quint64 sessionGeneration);
   void cancelDetailRequest(qint64 instanceId, quint64 requestGeneration);
+  void expectSequenceUpdate(quint64 requestGeneration, const QString& account,
+                            quint64 sessionGeneration);
+  void cancelSequenceUpdate(quint64 requestGeneration);
 
 public slots:
   void handlePacket(const QString& method, const QString& payload);
@@ -49,6 +60,8 @@ signals:
   void detailResponseAccepted(qint64 instanceId, quint64 requestGeneration);
   void detailResponseRejected(qint64 instanceId, quint64 requestGeneration,
                               const QString& reason);
+  void sequenceUpdateAccepted(quint64 requestGeneration);
+  void sequenceUpdateRejected(quint64 requestGeneration, const QString& reason);
   void accountSessionChanged(const QString& account, quint64 sessionGeneration);
   void visualMismatchDetected(qint64 instanceId);
   void statusChanged(const QString& status);
@@ -74,6 +87,14 @@ private:
   bool parseBackpack(const QJsonObject& packet);
   bool parseWarehouse(const QJsonObject& packet);
   bool parseDetail(const QJsonObject& packet, quint64 requestGeneration);
+  bool parseFormationLoad(const QJsonObject& packet);
+  bool parseFormationPositionChange(const QJsonObject& packet);
+  bool parseFormationChanged(const QJsonObject& packet);
+  bool parseFormationSelection(const QJsonObject& packet);
+  void updateDeployedPets(const QString& positions);
+  QString formationKey(int id, int plan) const;
+  QString currentFormationKey() const;
+  QJsonObject withDeploymentState(const QJsonObject& pet) const;
   bool expectationMatches(const RequestExpectation& expectation) const;
   void activateAccountSession(const QString& account);
   void clearExpectations();
@@ -93,6 +114,13 @@ private:
   QHash<qint64, QJsonObject> warehouse_;
   QHash<qint64, QJsonObject> details_;
   QHash<qint64, QDateTime> detailSavedTimes_;
+  QHash<int, QStringList> packSequences_;
+  QHash<int, int> packCapacities_;
+  QHash<QString, QString> formationPositions_;
+  QHash<int, int> formationPlans_;
+  QSet<qint64> deployedPetIds_;
+  int currentFormationId_ = 0;
+  bool formationKnown_ = false;
   QString accountKey_ = QStringLiteral("default");
   QString cacheRoot_;
   QString cachePath_;
@@ -104,4 +132,5 @@ private:
   RequestExpectation backpackExpectation_;
   RequestExpectation warehouseExpectation_;
   RequestExpectation detailExpectation_;
+  RequestExpectation sequenceExpectation_;
 };

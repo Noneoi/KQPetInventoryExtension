@@ -7,6 +7,7 @@
 namespace {
 
 constexpr wchar_t kExtensionDllName[] = L"KQPetInventory.dll";
+constexpr wchar_t kPendingExtensionDllName[] = L"KQPetInventory.pending.dll";
 
 std::wstring lower(std::wstring value) {
   for (wchar_t& character : value) character = std::towlower(character);
@@ -200,6 +201,26 @@ void showError(const std::wstring& text) {
   MessageBoxW(nullptr, text.c_str(), L"原版氪奇精灵扩展", MB_OK | MB_ICONERROR);
 }
 
+bool activatePendingExtension(const std::filesystem::path& directory,
+                              std::wstring* error) {
+  const std::filesystem::path pending = directory / kPendingExtensionDllName;
+  if (!std::filesystem::exists(pending)) return true;
+  const std::filesystem::path extension = directory / kExtensionDllName;
+  std::error_code copyError;
+  std::filesystem::copy_file(pending, extension,
+                             std::filesystem::copy_options::overwrite_existing,
+                             copyError);
+  if (copyError) {
+    *error = L"检测到待安装的扩展更新，但当前 DLL 仍被占用。请先关闭正在运行的原版氪奇，"
+             L"再重新运行 KQPetLauncher.exe。\n\n系统错误：" +
+             winError(static_cast<DWORD>(copyError.value()));
+    return false;
+  }
+  std::error_code removeError;
+  std::filesystem::remove(pending, removeError);
+  return true;
+}
+
 }  // namespace
 
 int WINAPI wWinMain(HINSTANCE instance, HINSTANCE, PWSTR arguments, int) {
@@ -210,6 +231,11 @@ int WINAPI wWinMain(HINSTANCE instance, HINSTANCE, PWSTR arguments, int) {
   }
 
   const std::filesystem::path directory = std::filesystem::path(launcherPath).parent_path();
+  std::wstring error;
+  if (!activatePendingExtension(directory, &error)) {
+    showError(error);
+    return 2;
+  }
   const std::filesystem::path originalExe = findOriginalExe(directory);
   const std::filesystem::path extensionDll = directory / kExtensionDllName;
   if (originalExe.empty() || !std::filesystem::exists(extensionDll)) {
@@ -218,7 +244,6 @@ int WINAPI wWinMain(HINSTANCE instance, HINSTANCE, PWSTR arguments, int) {
     return 2;
   }
 
-  std::wstring error;
   std::wstring commandLine = L"\"" + originalExe.wstring() + L"\"";
   if (arguments && *arguments) {
     commandLine += L" ";

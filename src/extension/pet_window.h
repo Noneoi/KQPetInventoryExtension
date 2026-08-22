@@ -25,12 +25,19 @@ class PetWindow final : public QDialog {
 public:
   explicit PetWindow(PetRepository* repository, QWidget* parent = nullptr);
   void setStatus(const QString& status);
+  static QString renderCachedDetailHtml(const QJsonObject& pet,
+                                        const PetRepository* repository,
+                                        const QString& imagePath = {},
+                                        bool fetchingLatest = false);
 
 public slots:
   void setListRefreshRunning(bool running);
   void setDetailProgress(bool running, bool paused, int completed, int total,
                          int succeeded, int failed, qint64 currentInstanceId,
                          int estimatedSeconds);
+  void setMoveRunning(bool running);
+  void requestReplacement(qint64 incomingInstanceId,
+                          const QList<qint64>& eligibleBackpackIds);
 
 signals:
   void listRefreshRequested();
@@ -40,6 +47,10 @@ signals:
   void warehouseDetailCancelRequested();
   void detailRequested(qint64 instanceId);
   void settingsRequested();
+  void moveToWarehouseRequested(qint64 instanceId);
+  void moveToBackpackRequested(qint64 instanceId);
+  void moveReplacementChosen(qint64 outgoingInstanceId);
+  void moveCancelRequested();
 
 private slots:
   void rebuild();
@@ -49,6 +60,8 @@ private slots:
   void updateCurrentDetail(qint64 instanceId);
   void updateCurrentImage(const QString& visualKey, const QString& localPath);
   void setBackpackPage(int page);
+  void moveCurrentToWarehouse();
+  void moveCurrentToBackpack();
 
 private:
   void fillTable(QTableWidget* table, const QList<QJsonObject>& pets,
@@ -67,6 +80,7 @@ private:
   void addJsonValue(const QString& key, const QJsonValue& value, QTreeWidgetItem* parent);
   QString displayName(const QJsonObject& pet) const;
   static qint64 rowId(QTableWidget* table, int row);
+  void updateMoveButtons();
 
   PetRepository* repository_ = nullptr;
   PetImageCache* imageCache_ = nullptr;
@@ -84,6 +98,8 @@ private:
   QPushButton* pauseDetails_ = nullptr;
   QPushButton* cancelDetails_ = nullptr;
   QPushButton* settings_ = nullptr;
+  QPushButton* moveToWarehouse_ = nullptr;
+  QPushButton* moveToBackpack_ = nullptr;
   QLabel* progress_ = nullptr;
   QLabel* backpackTitle_ = nullptr;
   QHBoxLayout* backpackPages_ = nullptr;
@@ -100,4 +116,8 @@ private:
   QString currentVisualKey_;
   int backpackPage_ = 0;
   bool detailBatchPaused_ = false;
+  bool detailBatchRunning_ = false;
+  bool listRefreshRunning_ = false;
+  bool moveRunning_ = false;
+  QString currentLocation_;
 };

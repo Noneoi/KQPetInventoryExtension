@@ -3,11 +3,16 @@
 #include "pet_detail_catalog.h"
 #include "pet_identity.h"
 #include "pet_image_cache.h"
+#include "pet_move_policy.h"
 #include "pet_repository.h"
 #include "pet_search.h"
 
 #include <QApplication>
+#include <QBrush>
+#include <QColor>
 #include <QComboBox>
+#include <QDialogButtonBox>
+#include <QFont>
 #include <QFontMetrics>
 #include <QGroupBox>
 #include <QHeaderView>
@@ -166,14 +171,16 @@ private:
   const QLineEdit* search_ = nullptr;
 };
 
-QTableWidget* makeTable(QWidget* parent) {
+QTableWidget* makeTable(QWidget* parent, bool backpack = false) {
   auto* table = new QTableWidget(parent);
-  table->setColumnCount(7);
-  table->setHorizontalHeaderLabels({QStringLiteral("名称"), QStringLiteral("属性"),
-                                    QStringLiteral("职业"), QStringLiteral("时代"),
-                                    QStringLiteral("等级"),
-                                    QStringLiteral("战斗力 / 极限战斗力"),
-                                    QStringLiteral("位置")});
+  QStringList headers = {QStringLiteral("名称"), QStringLiteral("属性"),
+                         QStringLiteral("职业"), QStringLiteral("时代"),
+                         QStringLiteral("等级"),
+                         QStringLiteral("战斗力 / 极限战斗力")};
+  if (backpack) headers.append(QStringLiteral("是否出阵"));
+  headers.append(QStringLiteral("位置"));
+  table->setColumnCount(headers.size());
+  table->setHorizontalHeaderLabels(headers);
   table->setSelectionBehavior(QAbstractItemView::SelectRows);
   table->setSelectionMode(QAbstractItemView::SingleSelection);
   table->setEditTriggers(QAbstractItemView::NoEditTriggers);
@@ -193,14 +200,22 @@ QTableWidget* makeTable(QWidget* parent) {
   table->horizontalHeader()->setSectionResizeMode(4, QHeaderView::Fixed);
   table->horizontalHeader()->setSectionResizeMode(5, QHeaderView::Interactive);
   table->horizontalHeader()->setSectionResizeMode(6, QHeaderView::Fixed);
+  if (backpack)
+    table->horizontalHeader()->setSectionResizeMode(7, QHeaderView::Fixed);
   table->setColumnWidth(0, 235);
   table->setColumnWidth(1, 82);
   table->setColumnWidth(2, 145);
   table->setColumnWidth(3, 68);
   table->setColumnWidth(4, 50);
   table->setColumnWidth(5, 205);
-  table->setColumnWidth(6, 100);
-  table->setMinimumWidth(900);
+  if (backpack) {
+    table->setColumnWidth(6, 72);
+    table->setColumnWidth(7, 100);
+    table->setMinimumWidth(965);
+  } else {
+    table->setColumnWidth(6, 100);
+    table->setMinimumWidth(900);
+  }
   return table;
 }
 
@@ -231,12 +246,7 @@ QStringList categoryParts(const QString& text) {
 }
 
 QString eraForPet(const QJsonObject& pet) {
-  const PetDetailCatalog& catalog = PetDetailCatalog::instance();
-  QString name = catalog.originalName(petRaceId(pet));
-  if (name.isEmpty()) name = catalog.petName(petRaceId(pet));
-  static const QRegularExpression eraPattern(QStringLiteral("^[\\[【]([^\\]】]+)[\\]】]"));
-  const QRegularExpressionMatch match = eraPattern.match(name.trimmed());
-  return match.hasMatch() ? match.captured(1).trimmed() : QStringLiteral("其它");
+  return PetDetailCatalog::instance().resolvedEra(pet);
 }
 
 QString htmlText(const QString& text) {
@@ -642,21 +652,17 @@ QString badgeHtml(const QJsonObject& pet, const PetDetailCatalog& catalog) {
     QString line = QStringLiteral("<b>%1</b> · %2级")
                        .arg(htmlText(catalog.badgeName(jobId)))
                        .arg(level);
-    bool hasAwakening = false;
     if (parts.size() > 1) {
       const QStringList exclusive = parts.at(1).split(QLatin1Char(':'));
       const int exclusiveId = exclusive.value(0).toInt();
       const bool awakened = exclusive.value(1).toInt() > 0;
       if (exclusiveId > 0) {
-        hasAwakening = true;
         line += QStringLiteral("<br><span class='%1'>%2 · %3</span>")
                     .arg(awakened ? QStringLiteral("ok") : QStringLiteral("muted"),
                          htmlText(catalog.badgeName(exclusiveId)),
                          awakened ? QStringLiteral("已觉醒") : QStringLiteral("未觉醒"));
       }
     }
-    if (!hasAwakening)
-      line += QStringLiteral("<br><span class='muted'>未觉醒</span>");
     badgeRows.append(detailRow(QStringLiteral("元魂 %1").arg(slotNumber++), line));
   }
   if (badgeRows.isEmpty())
@@ -725,10 +731,12 @@ QString astrolabeHtml(const QJsonObject& pet, const PetDetailCatalog& catalog) {
                  definition.value(QStringLiteral("lightUpCost")).toString(),
                  QLatin1Char('#'))) {
           const QStringList cost = material.split(QLatin1Char(':'));
-          if (cost.size() >= 3 && cost.value(0).toInt() == 4 &&
-              cost.value(2).toInt() > 0) {
-            essenceCosts.append(QStringLiteral("专属精华 ×%1").arg(cost.value(2).toInt()));
-          }
+          if (cost.size() < 3) continue;
+          const int type = cost.value(0).toInt();
+          const int materialId = cost.value(1).toInt();
+          const int amount = cost.value(2).toInt();
+          if (amount <= 0) continue;
+          essenceCosts.append(catalog.materialCostText(type, materialId, amount));
         }
         if (!essenceCosts.isEmpty())
           name += QStringLiteral(" <span class='muted'>（点亮需 %1）</span>")
@@ -941,7 +949,7 @@ PetWindow::PetWindow(PetRepository* repository, QWidget* parent)
   backpackControls->addWidget(backpackSort_);
   backpackControls->addWidget(backpackSortDirection_);
   backpackLayout->addLayout(backpackControls);
-  backpackTable_ = makeTable(backpackPane);
+  backpackTable_ = makeTable(backpackPane, true);
   backpackTable_->setMinimumHeight(220);
   backpackLayout->addWidget(backpackTable_, 1);
   backpackPages_ = new QHBoxLayout();
@@ -1004,6 +1012,18 @@ PetWindow::PetWindow(PetRepository* repository, QWidget* parent)
   splitter->setSizes({1020, 520});
   root->addWidget(splitter, 1);
 
+  auto* moveBar = new QHBoxLayout();
+  moveBar->addStretch(1);
+  moveToWarehouse_ = new QPushButton(QStringLiteral("放入仓库"), this);
+  moveToBackpack_ = new QPushButton(QStringLiteral("进入背包"), this);
+  moveToWarehouse_->setToolTip(
+      QStringLiteral("写入前后都会强制刷新；召唤、携带和神使关系可以正常移动"));
+  moveToBackpack_->setToolTip(
+      QStringLiteral("背包已满时需要手动选择一只背包精灵交换"));
+  moveBar->addWidget(moveToWarehouse_);
+  moveBar->addWidget(moveToBackpack_);
+  root->addLayout(moveBar);
+
   status_ = new QLabel(this);
   status_->setTextInteractionFlags(Qt::TextSelectableByMouse);
   root->addWidget(status_);
@@ -1020,6 +1040,10 @@ PetWindow::PetWindow(PetRepository* repository, QWidget* parent)
   connect(cancelDetails_, &QPushButton::clicked, this,
           &PetWindow::warehouseDetailCancelRequested);
   connect(settings_, &QPushButton::clicked, this, &PetWindow::settingsRequested);
+  connect(moveToWarehouse_, &QPushButton::clicked, this,
+          &PetWindow::moveCurrentToWarehouse);
+  connect(moveToBackpack_, &QPushButton::clicked, this,
+          &PetWindow::moveCurrentToBackpack);
   searchDebounce_ = new QTimer(this);
   searchDebounce_->setSingleShot(true);
   searchDebounce_->setInterval(180);
@@ -1060,6 +1084,7 @@ PetWindow::PetWindow(PetRepository* repository, QWidget* parent)
   connect(imageCache_, &PetImageCache::petImageReady, this, &PetWindow::updateCurrentImage);
 
   updateSortDirectionState();
+  updateMoveButtons();
   rebuild();
   if (repository_->updatedAt().isValid()) {
     setStatus(QStringLiteral("已读取账号 %1 的本地缓存（%2），正在等待线上刷新。缓存：%3")
@@ -1074,18 +1099,21 @@ PetWindow::PetWindow(PetRepository* repository, QWidget* parent)
 void PetWindow::setStatus(const QString& status) { status_->setText(status); }
 
 void PetWindow::setListRefreshRunning(bool running) {
-  refresh_->setEnabled(!running);
+  listRefreshRunning_ = running;
+  refresh_->setEnabled(!running && !moveRunning_);
   refresh_->setText(running ? QStringLiteral("列表刷新中……")
                             : QStringLiteral("刷新背包/仓库"));
+  updateMoveButtons();
 }
 
 void PetWindow::setDetailProgress(bool running, bool paused, int completed, int total,
                                   int succeeded, int failed, qint64 currentInstanceId,
                                   int estimatedSeconds) {
   detailBatchPaused_ = paused;
-  refreshDetails_->setEnabled(!running);
-  pauseDetails_->setEnabled(running);
-  cancelDetails_->setEnabled(running);
+  detailBatchRunning_ = running;
+  refreshDetails_->setEnabled(!running && !moveRunning_);
+  pauseDetails_->setEnabled(running && !moveRunning_);
+  cancelDetails_->setEnabled(running && !moveRunning_);
   pauseDetails_->setText(paused ? QStringLiteral("继续详情刷新")
                                 : QStringLiteral("暂停详情刷新"));
   if (!running && total <= 0) {
@@ -1098,6 +1126,16 @@ void PetWindow::setDetailProgress(bool running, bool paused, int completed, int 
                          .arg(completed).arg(total).arg(succeeded).arg(failed)
                          .arg(current).arg(estimatedSeconds)
                          .arg(paused ? QStringLiteral("　【已暂停】") : QString()));
+}
+
+void PetWindow::setMoveRunning(bool running) {
+  moveRunning_ = running;
+  refresh_->setEnabled(!listRefreshRunning_ && !running);
+  refreshDetails_->setEnabled(!detailBatchRunning_ && !running);
+  pauseDetails_->setEnabled(detailBatchRunning_ && !running);
+  cancelDetails_->setEnabled(detailBatchRunning_ && !running);
+  settings_->setEnabled(!running);
+  updateMoveButtons();
 }
 
 QString PetWindow::displayName(const QJsonObject& pet) const {
@@ -1140,14 +1178,17 @@ void PetWindow::fillRow(QTableWidget* table, int row, const QJsonObject& pet,
   const PetDetailCatalog& catalog = PetDetailCatalog::instance();
   const qint64 id = petInstanceId(pet);
   const int raceId = petRaceId(pet);
-  const QJsonObject metadata = catalog.pet(raceId);
+  const QJsonObject metadata = catalog.metadataFor(pet);
   const QString attributesSequence = metadata.value(QStringLiteral("attributes")).toString();
   const BattlePowerState power = battlePowerState(pet, catalog);
-  const QStringList values = {
-      displayName(pet), catalog.attributes(attributesSequence),
-      catalog.jobs(metadata.value(QStringLiteral("jobs")).toString()),
+  QStringList values = {
+      displayName(pet), catalog.resolvedAttributes(pet),
+      catalog.resolvedJobs(pet),
       eraForPet(pet), pet.value(QStringLiteral("lv")).toVariant().toString(),
-      battlePowerTableText(power), gridPositionText(pet, location)};
+      battlePowerTableText(power)};
+  if (location == QStringLiteral("backpack"))
+    values.append(PetMovePolicy::deploymentText(pet));
+  values.append(gridPositionText(pet, location));
   const QDateTime cachedAt = repository_->detailSavedAt(id);
   for (int column = 0; column < values.size(); ++column) {
     QTableWidgetItem* item = table->item(row, column);
@@ -1159,13 +1200,25 @@ void PetWindow::fillRow(QTableWidget* table, int row, const QJsonObject& pet,
     item->setData(Qt::UserRole, id);
     item->setData(Qt::UserRole + 1, QStringLiteral("%1 %2").arg(id).arg(raceId));
     if (column == 0) {
-      const QString original = catalog.originalName(raceId);
+      const QString original = catalog.resolvedOriginalName(pet);
       item->setToolTip(original.isEmpty() || original == values.at(0)
                            ? values.at(0)
                            : QStringLiteral("皮肤/当前名称：%1\n原名：%2")
                                  .arg(values.at(0), original));
     }
     if (column == 1) item->setIcon(imageCache_->attributeIcon(attributesSequence));
+    if (location == QStringLiteral("backpack") && column == 6) {
+      QFont font = item->font();
+      if (values.at(column) == QStringLiteral("是")) {
+        font.setBold(true);
+        item->setFont(font);
+        item->setForeground(QBrush(QColor(220, 38, 38)));
+      } else {
+        font.setBold(false);
+        item->setFont(font);
+        item->setForeground(table->palette().brush(QPalette::Text));
+      }
+    }
     if (column == 5) {
       if (location == QStringLiteral("warehouse")) {
         item->setToolTip(cachedAt.isValid()
@@ -1215,25 +1268,23 @@ void PetWindow::updateSortDirectionState() {
 bool PetWindow::matchesCurrentQueryAndFilters(const QJsonObject& pet) const {
   const PetDetailCatalog& catalog = PetDetailCatalog::instance();
   const int raceId = petRaceId(pet);
-  const QJsonObject metadata = catalog.pet(raceId);
   const QStringList names = {
       displayName(pet), pet.value(QStringLiteral("n")).toString(),
-      catalog.petName(raceId), catalog.originalName(raceId)};
+      catalog.petName(raceId), catalog.resolvedOriginalName(pet)};
   const QStringList identifiers = {QString::number(petInstanceId(pet)),
                                    QString::number(raceId)};
   if (!petQueryMatches(search_->text(), names, identifiers)) return false;
 
   const QString selectedAttribute = attributeFilter_->currentText();
   if (attributeFilter_->currentIndex() > 0) {
-    const QString attributes =
-        catalog.attributes(metadata.value(QStringLiteral("attributes")).toString());
-    if (!categoryParts(attributes).contains(selectedAttribute)) return false;
+    if (!categoryParts(catalog.resolvedAttributes(pet)).contains(selectedAttribute))
+      return false;
   }
 
   const QString selectedJob = jobFilter_->currentText();
   if (jobFilter_->currentIndex() > 0) {
-    const QString jobs = catalog.jobs(metadata.value(QStringLiteral("jobs")).toString());
-    if (!categoryParts(jobs).contains(selectedJob)) return false;
+    if (!categoryParts(catalog.resolvedJobs(pet)).contains(selectedJob))
+      return false;
   }
 
   if (eraFilter_->currentIndex() > 0 && eraForPet(pet) != eraFilter_->currentText())
@@ -1308,12 +1359,9 @@ void PetWindow::rebuildFilterChoices() {
   all.append(repository_->warehousePets());
   const PetDetailCatalog& catalog = PetDetailCatalog::instance();
   for (const QJsonObject& pet : all) {
-    const QJsonObject metadata = catalog.pet(petRaceId(pet));
-    for (const QString& value : categoryParts(catalog.attributes(
-             metadata.value(QStringLiteral("attributes")).toString())))
+    for (const QString& value : categoryParts(catalog.resolvedAttributes(pet)))
       attributes.insert(value);
-    const QStringList petJobs = categoryParts(catalog.jobs(
-        metadata.value(QStringLiteral("jobs")).toString()));
+    const QStringList petJobs = categoryParts(catalog.resolvedJobs(pet));
     for (const QString& value : petJobs)
       jobs.insert(value);
     if (petJobs.size() > 1)
@@ -1431,9 +1479,109 @@ qint64 PetWindow::rowId(QTableWidget* table, int row) {
   return item ? item->data(Qt::UserRole).toLongLong() : 0;
 }
 
+void PetWindow::updateMoveButtons() {
+  const bool selected = currentId_ > 0 && !currentLocation_.isEmpty();
+  const bool available = selected && !moveRunning_ && !listRefreshRunning_;
+  moveToWarehouse_->setEnabled(available &&
+                               currentLocation_ == QStringLiteral("backpack"));
+  moveToBackpack_->setEnabled(available &&
+                              currentLocation_ == QStringLiteral("warehouse"));
+  moveToWarehouse_->setText(moveRunning_ ? QStringLiteral("移动处理中……")
+                                         : QStringLiteral("放入仓库"));
+  moveToBackpack_->setText(moveRunning_ ? QStringLiteral("移动处理中……")
+                                        : QStringLiteral("进入背包"));
+}
+
+void PetWindow::moveCurrentToWarehouse() {
+  if (currentId_ <= 0 || currentLocation_ != QStringLiteral("backpack"))
+    return;
+  emit moveToWarehouseRequested(currentId_);
+}
+
+void PetWindow::moveCurrentToBackpack() {
+  if (currentId_ <= 0 || currentLocation_ != QStringLiteral("warehouse"))
+    return;
+  emit moveToBackpackRequested(currentId_);
+}
+
+void PetWindow::requestReplacement(
+    qint64 incomingInstanceId, const QList<qint64>& eligibleBackpackIds) {
+  QDialog dialog(this);
+  dialog.setWindowTitle(QStringLiteral("背包已满 · 选择交换精灵"));
+  dialog.resize(760, 460);
+  auto* layout = new QVBoxLayout(&dialog);
+  auto* explanation = new QLabel(
+      QStringLiteral("选择一只背包精灵与仓库实例 %1 交换。\n"
+                     "被选择的精灵会进入仓库，不会被删除。")
+          .arg(incomingInstanceId),
+      &dialog);
+  explanation->setWordWrap(true);
+  layout->addWidget(explanation);
+
+  auto* table = new QTableWidget(&dialog);
+  table->setColumnCount(5);
+  table->setHorizontalHeaderLabels(
+      {QStringLiteral("名称"), QStringLiteral("实例 ID"), QStringLiteral("等级"),
+       QStringLiteral("战斗力 / 极限战斗力"), QStringLiteral("位置")});
+  table->setSelectionBehavior(QAbstractItemView::SelectRows);
+  table->setSelectionMode(QAbstractItemView::SingleSelection);
+  table->setEditTriggers(QAbstractItemView::NoEditTriggers);
+  table->verticalHeader()->setVisible(false);
+  table->horizontalHeader()->setStretchLastSection(true);
+  table->setRowCount(eligibleBackpackIds.size());
+  int row = 0;
+  for (qint64 id : eligibleBackpackIds) {
+    const QJsonObject pet = repository_->backpackPet(id);
+    const BattlePowerState power = battlePowerState(pet, PetDetailCatalog::instance());
+    const QStringList values = {
+        displayName(pet), QString::number(id),
+        pet.value(QStringLiteral("lv")).toVariant().toString(),
+        battlePowerTableText(power), gridPositionText(pet, QStringLiteral("backpack"))};
+    for (int column = 0; column < values.size(); ++column) {
+      auto* item = new QTableWidgetItem(values.at(column));
+      item->setData(Qt::UserRole, id);
+      table->setItem(row, column, item);
+    }
+    ++row;
+  }
+  table->resizeColumnsToContents();
+  layout->addWidget(table, 1);
+
+  auto* buttons = new QDialogButtonBox(QDialogButtonBox::Ok |
+                                            QDialogButtonBox::Cancel,
+                                        &dialog);
+  buttons->button(QDialogButtonBox::Ok)->setText(QStringLiteral("确认交换"));
+  buttons->button(QDialogButtonBox::Cancel)->setText(QStringLiteral("取消"));
+  buttons->button(QDialogButtonBox::Ok)->setEnabled(false);
+  connect(table, &QTableWidget::itemSelectionChanged, &dialog, [table, buttons]() {
+    buttons->button(QDialogButtonBox::Ok)->setEnabled(
+        !table->selectionModel()->selectedRows().isEmpty());
+  });
+  connect(table, &QTableWidget::cellDoubleClicked, &dialog,
+          [&dialog](int, int) { dialog.accept(); });
+  connect(buttons, &QDialogButtonBox::accepted, &dialog, &QDialog::accept);
+  connect(buttons, &QDialogButtonBox::rejected, &dialog, &QDialog::reject);
+  layout->addWidget(buttons);
+
+  if (dialog.exec() != QDialog::Accepted) {
+    emit moveCancelRequested();
+    return;
+  }
+  const QModelIndexList selectedRows = table->selectionModel()->selectedRows();
+  if (selectedRows.isEmpty()) {
+    emit moveCancelRequested();
+    return;
+  }
+  const qint64 outgoingId =
+      table->item(selectedRows.constFirst().row(), 0)->data(Qt::UserRole).toLongLong();
+  if (outgoingId > 0) emit moveReplacementChosen(outgoingId);
+}
+
 void PetWindow::selectBackpack(int row, int) {
   currentId_ = rowId(backpackTable_, row);
+  currentLocation_ = QStringLiteral("backpack");
   showDetail(repository_->detailFor(currentId_));
+  updateMoveButtons();
 }
 
 void PetWindow::selectWarehouse(int row, int) {
@@ -1441,7 +1589,9 @@ void PetWindow::selectWarehouse(int row, int) {
   if (!table)
     return;
   currentId_ = rowId(table, row);
+  currentLocation_ = QStringLiteral("warehouse");
   showDetail(repository_->detailFor(currentId_));
+  updateMoveButtons();
   if (currentId_ > 0) {
     const QDateTime cachedAt = repository_->detailSavedAt(currentId_);
     setStatus(cachedAt.isValid()
@@ -1482,9 +1632,90 @@ void PetWindow::addJsonValue(const QString& key, const QJsonValue& value,
   }
 }
 
+QString PetWindow::renderCachedDetailHtml(const QJsonObject& pet,
+                                          const PetRepository* repository,
+                                          const QString& imagePath,
+                                          bool fetchingLatest) {
+  if (pet.isEmpty())
+    return QStringLiteral("<p style='color:#6b7280'>该实例没有可用的本地详情。</p>");
+
+  const PetDetailCatalog& catalog = PetDetailCatalog::instance();
+  const int raceId = petRaceId(pet);
+  QString name = pet.value(QStringLiteral("n")).toString();
+  if (name.isEmpty()) name = catalog.petName(raceId);
+  const QString originalName = catalog.resolvedOriginalName(pet);
+  const QString customName = pet.value(QStringLiteral("customName")).toString();
+  const QString imageHtml = imagePath.isEmpty()
+                                ? QStringLiteral("<div class='image-placeholder'>图片首次显示后<br>自动缓存到本地</div>")
+                                : QStringLiteral("<img class='pet-picture' src='%1' width='150'>")
+                                      .arg(QUrl::fromLocalFile(imagePath).toString(QUrl::FullyEncoded));
+  QString identityRows = detailRow(QStringLiteral("名称"),
+                                   QStringLiteral("<b>%1</b>").arg(valueOrDash(name)));
+  identityRows += detailRow(QStringLiteral("原名"), valueOrDash(originalName));
+  if (!customName.isEmpty())
+    identityRows += detailRow(QStringLiteral("自定义昵称"), htmlText(customName));
+  identityRows += detailRow(QStringLiteral("属性"), htmlText(catalog.resolvedAttributes(pet)));
+  identityRows += detailRow(QStringLiteral("职业"), htmlText(catalog.resolvedJobs(pet)));
+  identityRows += detailRow(QStringLiteral("时代"), htmlText(eraForPet(pet)));
+  const BattlePowerState power = battlePowerState(pet, catalog);
+  const QString currentPower = power.hasCurrent
+                                   ? QStringLiteral("<b>%1</b>（%2）")
+                                         .arg(power.current)
+                                         .arg(power.isHighest ? QStringLiteral("已达最高战斗力")
+                                                              : QStringLiteral("未达最高战斗力"))
+                                   : QStringLiteral("—");
+  const QString extremePower = power.hasExtreme
+                                   ? QStringLiteral("<b>%1</b>（最高战斗力 %2）")
+                                         .arg(power.extreme).arg(power.highest)
+                                   : QStringLiteral("—");
+  identityRows += detailRow(QStringLiteral("战斗力"), currentPower);
+  identityRows += detailRow(QStringLiteral("极限战斗力"), extremePower);
+
+  const qint64 instanceId = petInstanceId(pet);
+  QString warning;
+  if (fetchingLatest) {
+    warning = QStringLiteral("<div class='warning'>已显示本地缓存，正在按实例 ID 获取最新详情……</div>");
+  } else if (pet.value(QStringLiteral("_visualMismatch")).toBool()) {
+    warning = QStringLiteral("<div class='warning'>检测到形态或皮肤变化，当前显示缓存战力。</div>");
+  }
+  const QString header = QStringLiteral(
+                             "<div class='hero'><div class='pet-name'>%1</div>"
+                             "<div class='sub'>实例 %2　种族 %3　等级 %4</div>%5</div>")
+                             .arg(valueOrDash(name)).arg(instanceId).arg(raceId)
+                             .arg(pet.value(QStringLiteral("lv")).toInt()).arg(warning);
+  const QString body = identitySection(identityRows, imageHtml) + talentHtml(pet) +
+                       relationshipHtml(pet, repository) + badgeHtml(pet, catalog) +
+                       sacredHtml(pet, catalog) + astrolabeHtml(pet, catalog) +
+                       stargodHtml(pet, catalog) + battlePowerAnalysisHtml(pet, catalog);
+  return QStringLiteral(
+             "<html><head><style>"
+             "body{font-family:'Microsoft YaHei UI';color:#263238;background:#f5f7fa;}"
+             ".hero{background:#263b5a;color:white;padding:14px 16px;margin-bottom:10px;}"
+             ".pet-name{font-size:22px;font-weight:700;} .sub{font-size:11px;color:#d9e2ef;margin-top:4px;}"
+             ".section{background:white;border:1px solid #dfe5ec;margin:8px 2px;padding:8px 11px;}"
+             ".section-title{font-size:15px;font-weight:700;color:#284b73;margin-bottom:5px;}"
+             "table{width:100%;} td{padding:4px 2px;vertical-align:top;}"
+             ".identity-layout{width:100%;table-layout:fixed;}"
+             ".identity-values{width:auto;} .identity-picture{width:164px;text-align:center;}"
+             ".pet-picture{max-width:150px;max-height:180px;}"
+             ".image-placeholder{width:142px;height:92px;padding-top:48px;background:#eef2f7;"
+             "color:#8a94a3;text-align:center;border:1px dashed #c8d1dc;}"
+             ".label{width:76px;color:#718096;} .value{color:#1f2937;}"
+             ".ok{color:#16824b;font-weight:600;} .muted{color:#8a94a3;}"
+             ".warning{color:#b45309;font-weight:600;margin-top:5px;}"
+             ".highest{color:#16824b;font-size:15px;font-weight:700;margin-top:5px;}"
+             ".analysis{margin:2px 0 4px 18px;padding:0;} .analysis li{margin:3px 0;}"
+             ".star{font-size:14px;font-weight:700;line-height:1.6;} .tiny{font-size:10px;font-weight:400;}"
+             "u{text-decoration:underline;text-decoration-style:solid;}"
+             "</style></head><body>%1%2</body></html>")
+      .arg(header, body);
+}
+
 void PetWindow::showDetail(const QJsonObject& pet) {
   rawTree_->clear();
   if (pet.isEmpty()) {
+    currentLocation_.clear();
+    updateMoveButtons();
     currentVisualKey_.clear();
     detailView_->setHtml(QStringLiteral("<p style='color:#6b7280'>请选择一只精灵</p>"));
     auto* item = new QTreeWidgetItem(rawTree_);
@@ -1493,18 +1724,20 @@ void PetWindow::showDetail(const QJsonObject& pet) {
     return;
   }
 
+  currentLocation_ = pet.value(QStringLiteral("_location")).toString();
+  updateMoveButtons();
+
   const PetDetailCatalog& catalog = PetDetailCatalog::instance();
   const int raceId = petRaceId(pet);
   currentRaceId_ = raceId;
   currentVisualKey_ = petVisualKey(pet);
-  const QJsonObject metadata = catalog.pet(raceId);
   QString name = pet.value(QStringLiteral("n")).toString();
   if (name.isEmpty())
     name = catalog.petName(raceId);
-  const QString originalName = catalog.originalName(raceId);
+  const QString originalName = catalog.resolvedOriginalName(pet);
   const QString customName = pet.value(QStringLiteral("customName")).toString();
   const QString imagePath = imageCache_->ensurePetImage(
-      pet, {name, displayName(pet), catalog.petName(raceId), catalog.originalName(raceId)});
+      pet, {name, displayName(pet), catalog.petName(raceId), originalName});
   const QString imageHtml = imagePath.isEmpty()
                                 ? QStringLiteral("<div class='image-placeholder'>图片首次显示后<br>自动缓存到本地</div>")
                                 : QStringLiteral("<img class='pet-picture' src='%1' width='150'>")
@@ -1515,11 +1748,9 @@ void PetWindow::showDetail(const QJsonObject& pet) {
   if (!customName.isEmpty())
     identityRows += detailRow(QStringLiteral("自定义昵称"), htmlText(customName));
   identityRows += detailRow(QStringLiteral("属性"),
-                            htmlText(catalog.attributes(
-                                metadata.value(QStringLiteral("attributes")).toString())));
+                            htmlText(catalog.resolvedAttributes(pet)));
   identityRows += detailRow(QStringLiteral("职业"),
-                            htmlText(catalog.jobs(
-                                metadata.value(QStringLiteral("jobs")).toString())));
+                            htmlText(catalog.resolvedJobs(pet)));
   identityRows += detailRow(QStringLiteral("时代"), htmlText(eraForPet(pet)));
   const BattlePowerState power = battlePowerState(pet, catalog);
   const QString currentPower = power.hasCurrent

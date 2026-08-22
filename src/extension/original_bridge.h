@@ -7,6 +7,8 @@
 #include <QString>
 #include <QVariant>
 
+#include <atomic>
+
 class OriginalBridge final : public QObject {
   Q_OBJECT
 
@@ -15,6 +17,8 @@ public:
 
   bool install();
   bool send(const QString& extension, const QString& command, const QString& json);
+  bool invokeFlash(const QString& method, const QString& argument);
+  void disableCapture();
   QString lastError() const { return lastError_; }
 
 signals:
@@ -30,7 +34,8 @@ private:
                                         const QString& method,
                                         const QList<QVariant>& arguments);
 
-  static OriginalBridge* instance_;
+  static std::atomic<OriginalBridge*> instance_;
+  static std::atomic_bool captureEnabled_;
   static DispatchFunction originalDispatch_;
 
   InlineHook hook_;

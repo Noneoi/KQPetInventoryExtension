@@ -61,6 +61,14 @@ PetSettingsDialog::PetSettingsDialog(const PetRefreshController::Timings& timing
   detailForm->addRow(QStringLiteral("失败重试次数"), detailMaxRetries_);
   root->addWidget(detailGroup);
 
+  auto* moveGroup = new QGroupBox(QStringLiteral("精灵移动"), this);
+  auto* moveForm = new QFormLayout(moveGroup);
+  moveRequestTimeoutSeconds_ =
+      makeSpinBox(1, 120, QStringLiteral(" 秒"), moveGroup);
+  moveForm->addRow(QStringLiteral("移动写请求响应超时"),
+                   moveRequestTimeoutSeconds_);
+  root->addWidget(moveGroup);
+
   auto* buttons = new QDialogButtonBox(QDialogButtonBox::Save |
                                             QDialogButtonBox::Cancel |
                                             QDialogButtonBox::RestoreDefaults,
@@ -86,6 +94,8 @@ void PetSettingsDialog::applyTimings(const PetRefreshController::Timings& timing
   detailBatchRestSeconds_->setValue((timings.detailBatchRestMs + 999) / 1000);
   detailTimeoutSeconds_->setValue(qMax(1, (timings.detailTimeoutMs + 999) / 1000));
   detailMaxRetries_->setValue(timings.detailMaxRetries);
+  moveRequestTimeoutSeconds_->setValue(
+      qMax(1, (timings.moveRequestTimeoutMs + 999) / 1000));
 }
 
 PetRefreshController::Timings PetSettingsDialog::timings() const {
@@ -98,5 +108,6 @@ PetRefreshController::Timings PetSettingsDialog::timings() const {
   result.detailBatchRestMs = detailBatchRestSeconds_->value() * 1000;
   result.detailTimeoutMs = detailTimeoutSeconds_->value() * 1000;
   result.detailMaxRetries = detailMaxRetries_->value();
+  result.moveRequestTimeoutMs = moveRequestTimeoutSeconds_->value() * 1000;
   return result;
 }

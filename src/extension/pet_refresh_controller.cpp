@@ -1,11 +1,13 @@
 #include "pet_refresh_controller.h"
 
+#include "pet_move_policy.h"
 #include "pet_repository.h"
 
 #include <QDir>
 #include <QFile>
 #include <QFileInfo>
 #include <QJsonDocument>
+#include <QJsonArray>
 #include <QJsonObject>
 #include <QSaveFile>
 #include <QtGlobal>
@@ -17,7 +19,8 @@ PetRefreshController::PetRefreshController(PetRepository* repository, QObject* p
   settingsPath_ = QDir(repository_->dataRoot()).filePath(QStringLiteral("settings.json"));
   loadTimings();
   for (QTimer* timer : {&automaticTimer_, &listGapTimer_, &backpackTimeoutTimer_,
-                        &warehouseTimeoutTimer_, &detailTimer_, &detailTimeoutTimer_}) {
+                        &warehouseTimeoutTimer_, &detailTimer_, &detailTimeoutTimer_,
+                        &moveTimeoutTimer_}) {
     timer->setSingleShot(true);
   }
 
@@ -50,6 +53,12 @@ PetRefreshController::PetRefreshController(PetRepository* repository, QObject* p
     repository_->cancelDetailRequest(currentDetailId_, currentDetailGeneration_);
     retryOrFinishCurrent(QStringLiteral("详情请求超时"));
   });
+  connect(&moveTimeoutTimer_, &QTimer::timeout, this, [this]() {
+    if (movePhase_ != MovePhase::AwaitingWrite) return;
+    repository_->cancelSequenceUpdate(moveRequestGeneration_);
+    startMoveVerification(
+        QStringLiteral("移动请求响应超时；不会重复写入，正在读取服务器最终状态……"));
+  });
 
   connect(repository_, &PetRepository::accountSessionChanged, this,
           &PetRefreshController::onAccountSessionChanged);
@@ -59,6 +68,10 @@ PetRefreshController::PetRefreshController(PetRepository* repository, QObject* p
           &PetRefreshController::onDetailResponseAccepted);
   connect(repository_, &PetRepository::detailResponseRejected, this,
           &PetRefreshController::onDetailResponseRejected);
+  connect(repository_, &PetRepository::sequenceUpdateAccepted, this,
+          &PetRefreshController::onSequenceUpdateAccepted);
+  connect(repository_, &PetRepository::sequenceUpdateRejected, this,
+          &PetRefreshController::onSequenceUpdateRejected);
   connect(repository_, &PetRepository::visualMismatchDetected, this,
           &PetRefreshController::requestSingleDetail);
 
@@ -66,11 +79,25 @@ PetRefreshController::PetRefreshController(PetRepository* repository, QObject* p
     resetForAccount(repository_->accountKey(), repository_->sessionGeneration());
 }
 
+bool PetRefreshController::moveRunning() const {
+  return movePhase_ != MovePhase::Idle;
+}
+
 void PetRefreshController::setSender(Sender sender) { sender_ = std::move(sender); }
+
+void PetRefreshController::setFlashInvoker(FlashInvoker invoker) {
+  flashInvoker_ = std::move(invoker);
+}
+
+void PetRefreshController::requestFormationLoad() {
+  if (!repository_->isAuthenticated()) return;
+  send(QStringLiteral("2_2_10"), QStringLiteral("{}"), 0, 0);
+}
 
 void PetRefreshController::publishState() {
   emit listRefreshRunningChanged(listRunning_);
   emitDetailProgress();
+  emit moveRunningChanged(moveRunning());
 }
 
 void PetRefreshController::setTimings(const Timings& timings) {
@@ -83,6 +110,7 @@ void PetRefreshController::setTimings(const Timings& timings) {
   timings_.detailTimeoutMs = qMax(1, timings_.detailTimeoutMs);
   timings_.detailBatchSize = qMax(1, timings_.detailBatchSize);
   timings_.detailMaxRetries = qMax(0, timings_.detailMaxRetries);
+  timings_.moveRequestTimeoutMs = qMax(1, timings_.moveRequestTimeoutMs);
   saveTimings();
   if (repository_->isAuthenticated() && !listRunning_ && !batchRunning_)
     scheduleAutomaticRefresh();
@@ -118,6 +146,8 @@ void PetRefreshController::loadTimings() {
                                .toInt(loaded.detailBatchSize);
   loaded.detailMaxRetries = object.value(QStringLiteral("detailMaxRetries"))
                                   .toInt(loaded.detailMaxRetries);
+  loaded.moveRequestTimeoutMs = object.value(QStringLiteral("moveRequestTimeoutMs"))
+                                    .toInt(loaded.moveRequestTimeoutMs);
   timings_ = loaded;
   timings_.automaticIntervalMs = qMax(1, timings_.automaticIntervalMs);
   timings_.listRequestGapMs = qMax(0, timings_.listRequestGapMs);
@@ -127,6 +157,7 @@ void PetRefreshController::loadTimings() {
   timings_.detailTimeoutMs = qMax(1, timings_.detailTimeoutMs);
   timings_.detailBatchSize = qMax(1, timings_.detailBatchSize);
   timings_.detailMaxRetries = qMax(0, timings_.detailMaxRetries);
+  timings_.moveRequestTimeoutMs = qMax(1, timings_.moveRequestTimeoutMs);
 }
 
 void PetRefreshController::saveTimings() const {
@@ -142,7 +173,8 @@ void PetRefreshController::saveTimings() const {
       {QStringLiteral("detailBatchRestMs"), timings_.detailBatchRestMs},
       {QStringLiteral("detailTimeoutMs"), timings_.detailTimeoutMs},
       {QStringLiteral("detailBatchSize"), timings_.detailBatchSize},
-      {QStringLiteral("detailMaxRetries"), timings_.detailMaxRetries}};
+      {QStringLiteral("detailMaxRetries"), timings_.detailMaxRetries},
+      {QStringLiteral("moveRequestTimeoutMs"), timings_.moveRequestTimeoutMs}};
   file.write(QJsonDocument(object).toJson(QJsonDocument::Indented));
   file.commit();
 }
@@ -166,6 +198,17 @@ void PetRefreshController::resetForAccount(const QString& account,
   warehouseTimeoutTimer_.stop();
   detailTimer_.stop();
   detailTimeoutTimer_.stop();
+  moveTimeoutTimer_.stop();
+  const bool hadMove = moveRunning();
+  if (moveRequestGeneration_ > 0)
+    repository_->cancelSequenceUpdate(moveRequestGeneration_);
+  moveKind_ = MoveKind::None;
+  movePhase_ = MovePhase::Idle;
+  moveInstanceId_ = 0;
+  moveReplacementId_ = 0;
+  moveRequestGeneration_ = 0;
+  moveTargetSequence_.clear();
+  if (hadMove) emit moveRunningChanged(false);
   account_ = account;
   sessionGeneration_ = sessionGeneration;
   pendingList_ = PendingList::None;
@@ -179,13 +222,17 @@ void PetRefreshController::resetForAccount(const QString& account,
 
 void PetRefreshController::scheduleAutomaticRefresh() {
   automaticTimer_.stop();
-  if (repository_->isAuthenticated() && !batchRunning_)
+  if (repository_->isAuthenticated() && !batchRunning_ && !moveRunning())
     automaticTimer_.start(timings_.automaticIntervalMs);
 }
 
 void PetRefreshController::requestManualListRefresh() {
   if (!repository_->isAuthenticated()) {
     emit statusChanged(QStringLiteral("尚未识别登录账号，不能刷新线上数据。"));
+    return;
+  }
+  if (moveRunning()) {
+    emit statusChanged(QStringLiteral("精灵移动正在进行；移动完成后会自动刷新背包和仓库。"));
     return;
   }
   if (listRunning_) {
@@ -283,6 +330,23 @@ void PetRefreshController::maybeFinishListRefresh() {
                                 warehouseSucceeded_ ? QStringLiteral("成功")
                                                    : QStringLiteral("超时或失败")));
   }
+  if (moveRunning()) {
+    const bool listsSucceeded = backpackSucceeded_ && warehouseSucceeded_;
+    if (movePhase_ == MovePhase::Preflight) {
+      continueMoveAfterPreflight(listsSucceeded);
+      return;
+    }
+    if (movePhase_ == MovePhase::Verification) {
+      finishMoveVerification(listsSucceeded);
+      return;
+    }
+    if (movePhase_ == MovePhase::WaitingForIdle) {
+      startMovePreflight();
+      return;
+    }
+  }
+  if (backpackSucceeded_ && warehouseSucceeded_ && !repository_->formationKnown())
+    requestFormationLoad();
   if (!batchRunning_) scheduleAutomaticRefresh();
   scheduleNextDetail(0);
 }
@@ -290,6 +354,10 @@ void PetRefreshController::maybeFinishListRefresh() {
 void PetRefreshController::startWarehouseDetailRefresh() {
   if (!repository_->isAuthenticated()) {
     emit statusChanged(QStringLiteral("尚未识别登录账号，不能刷新仓库详情。"));
+    return;
+  }
+  if (moveRunning()) {
+    emit statusChanged(QStringLiteral("精灵移动正在进行，暂时不能启动仓库详情批量刷新。"));
     return;
   }
   if (batchRunning_) {
@@ -327,6 +395,7 @@ void PetRefreshController::startWarehouseDetailRefresh() {
 }
 
 void PetRefreshController::pauseWarehouseDetailRefresh() {
+  if (moveRunning()) return;
   if (!batchRunning_) return;
   batchPaused_ = true;
   detailTimer_.stop();
@@ -337,6 +406,10 @@ void PetRefreshController::pauseWarehouseDetailRefresh() {
 }
 
 void PetRefreshController::resumeWarehouseDetailRefresh() {
+  if (moveRunning()) {
+    emit statusChanged(QStringLiteral("精灵移动完成后会自动恢复仓库详情任务。"));
+    return;
+  }
   if (!batchRunning_ || !batchPaused_) return;
   batchPaused_ = false;
   emitDetailProgress();
@@ -356,7 +429,18 @@ void PetRefreshController::cancelWarehouseDetailRefresh() {
 }
 
 void PetRefreshController::requestSingleDetail(qint64 instanceId) {
-  if (instanceId <= 0 || !repository_->isAuthenticated()) return;
+  if (instanceId <= 0) return;
+  if (!repository_->isAuthenticated()) {
+    const QString reason = QStringLiteral("账号未登录或会话尚未识别");
+    emit statusChanged(QStringLiteral("实例 %1 详情未刷新：%2。")
+                           .arg(instanceId).arg(reason));
+    emit detailRequestFinished(instanceId, false, reason);
+    return;
+  }
+  if (moveRunning()) {
+    emit statusChanged(QStringLiteral("精灵移动正在进行，详情刷新将在移动完成后恢复。"));
+    return;
+  }
   if (currentDetailId_ == instanceId) {
     emit statusChanged(QStringLiteral("实例 %1 的详情正在更新，请等待服务器返回。")
                            .arg(instanceId));
@@ -466,7 +550,13 @@ void PetRefreshController::finishCurrentDetail(bool succeeded, const QString& re
     emit statusChanged(QStringLiteral("实例 %1 详情更新失败：%2；旧缓存已保留。")
                            .arg(finishedId).arg(reason));
   }
+  emit detailRequestFinished(finishedId, succeeded, reason);
   emitDetailProgress();
+
+  if (movePhase_ == MovePhase::WaitingForIdle) {
+    startMovePreflight();
+    return;
+  }
 
   if (pendingList_ != PendingList::None) {
     const bool manual = pendingList_ == PendingList::Manual;
@@ -499,6 +589,370 @@ void PetRefreshController::emitDetailProgress() {
   emit detailProgressChanged(batchRunning_, batchPaused_, batchCompleted_, batchTotal_,
                              batchSucceeded_, batchFailed_, currentDetailId_,
                              (estimateMs + 999) / 1000);
+}
+
+void PetRefreshController::requestMoveToWarehouse(qint64 instanceId) {
+  beginMove(MoveKind::ToWarehouse, instanceId);
+}
+
+void PetRefreshController::requestMoveToBackpack(qint64 instanceId) {
+  beginMove(MoveKind::ToBackpack, instanceId);
+}
+
+void PetRefreshController::beginMove(MoveKind kind, qint64 instanceId) {
+  if (!repository_->isAuthenticated()) {
+    emit statusChanged(QStringLiteral("尚未识别登录账号，不能移动精灵。"));
+    return;
+  }
+  if (instanceId <= 0 || kind == MoveKind::None) return;
+  if (moveRunning()) {
+    emit statusChanged(QStringLiteral("已有精灵移动操作正在进行，请等待完成。"));
+    return;
+  }
+
+  moveKind_ = kind;
+  movePhase_ = MovePhase::WaitingForIdle;
+  moveInstanceId_ = instanceId;
+  moveReplacementId_ = 0;
+  moveRequestGeneration_ = 0;
+  moveAccount_ = repository_->accountKey();
+  moveSessionGeneration_ = repository_->sessionGeneration();
+  moveTargetSequence_.clear();
+  moveWriteRejected_ = false;
+  moveWriteFailureReason_.clear();
+  batchWasRunningBeforeMove_ = batchRunning_;
+  batchWasPausedBeforeMove_ = batchPaused_;
+  automaticTimer_.stop();
+  if (batchRunning_) {
+    batchPaused_ = true;
+    detailTimer_.stop();
+    emitDetailProgress();
+  }
+  emit moveRunningChanged(true);
+
+  if (listRunning_ || currentDetailId_ > 0 || !priorityQueue_.isEmpty()) {
+    emit statusChanged(QStringLiteral("正在等待当前网络请求结束，随后校验并移动实例 %1……")
+                           .arg(instanceId));
+    if (!listRunning_ && currentDetailId_ <= 0) scheduleNextDetail(0);
+    return;
+  }
+  startMovePreflight();
+}
+
+void PetRefreshController::startMovePreflight() {
+  if (!moveRunning() || movePhase_ == MovePhase::AwaitingWrite ||
+      movePhase_ == MovePhase::Verification)
+    return;
+  if (!repository_->isAuthenticated() || repository_->accountKey() != moveAccount_ ||
+      repository_->sessionGeneration() != moveSessionGeneration_) {
+    finishMove(false, QStringLiteral("账号会话已经变化，移动操作已取消。"));
+    return;
+  }
+  movePhase_ = MovePhase::Preflight;
+  emit statusChanged(QStringLiteral("移动前正在强制刷新背包和仓库，避免使用旧顺序……"));
+  startListRefresh(true);
+}
+
+QList<qint64> PetRefreshController::eligibleReplacementIds() const {
+  QList<qint64> eligible;
+  for (qint64 id : repository_->backpackIds(0)) {
+    const QJsonObject pet = repository_->backpackPet(id);
+    if (pet.isEmpty() || !PetMovePolicy::restriction(pet).isEmpty()) continue;
+    eligible.append(id);
+  }
+  return eligible;
+}
+
+void PetRefreshController::continueMoveAfterPreflight(bool listsSucceeded) {
+  if (!moveRunning() || movePhase_ != MovePhase::Preflight) return;
+  if (!listsSucceeded) {
+    finishMove(false, QStringLiteral("移动前列表刷新失败，未发送任何写操作。"));
+    return;
+  }
+  if (repository_->accountKey() != moveAccount_ ||
+      repository_->sessionGeneration() != moveSessionGeneration_) {
+    finishMove(false, QStringLiteral("账号会话已经变化，未发送移动请求。"));
+    return;
+  }
+
+  const QList<qint64> sequence = repository_->backpackIds(0);
+
+  if (moveKind_ == MoveKind::ToWarehouse) {
+    const QJsonObject pet = repository_->backpackPet(moveInstanceId_);
+    if (pet.isEmpty() || !sequence.contains(moveInstanceId_)) {
+      finishMove(false, QStringLiteral("实例 %1 已不在普通背包中。")
+                            .arg(moveInstanceId_));
+      return;
+    }
+    const QString restriction = PetMovePolicy::restriction(pet);
+    if (!restriction.isEmpty()) {
+      finishMove(false, QStringLiteral("不能将实例 %1 放入仓库：%2。")
+                            .arg(moveInstanceId_).arg(restriction));
+      return;
+    }
+    int nonRentCount = 0;
+    for (qint64 id : sequence) {
+      if (!repository_->backpackPet(id).value(QStringLiteral("isRentPet")).toBool())
+        ++nonRentCount;
+    }
+    if (nonRentCount <= 1) {
+      finishMove(false, QStringLiteral("至少要在背包保留一只非租借精灵。"));
+      return;
+    }
+    if (!repository_->preserveBackpackDetail(moveInstanceId_)) {
+      finishMove(false, QStringLiteral("无法保存实例 %1 的完整详情，未执行入库。")
+                            .arg(moveInstanceId_));
+      return;
+    }
+    sendMoveSequence(PetMovePolicy::remove(sequence, moveInstanceId_));
+    return;
+  }
+
+  const QJsonObject incoming = repository_->warehousePet(moveInstanceId_);
+  if (incoming.isEmpty()) {
+    finishMove(false, QStringLiteral("实例 %1 已不在仓库中。").arg(moveInstanceId_));
+    return;
+  }
+  const QString incomingRestriction = PetMovePolicy::restriction(incoming);
+  if (!incomingRestriction.isEmpty()) {
+    finishMove(false, QStringLiteral("不能将实例 %1 放入背包：%2。")
+                          .arg(moveInstanceId_).arg(incomingRestriction));
+    return;
+  }
+  const int capacity = repository_->backpackCapacity(0);
+  if (capacity <= 0) {
+    finishMove(false, QStringLiteral("服务器背包数据缺少有效容量 ppc，未发送移动请求。"));
+    return;
+  }
+  if (sequence.size() < capacity) {
+    sendMoveSequence(PetMovePolicy::append(sequence, moveInstanceId_));
+    return;
+  }
+
+  const QList<qint64> eligible = eligibleReplacementIds();
+  if (eligible.isEmpty()) {
+    finishMove(false,
+               QStringLiteral("背包已满，并且没有可安全替换的背包精灵。"));
+    return;
+  }
+  movePhase_ = MovePhase::WaitingReplacement;
+  emit statusChanged(QStringLiteral("背包已满，请选择一只背包精灵与实例 %1 交换。")
+                         .arg(moveInstanceId_));
+  emit replacementRequired(moveInstanceId_, eligible);
+}
+
+void PetRefreshController::chooseMoveReplacement(qint64 outgoingInstanceId) {
+  if (movePhase_ != MovePhase::WaitingReplacement ||
+      moveKind_ != MoveKind::ToBackpack)
+    return;
+  const QList<qint64> eligible = eligibleReplacementIds();
+  if (!eligible.contains(outgoingInstanceId)) {
+    emit statusChanged(QStringLiteral("所选背包精灵当前不可替换，请重新选择。"));
+    emit replacementRequired(moveInstanceId_, eligible);
+    return;
+  }
+  if (!repository_->preserveBackpackDetail(outgoingInstanceId)) {
+    finishMove(false, QStringLiteral("无法保存被替换精灵的完整详情，未执行交换。"));
+    return;
+  }
+  moveReplacementId_ = outgoingInstanceId;
+  const QList<qint64> replacement = PetMovePolicy::replace(
+      repository_->backpackIds(0), outgoingInstanceId, moveInstanceId_);
+  if (replacement.isEmpty()) {
+    finishMove(false, QStringLiteral("生成背包交换序列失败，未发送移动请求。"));
+    return;
+  }
+  sendMoveSequence(replacement);
+}
+
+void PetRefreshController::cancelMove() {
+  if (!moveRunning()) return;
+  if (movePhase_ == MovePhase::AwaitingWrite ||
+      movePhase_ == MovePhase::Verification) {
+    emit statusChanged(QStringLiteral("移动请求已经发送，不能取消；正在确认服务器最终状态。"));
+    return;
+  }
+  finishMove(false, QStringLiteral("移动操作已取消，未发送写请求。"));
+}
+
+void PetRefreshController::sendMoveSequence(const QList<qint64>& sequence) {
+  if (!moveRunning() || sequence.isEmpty()) {
+    finishMove(false, QStringLiteral("新的背包序列无效，未发送移动请求。"));
+    return;
+  }
+  moveTargetSequence_ = sequence;
+  movePhase_ = MovePhase::AwaitingWrite;
+  moveRequestGeneration_ = ++nextRequestGeneration_;
+  repository_->expectSequenceUpdate(moveRequestGeneration_, moveAccount_,
+                                    moveSessionGeneration_);
+  const QJsonObject parameters{
+      {QStringLiteral("pps"), PetMovePolicy::serializeSequence(sequence)},
+      {QStringLiteral("ppt"), 0}};
+  emit statusChanged(moveReplacementId_ > 0
+                         ? QStringLiteral("正在交换仓库实例 %1 与背包实例 %2……")
+                               .arg(moveInstanceId_).arg(moveReplacementId_)
+                         : moveKind_ == MoveKind::ToWarehouse
+                               ? QStringLiteral("正在将实例 %1 放入仓库……")
+                                     .arg(moveInstanceId_)
+                               : QStringLiteral("正在将实例 %1 放入背包……")
+                                     .arg(moveInstanceId_));
+  // Official SocketClient.batchpet -> PetDataService.newSequence registers the
+  // 2_1_11 listener and dispatches PACK_SEQUENCE_UPDATE, which is what the
+  // in-game backpack and warehouse panels actually refresh from.
+  const QString sequenceText = PetMovePolicy::serializeSequence(sequence);
+  bool sent = false;
+  if (flashInvoker_)
+    sent = flashInvoker_(QStringLiteral("batchpet"), sequenceText);
+  if (!sent)
+    sent = send(
+        QStringLiteral("2_1_11"),
+        QString::fromUtf8(QJsonDocument(parameters).toJson(QJsonDocument::Compact)),
+        moveInstanceId_, moveRequestGeneration_);
+  else
+    emit commandSent(QStringLiteral("batchpet"), moveInstanceId_,
+                     moveRequestGeneration_);
+  if (!sent) {
+    repository_->cancelSequenceUpdate(moveRequestGeneration_);
+    finishMove(false, QStringLiteral("移动请求发送失败，原列表和缓存均未修改。"));
+    return;
+  }
+  moveTimeoutTimer_.start(timings_.moveRequestTimeoutMs);
+}
+
+void PetRefreshController::onSequenceUpdateAccepted(quint64 requestGeneration) {
+  if (movePhase_ != MovePhase::AwaitingWrite ||
+      requestGeneration != moveRequestGeneration_)
+    return;
+  moveTimeoutTimer_.stop();
+  deferMoveVerification(
+      requestGeneration,
+      QStringLiteral("服务器已响应，正在刷新并核对移动结果……"));
+}
+
+void PetRefreshController::onSequenceUpdateRejected(quint64 requestGeneration,
+                                                    const QString& reason) {
+  if (movePhase_ != MovePhase::AwaitingWrite ||
+      requestGeneration != moveRequestGeneration_)
+    return;
+  moveTimeoutTimer_.stop();
+  moveWriteRejected_ = true;
+  moveWriteFailureReason_ = reason;
+  deferMoveVerification(
+      requestGeneration,
+      QStringLiteral("服务器拒绝移动：%1；正在重新读取列表……").arg(reason));
+}
+
+void PetRefreshController::deferMoveVerification(quint64 requestGeneration,
+                                                  const QString& status) {
+  // The sequence signal is emitted while the original client is still
+  // dispatching the 2_1_11 response. Sending 2_1_10 re-entrantly from that
+  // stack can be dropped by the original socket/event code, leaving the
+  // extension tables stale until the whole game is refreshed.
+  QTimer::singleShot(0, this, [this, requestGeneration, status]() {
+    if (movePhase_ != MovePhase::AwaitingWrite ||
+        requestGeneration != moveRequestGeneration_ ||
+        !repository_->isAuthenticated() ||
+        repository_->accountKey() != moveAccount_ ||
+        repository_->sessionGeneration() != moveSessionGeneration_)
+      return;
+    startMoveVerification(status);
+  });
+}
+
+void PetRefreshController::startMoveVerification(const QString& status) {
+  if (!moveRunning()) return;
+  movePhase_ = MovePhase::Verification;
+  emit statusChanged(status);
+  startListRefresh(true);
+}
+
+void PetRefreshController::finishMoveVerification(bool listsSucceeded) {
+  if (movePhase_ != MovePhase::Verification) return;
+  if (!listsSucceeded) {
+    finishMove(false,
+               QStringLiteral("移动请求可能已经执行，但列表刷新失败，结果暂时无法确认；请稍后手动刷新。"));
+    return;
+  }
+  const QList<qint64> sequence = repository_->backpackIds(0);
+  bool verified = false;
+  if (moveKind_ == MoveKind::ToWarehouse) {
+    verified = !sequence.contains(moveInstanceId_) &&
+               !repository_->warehousePet(moveInstanceId_).isEmpty();
+  } else if (moveReplacementId_ > 0) {
+    verified = sequence.contains(moveInstanceId_) &&
+               !sequence.contains(moveReplacementId_) &&
+               repository_->warehousePet(moveInstanceId_).isEmpty() &&
+               !repository_->warehousePet(moveReplacementId_).isEmpty();
+  } else {
+    verified = sequence.contains(moveInstanceId_) &&
+               repository_->warehousePet(moveInstanceId_).isEmpty();
+  }
+  if (!verified) {
+    if (moveWriteRejected_) {
+      finishMove(false, QStringLiteral("移动失败：%1；已重新读取服务器列表。")
+                            .arg(moveWriteFailureReason_));
+      return;
+    }
+    finishMove(false,
+               QStringLiteral("服务器最新列表与预期不一致，未将本地缓存伪装成成功状态。"));
+    return;
+  }
+
+  const QString message =
+      moveKind_ == MoveKind::ToWarehouse
+          ? QStringLiteral("实例 %1 已进入仓库。")
+                .arg(moveInstanceId_)
+          : moveReplacementId_ > 0
+                ? QStringLiteral("实例 %1 已进入背包，实例 %2 已进入仓库。")
+                      .arg(moveInstanceId_).arg(moveReplacementId_)
+                : QStringLiteral("实例 %1 已进入背包。")
+                      .arg(moveInstanceId_);
+  finishMove(true, message);
+}
+
+bool PetRefreshController::removeQueuedDetail(qint64 instanceId) {
+  priorityQueue_.removeAll(instanceId);
+  batchQueue_.removeAll(instanceId);
+  queuedIds_.remove(instanceId);
+  if (!batchIds_.remove(instanceId)) return false;
+  ++batchCompleted_;
+  ++batchSucceeded_;
+  return true;
+}
+
+void PetRefreshController::finishMove(bool succeeded, const QString& message) {
+  if (!moveRunning()) return;
+  moveTimeoutTimer_.stop();
+  if (moveRequestGeneration_ > 0)
+    repository_->cancelSequenceUpdate(moveRequestGeneration_);
+  if (succeeded && moveKind_ == MoveKind::ToBackpack)
+    removeQueuedDetail(moveInstanceId_);
+  moveKind_ = MoveKind::None;
+  movePhase_ = MovePhase::Idle;
+  moveInstanceId_ = 0;
+  moveReplacementId_ = 0;
+  moveRequestGeneration_ = 0;
+  moveAccount_.clear();
+  moveSessionGeneration_ = 0;
+  moveTargetSequence_.clear();
+  moveWriteRejected_ = false;
+  moveWriteFailureReason_.clear();
+  emit moveRunningChanged(false);
+  emit moveFinished(succeeded, message);
+  emit statusChanged(message);
+  restoreAfterMove();
+}
+
+void PetRefreshController::restoreAfterMove() {
+  if (batchRunning_ && batchWasRunningBeforeMove_) {
+    batchPaused_ = batchWasPausedBeforeMove_;
+    emitDetailProgress();
+    if (!batchPaused_) scheduleNextDetail(0);
+  } else if (!listRunning_) {
+    scheduleAutomaticRefresh();
+  }
+  batchWasRunningBeforeMove_ = false;
+  batchWasPausedBeforeMove_ = false;
 }
 
 void PetRefreshController::clearDetailState() {

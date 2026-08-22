@@ -109,6 +109,7 @@ int main(int argc, char* argv[]) {
       });
       return true;
     }
+    if (command == QStringLiteral("2_2_10")) return true;
     if (command == QStringLiteral("2_1_R")) {
       const QJsonObject request = QJsonDocument::fromJson(parameters.toUtf8()).object();
       const qint64 id = request.value(QStringLiteral("pi")).toVariant().toLongLong();

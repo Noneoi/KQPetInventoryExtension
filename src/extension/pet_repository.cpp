@@ -1,5 +1,6 @@
 #include "pet_repository.h"
 
+#include "pet_detail_catalog.h"
 #include "pet_identity.h"
 
 #include <QCoreApplication>
@@ -17,6 +18,7 @@
 #include <QStringList>
 
 #include <algorithm>
+#include <climits>
 
 namespace {
 
@@ -113,7 +115,10 @@ QJsonObject PetRepository::warehouseBriefForCache(const QJsonObject& pet) {
       QStringLiteral("srri"), QStringLiteral("sepi"), QStringLiteral("cepi"),
       QStringLiteral("cps"), QStringLiteral("lss"), QStringLiteral("badge"),
       QStringLiteral("_location"), QStringLiteral("_warehouseGroup"),
-      QStringLiteral("_position"), QStringLiteral("_visualMismatch")};
+      QStringLiteral("_position"), QStringLiteral("_visualMismatch"),
+      QStringLiteral("_metaOriginalName"), QStringLiteral("_metaAttributes"),
+      QStringLiteral("_metaJobs"), QStringLiteral("_metaEra"),
+      QStringLiteral("_metaRaceId")};
   QJsonObject brief;
   for (const QString& field : fields)
     if (pet.contains(field)) brief.insert(field, pet.value(field));
@@ -146,11 +151,59 @@ QList<QJsonObject> PetRepository::sorted(const QHash<qint64, QJsonObject>& sourc
   return values;
 }
 
-QList<QJsonObject> PetRepository::backpackPets() const { return sorted(backpack_); }
+QList<QJsonObject> PetRepository::backpackPets() const {
+  QList<QJsonObject> pets = sorted(backpack_);
+  for (QJsonObject& pet : pets) pet = withDeploymentState(pet);
+  return pets;
+}
 QList<QJsonObject> PetRepository::warehousePets() const { return sorted(warehouse_); }
 
+QJsonObject PetRepository::backpackPet(qint64 instanceId) const {
+  return withDeploymentState(backpack_.value(instanceId));
+}
+
+bool PetRepository::isDeployed(qint64 instanceId) const {
+  return formationKnown_ && deployedPetIds_.contains(instanceId);
+}
+
+QList<qint64> PetRepository::backpackIds(int packType) const {
+  if (packSequences_.contains(packType)) {
+    QList<qint64> ids;
+    for (const QString& value : packSequences_.value(packType)) {
+      const qint64 id = value.toLongLong();
+      if (id > 0) ids.append(id);
+    }
+    return ids;
+  }
+  QList<QPair<int, qint64>> positioned;
+  for (auto iterator = backpack_.cbegin(); iterator != backpack_.cend(); ++iterator) {
+    const QJsonObject& pet = iterator.value();
+    if (pet.value(QStringLiteral("_packType")).toInt(-1) != packType) continue;
+    positioned.append({pet.value(QStringLiteral("_position")).toInt(INT_MAX),
+                       iterator.key()});
+  }
+  std::sort(positioned.begin(), positioned.end());
+  QList<qint64> ids;
+  for (const auto& item : positioned) ids.append(item.second);
+  return ids;
+}
+
+int PetRepository::backpackCapacity(int packType) const {
+  return packCapacities_.value(packType, 0);
+}
+
+bool PetRepository::preserveBackpackDetail(qint64 instanceId) {
+  const QJsonObject pet = backpack_.value(instanceId);
+  if (pet.isEmpty()) return false;
+  const QDateTime savedAt = QDateTime::currentDateTime();
+  if (!saveDetail(instanceId, pet, savedAt)) return false;
+  details_.insert(instanceId, pet);
+  detailSavedTimes_.insert(instanceId, savedAt);
+  return true;
+}
+
 QJsonObject PetRepository::detailFor(qint64 instanceId) const {
-  if (backpack_.contains(instanceId)) return backpack_.value(instanceId);
+  if (backpack_.contains(instanceId)) return backpackPet(instanceId);
   if (warehouse_.contains(instanceId)) return warehouse_.value(instanceId);
   return details_.value(instanceId);
 }
@@ -217,6 +270,17 @@ void PetRepository::cancelDetailRequest(qint64 instanceId, quint64 requestGenera
     detailExpectation_.active = false;
 }
 
+void PetRepository::expectSequenceUpdate(quint64 requestGeneration,
+                                         const QString& account,
+                                         quint64 sessionGeneration) {
+  sequenceExpectation_ = {account, sessionGeneration, requestGeneration, 0, true};
+}
+
+void PetRepository::cancelSequenceUpdate(quint64 requestGeneration) {
+  if (sequenceExpectation_.requestGeneration == requestGeneration)
+    sequenceExpectation_.active = false;
+}
+
 bool PetRepository::expectationMatches(const RequestExpectation& expectation) const {
   return expectation.active && authenticated_ && expectation.account == accountKey_ &&
          expectation.sessionGeneration == sessionGeneration_;
@@ -230,15 +294,35 @@ bool PetRepository::parseBackpack(const QJsonObject& packet) {
   const QJsonValue sequenceValue = packet.value(QStringLiteral("pps"));
   if (sequenceValue.isArray()) sequences = sequenceValue.toArray();
   else if (sequenceValue.isString()) sequences.append(sequenceValue);
+  packSequences_.clear();
   for (int pack = 0; pack < sequences.size(); ++pack) {
     const QStringList ids = sequences.at(pack).toString().split(QLatin1Char('#'), Qt::SkipEmptyParts);
+    packSequences_.insert(pack, ids);
     for (int position = 0; position < ids.size(); ++position)
       positions.insert(ids.at(position).toLongLong(), qMakePair(pack, position));
+  }
+  const QJsonValue capacityValue = packet.value(QStringLiteral("ppc"));
+  if (!capacityValue.isUndefined() && !capacityValue.isNull()) {
+    packCapacities_.clear();
+    if (capacityValue.isDouble()) {
+      packCapacities_.insert(0, capacityValue.toInt());
+    } else if (capacityValue.isArray()) {
+      const QJsonArray capacities = capacityValue.toArray();
+      for (int pack = 0; pack < capacities.size(); ++pack)
+        packCapacities_.insert(pack, capacities.at(pack).toInt());
+    } else if (capacityValue.isObject()) {
+      const QJsonObject capacities = capacityValue.toObject();
+      for (auto iterator = capacities.begin(); iterator != capacities.end(); ++iterator)
+        packCapacities_.insert(iterator.key().toInt(), iterator.value().toInt());
+    }
   }
   QHash<qint64, QJsonObject> replacement;
   for (QJsonObject pet : pets) {
     const qint64 id = petId(pet);
     if (id <= 0) continue;
+    const QJsonObject previous = backpack_.contains(id) ? backpack_.value(id)
+                                                        : details_.value(id);
+    pet = PetDetailCatalog::instance().enrichMetadata(pet, previous);
     pet.insert(QStringLiteral("_location"), QStringLiteral("backpack"));
     if (positions.contains(id)) {
       pet.insert(QStringLiteral("_packType"), positions.value(id).first);
@@ -264,6 +348,9 @@ bool PetRepository::parseWarehouse(const QJsonObject& packet) {
     for (QJsonObject brief : objectsIn(packet.value(key))) {
       const qint64 id = petId(brief);
       if (id <= 0) { ++position; continue; }
+      const QJsonObject previous = details_.contains(id) ? details_.value(id)
+                                                         : warehouse_.value(id);
+      brief = PetDetailCatalog::instance().enrichMetadata(brief, previous);
       brief.insert(QStringLiteral("_location"), QStringLiteral("warehouse"));
       brief.insert(QStringLiteral("_warehouseGroup"), QString::fromLatin1(group.name));
       brief.insert(QStringLiteral("_position"), position++);
@@ -295,7 +382,17 @@ bool PetRepository::parseDetail(const QJsonObject& packet, quint64 requestGenera
                                 QStringLiteral("详情缺少实例ID、种族ID或等级字段"));
     return false;
   }
-  detail.insert(QStringLiteral("_location"), QStringLiteral("warehouse"));
+  const bool inBackpack = backpack_.contains(id);
+  const bool inWarehouse = warehouse_.contains(id);
+  if (!inBackpack && !inWarehouse) {
+    emit detailResponseRejected(id, requestGeneration,
+                                QStringLiteral("该实例已不在当前背包或仓库列表"));
+    return false;
+  }
+  detail = PetDetailCatalog::instance().enrichMetadata(detail, details_.value(id));
+  detail.insert(QStringLiteral("_location"),
+                inWarehouse ? QStringLiteral("warehouse")
+                            : QStringLiteral("backpack"));
   const QDateTime savedAt = QDateTime::currentDateTime();
   if (!saveDetail(id, detail, savedAt)) {
     emit detailResponseRejected(id, requestGeneration,
@@ -304,7 +401,12 @@ bool PetRepository::parseDetail(const QJsonObject& packet, quint64 requestGenera
   }
   details_.insert(id, detail);
   detailSavedTimes_.insert(id, savedAt);
-  if (warehouse_.contains(id)) {
+  if (!inWarehouse && inBackpack) {
+    QJsonObject merged = merge(detail, backpack_.value(id));
+    copyPowerFields(detail, &merged);
+    merged.insert(QStringLiteral("_location"), QStringLiteral("backpack"));
+    backpack_.insert(id, merged);
+  } else if (inWarehouse) {
     QJsonObject brief = warehouseBriefForCache(warehouse_.value(id));
     brief.remove(QStringLiteral("_visualMismatch"));
     QJsonObject merged = merge(detail, brief);
@@ -313,6 +415,134 @@ bool PetRepository::parseDetail(const QJsonObject& packet, quint64 requestGenera
   }
   emit detailChanged(id);
   emit detailResponseAccepted(id, requestGeneration);
+  return true;
+}
+
+QString PetRepository::formationKey(int id, int plan) const {
+  return QStringLiteral("%1:%2").arg(id).arg(plan);
+}
+
+QString PetRepository::currentFormationKey() const {
+  if (currentFormationId_ <= 0) return {};
+  int formationId = currentFormationId_;
+  int plan = formationPlans_.value(formationId, 0);
+  QString key = formationKey(formationId, plan);
+  if (formationPositions_.contains(key)) return key;
+  key = formationKey(formationId, 0);
+  if (formationPositions_.contains(key)) return key;
+
+  // The current official diverse-formation alias maps formation 16 to the
+  // plan-based formation 17. Keep the fallback structural so a future
+  // adjacent alias can still be recognized without depending on pet data.
+  if (formationPlans_.contains(formationId + 1)) {
+    key = formationKey(formationId + 1, formationPlans_.value(formationId + 1));
+    if (formationPositions_.contains(key)) return key;
+  }
+  return {};
+}
+
+void PetRepository::updateDeployedPets(const QString& positions) {
+  QSet<qint64> replacement;
+  for (const QString& value : positions.split(QLatin1Char('#'), Qt::SkipEmptyParts)) {
+    const qint64 id = value.toLongLong();
+    if (id > 0) replacement.insert(id);
+  }
+  deployedPetIds_ = replacement;
+  formationKnown_ = true;
+}
+
+QJsonObject PetRepository::withDeploymentState(const QJsonObject& pet) const {
+  if (pet.isEmpty() || !formationKnown_) return pet;
+  QJsonObject result = pet;
+  result.insert(QStringLiteral("_inFormation"), deployedPetIds_.contains(petId(pet)));
+  return result;
+}
+
+bool PetRepository::parseFormationLoad(const QJsonObject& packet) {
+  if (!packet.value(QStringLiteral("fis")).isObject()) return false;
+  const QJsonObject formationInfo = packet.value(QStringLiteral("fis")).toObject();
+  const int currentId = formationInfo.value(QStringLiteral("cfid")).toInt();
+  if (currentId <= 0 || !formationInfo.value(QStringLiteral("fl")).isArray()) return false;
+
+  QHash<QString, QString> positions;
+  QHash<int, int> plans;
+  const auto addFormations = [this, &positions](const QJsonValue& value) {
+    for (const QJsonObject& formation : objectsIn(value)) {
+      const int id = formation.value(QStringLiteral("id")).toInt();
+      const int plan = formation.value(QStringLiteral("p")).toInt();
+      if (id > 0 && formation.value(QStringLiteral("ps")).isString())
+        positions.insert(formationKey(id, plan),
+                         formation.value(QStringLiteral("ps")).toString());
+    }
+  };
+  addFormations(formationInfo.value(QStringLiteral("fl")));
+  for (auto iterator = packet.begin(); iterator != packet.end(); ++iterator) {
+    if (!iterator.key().startsWith(QStringLiteral("plan")) || !iterator.value().isObject())
+      continue;
+    bool validId = false;
+    const int id = iterator.key().mid(4).toInt(&validId);
+    if (!validId || id <= 0) continue;
+    const QJsonObject planObject = iterator.value().toObject();
+    plans.insert(id, planObject.value(QStringLiteral("cpid")).toInt());
+    addFormations(planObject.value(QStringLiteral("fl")));
+  }
+  if (positions.isEmpty()) return false;
+
+  formationPositions_ = positions;
+  formationPlans_ = plans;
+  currentFormationId_ = currentId;
+  deployedPetIds_.clear();
+  formationKnown_ = false;
+  const QString key = currentFormationKey();
+  if (!key.isEmpty()) updateDeployedPets(formationPositions_.value(key));
+  return true;
+}
+
+bool PetRepository::parseFormationPositionChange(const QJsonObject& packet) {
+  if (!packet.value(QStringLiteral("fl")).isArray()) return false;
+  bool recognized = false;
+  for (const QJsonObject& formation : objectsIn(packet.value(QStringLiteral("fl")))) {
+    const int id = formation.value(QStringLiteral("id")).toInt();
+    const int plan = formation.value(QStringLiteral("p")).toInt();
+    if (id <= 0 || !formation.value(QStringLiteral("ps")).isString()) continue;
+    formationPositions_.insert(formationKey(id, plan),
+                               formation.value(QStringLiteral("ps")).toString());
+    recognized = true;
+  }
+  if (!recognized || currentFormationId_ <= 0) return false;
+  const QString key = currentFormationKey();
+  if (key.isEmpty()) return false;
+  updateDeployedPets(formationPositions_.value(key));
+  return true;
+}
+
+bool PetRepository::parseFormationChanged(const QJsonObject& packet) {
+  if (!packet.value(QStringLiteral("fs")).isObject()) return false;
+  const QJsonObject formation = packet.value(QStringLiteral("fs")).toObject();
+  const int id = formation.value(QStringLiteral("id")).toInt();
+  const int plan = formation.value(QStringLiteral("p")).toInt();
+  if (id <= 0 || !formation.value(QStringLiteral("ps")).isString()) return false;
+  formationPositions_.insert(formationKey(id, plan),
+                             formation.value(QStringLiteral("ps")).toString());
+  const QString key = currentFormationKey();
+  if (key != formationKey(id, plan)) return false;
+  updateDeployedPets(formation.value(QStringLiteral("ps")).toString());
+  return true;
+}
+
+bool PetRepository::parseFormationSelection(const QJsonObject& packet) {
+  if (packet.contains(QStringLiteral("r")) &&
+      packet.value(QStringLiteral("r")).toInt() != 1)
+    return false;
+  const int id = packet.value(QStringLiteral("id")).toInt();
+  if (id <= 0) return false;
+  const int plan = packet.value(QStringLiteral("p")).toInt();
+  currentFormationId_ = id;
+  formationPlans_.insert(id, plan);
+  deployedPetIds_.clear();
+  formationKnown_ = false;
+  const QString key = currentFormationKey();
+  if (!key.isEmpty()) updateDeployedPets(formationPositions_.value(key));
   return true;
 }
 
@@ -333,6 +563,35 @@ void PetRepository::handlePacket(const QString& method, const QString& payload) 
     const QString account = stringValue(packet.value(QStringLiteral("info")).toObject()
                                             .value(QStringLiteral("n")));
     if (!account.isEmpty()) activateAccountSession(account);
+    return;
+  }
+
+  // Formation state is runtime-only. Official 2_2_10 payload is identified by
+  // fis.cfid/fl; _cmd is usually present but not required.
+  if (authenticated_ && (command == QStringLiteral("2_2_10") ||
+                         packet.value(QStringLiteral("fis")).isObject())) {
+    if (parseFormationLoad(packet)) emit dataChanged();
+    if (command == QStringLiteral("2_2_10") ||
+        packet.value(QStringLiteral("fis")).isObject())
+      return;
+  }
+  if (authenticated_ && command == QStringLiteral("2_2_0")) {
+    if (parseFormationPositionChange(packet)) emit dataChanged();
+    return;
+  }
+  if (authenticated_ && command == QStringLiteral("2_2_14")) {
+    if ((!packet.contains(QStringLiteral("r")) ||
+         packet.value(QStringLiteral("r")).toInt() == 1) &&
+        parseFormationPositionChange(packet))
+      emit dataChanged();
+    return;
+  }
+  if (authenticated_ && command == QStringLiteral("2_2_1")) {
+    if (parseFormationChanged(packet)) emit dataChanged();
+    return;
+  }
+  if (authenticated_ && command == QStringLiteral("2_2_11")) {
+    if (parseFormationSelection(packet)) emit dataChanged();
     return;
   }
 
@@ -364,6 +623,33 @@ void PetRepository::handlePacket(const QString& method, const QString& payload) 
     if (!expectationMatches(detailExpectation_)) return;
     const quint64 generation = detailExpectation_.requestGeneration;
     parseDetail(packet, generation);
+    return;
+  }
+  if (command == QStringLiteral("2_1_11")) {
+    if (!expectationMatches(sequenceExpectation_)) return;
+    const quint64 generation = sequenceExpectation_.requestGeneration;
+    sequenceExpectation_.active = false;
+    if (packet.contains(QStringLiteral("r")) &&
+        packet.value(QStringLiteral("r")).toInt() != 1) {
+      emit sequenceUpdateRejected(
+          generation,
+          QStringLiteral("服务器返回失败代码 %1")
+              .arg(valueString(packet.value(QStringLiteral("r")))));
+    } else {
+      // The official 2_1_11 success response may already contain the updated
+      // backpack payload. Apply it before notifying the controller so the
+      // extension UI updates immediately; the controller still performs a
+      // deferred read-only backpack/warehouse verification afterwards.
+      if (packet.contains(QStringLiteral("pl")) &&
+          packet.contains(QStringLiteral("pps")) && parseBackpack(packet)) {
+        onlineData_ = true;
+        updatedAt_ = QDateTime::currentDateTime();
+        saveInventory();
+        emit dataChanged();
+      }
+      emit sequenceUpdateAccepted(generation);
+    }
+    return;
   }
 }
 
@@ -381,19 +667,26 @@ void PetRepository::clearExpectations() {
   backpackExpectation_ = {};
   warehouseExpectation_ = {};
   detailExpectation_ = {};
+  sequenceExpectation_ = {};
 }
 
 void PetRepository::activateAccountSession(const QString& account) {
   if (account.isEmpty()) return;
   const bool changed = account != accountKey_;
+  const bool hadFormationState = formationKnown_ || !formationPositions_.isEmpty();
   if (changed && (!backpack_.isEmpty() || !warehouse_.isEmpty())) saveInventory();
   accountKey_ = account;
   ++sessionGeneration_;
   authenticated_ = true;
   clearExpectations();
+  formationPositions_.clear();
+  formationPlans_.clear();
+  deployedPetIds_.clear();
+  currentFormationId_ = 0;
+  formationKnown_ = false;
   if (changed) loadAccount();
   writeLastAccount();
-  if (changed) emit dataChanged();
+  if (changed || hadFormationState) emit dataChanged();
   emit accountSessionChanged(accountKey_, sessionGeneration_);
   emit statusChanged(QStringLiteral("已识别账号 %1，已加载该账号本地缓存：%2")
                          .arg(accountKey_, cachePath_));
@@ -408,7 +701,8 @@ void PetRepository::loadDetails() {
     if ((schema != 2 && schema != 3) ||
         envelope.value(QStringLiteral("account")).toString() != accountKey_ ||
         !envelope.value(QStringLiteral("pet")).isObject()) continue;
-    const QJsonObject detail = envelope.value(QStringLiteral("pet")).toObject();
+    const QJsonObject storedDetail = envelope.value(QStringLiteral("pet")).toObject();
+    const QJsonObject detail = PetDetailCatalog::instance().enrichMetadata(storedDetail);
     const qint64 id = petId(detail);
     const qint64 envelopeId = valueString(envelope.value(QStringLiteral("instanceId"))).toLongLong();
     if (id <= 0 || (envelopeId > 0 && envelopeId != id)) continue;
@@ -419,7 +713,7 @@ void PetRepository::loadDetails() {
       savedAt = QFileInfo(directory.filePath(fileName)).lastModified();
     if (!savedAt.isValid()) savedAt = QDateTime::currentDateTime();
     detailSavedTimes_.insert(id, savedAt);
-    if (schema == 2) migrations.append(qMakePair(id, detail));
+    if (schema == 2 || detail != storedDetail) migrations.append(qMakePair(id, detail));
   }
   for (const auto& migration : migrations) saveDetail(migration.first, migration.second);
 }
@@ -429,6 +723,13 @@ void PetRepository::loadAccount() {
   warehouse_.clear();
   details_.clear();
   detailSavedTimes_.clear();
+  packSequences_.clear();
+  packCapacities_.clear();
+  formationPositions_.clear();
+  formationPlans_.clear();
+  deployedPetIds_.clear();
+  currentFormationId_ = 0;
+  formationKnown_ = false;
   clearExpectations();
   onlineData_ = false;
   updatedAt_ = {};
@@ -437,12 +738,16 @@ void PetRepository::loadAccount() {
   const int schema = profile.value(QStringLiteral("schema")).toInt();
   if ((schema == 2 || schema == 3) &&
       profile.value(QStringLiteral("account")).toString() == accountKey_) {
-    for (const QJsonValue& value : profile.value(QStringLiteral("backpack")).toArray())
-      if (value.isObject() && petId(value.toObject()) > 0)
-        backpack_.insert(petId(value.toObject()), value.toObject());
-    for (const QJsonValue& value : profile.value(QStringLiteral("warehouse")).toArray())
-      if (value.isObject() && petId(value.toObject()) > 0)
-        warehouse_.insert(petId(value.toObject()), value.toObject());
+    for (const QJsonValue& value : profile.value(QStringLiteral("backpack")).toArray()) {
+      if (!value.isObject() || petId(value.toObject()) <= 0) continue;
+      const QJsonObject pet = PetDetailCatalog::instance().enrichMetadata(value.toObject());
+      backpack_.insert(petId(pet), pet);
+    }
+    for (const QJsonValue& value : profile.value(QStringLiteral("warehouse")).toArray()) {
+      if (!value.isObject() || petId(value.toObject()) <= 0) continue;
+      const QJsonObject pet = PetDetailCatalog::instance().enrichMetadata(value.toObject());
+      warehouse_.insert(petId(pet), pet);
+    }
     updatedAt_ = QDateTime::fromString(profile.value(QStringLiteral("savedAt")).toString(), Qt::ISODate);
   }
   loadDetails();

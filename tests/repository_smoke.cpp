@@ -90,6 +90,105 @@ int main(int argc, char* argv[]) {
                    [&](qint64) { ++detailChangeCount; });
   login(&repository, QStringLiteral("account-1001"));
 
+  repository.beginListRefresh(5, repository.accountKey(),
+                              repository.sessionGeneration());
+  deliver(&repository,
+          {{QStringLiteral("_cmd"), QStringLiteral("2_1_10")},
+           {QStringLiteral("pl"),
+            QJsonArray{QJsonObject{{QStringLiteral("id"), 42},
+                                   {QStringLiteral("r"), 7152},
+                                   {QStringLiteral("lv"), 100}},
+                       QJsonObject{{QStringLiteral("id"), 44},
+                                   {QStringLiteral("r"), 7153},
+                                   {QStringLiteral("lv"), 100}}}},
+           {QStringLiteral("pps"), QJsonArray{QStringLiteral("42#44")}},
+           {QStringLiteral("ppc"), 12}});
+  repository.expectDetail(44, 6, repository.accountKey(), repository.sessionGeneration());
+  deliver(&repository, detailPacket(44, 7153, 7163, 32000));
+  ok &= require(repository.backpackPet(44).value(QStringLiteral("zdl")).toInt() == 32000 &&
+                    repository.backpackPet(44).value(QStringLiteral("_location")).toString() ==
+                        QStringLiteral("backpack") &&
+                    repository.hasCachedDetail(44),
+                "instance detail refresh did not update and cache a backpack pet");
+  deliver(&repository,
+          {{QStringLiteral("_cmd"), QStringLiteral("2_2_10")},
+           {QStringLiteral("fis"),
+            QJsonObject{{QStringLiteral("cfid"), 1},
+                        {QStringLiteral("fl"),
+                         QJsonArray{QJsonObject{{QStringLiteral("id"), 1},
+                                                {QStringLiteral("p"), 0},
+                                                {QStringLiteral("ps"),
+                                                 QStringLiteral("42#-1#0")}}}}}}});
+  ok &= require(repository.formationKnown() && repository.isDeployed(42) &&
+                    !repository.isDeployed(44) &&
+                    repository.backpackPet(42)
+                        .value(QStringLiteral("_inFormation"))
+                        .toBool() &&
+                    !repository.backpackPet(44)
+                         .value(QStringLiteral("_inFormation"))
+                         .toBool(),
+                "current formation did not decorate backpack instances");
+  deliver(&repository,
+          {{QStringLiteral("_cmd"), QStringLiteral("2_2_0")},
+           {QStringLiteral("fl"),
+            QJsonArray{QJsonObject{{QStringLiteral("id"), 1},
+                                   {QStringLiteral("p"), 0},
+                                   {QStringLiteral("ps"),
+                                    QStringLiteral("44#0#-1")}}}}});
+  ok &= require(!repository.isDeployed(42) && repository.isDeployed(44),
+                "formation position push did not update deployed instances");
+  deliver(&repository,
+          {{QStringLiteral("_cmd"), QStringLiteral("2_2_14")},
+           {QStringLiteral("r"), 1},
+           {QStringLiteral("fl"),
+            QJsonArray{QJsonObject{{QStringLiteral("id"), 1},
+                                   {QStringLiteral("p"), 0},
+                                   {QStringLiteral("ps"), QStringLiteral("42")}}}}});
+  ok &= require(repository.isDeployed(42) && !repository.isDeployed(44),
+                "formation save response did not update deployed instances");
+
+  deliver(&repository,
+          {{QStringLiteral("_cmd"), QStringLiteral("2_2_10")},
+           {QStringLiteral("fis"),
+            QJsonObject{{QStringLiteral("cfid"), 16},
+                        {QStringLiteral("fl"),
+                         QJsonArray{QJsonObject{{QStringLiteral("id"), 1},
+                                                {QStringLiteral("p"), 0},
+                                                {QStringLiteral("ps"),
+                                                 QStringLiteral("44")}}}}}},
+           {QStringLiteral("plan17"),
+            QJsonObject{{QStringLiteral("cpid"), 2},
+                        {QStringLiteral("fl"),
+                         QJsonArray{QJsonObject{{QStringLiteral("id"), 17},
+                                                {QStringLiteral("p"), 2},
+                                                {QStringLiteral("ps"),
+                                                 QStringLiteral("42#0")}}}}}}});
+  ok &= require(repository.isDeployed(42) && !repository.isDeployed(44),
+                "diverse current formation alias was not resolved");
+
+  deliver(&repository,
+          {{QStringLiteral("_cmd"), QStringLiteral("2_2_10")},
+           {QStringLiteral("fis"),
+            QJsonObject{{QStringLiteral("cfid"), 17},
+                        {QStringLiteral("fl"),
+                         QJsonArray{QJsonObject{{QStringLiteral("id"), 1},
+                                                {QStringLiteral("p"), 0},
+                                                {QStringLiteral("ps"),
+                                                 QStringLiteral("-1#0#-1")}}}}}},
+           {QStringLiteral("plan17"),
+            QJsonObject{{QStringLiteral("cpid"), 5},
+                        {QStringLiteral("fl"),
+                         QJsonArray{
+                             QJsonObject{{QStringLiteral("id"), 17},
+                                         {QStringLiteral("p"), 0},
+                                         {QStringLiteral("ps"), QStringLiteral("44")}},
+                             QJsonObject{{QStringLiteral("id"), 17},
+                                         {QStringLiteral("p"), 5},
+                                         {QStringLiteral("ps"),
+                                          QStringLiteral("42#0#44")}}}}}}});
+  ok &= require(repository.isDeployed(42) && repository.isDeployed(44),
+                "official cfid=17/plan17.cpid=5 current formation was not resolved");
+
   deliver(&repository, warehousePacket());
   ok &= require(repository.warehousePets().isEmpty(),
                 "unsolicited warehouse list must not overwrite cache");
@@ -106,10 +205,12 @@ int main(int argc, char* argv[]) {
 
   repository.expectDetail(42, 20, repository.accountKey(), repository.sessionGeneration());
   const int listChangesBeforeDetail = fullListChangeCount;
+  const int detailChangesBeforeWarehouseDetail = detailChangeCount;
   deliver(&repository, detailPacket(42, 7152, 7162, 30000));
   ok &= require(repository.warehousePet(42).value(QStringLiteral("zdl")).toInt() == 30000,
                 "warehouse overview power must come from detail cache");
-  ok &= require(fullListChangeCount == listChangesBeforeDetail && detailChangeCount == 1,
+  ok &= require(fullListChangeCount == listChangesBeforeDetail &&
+                    detailChangeCount == detailChangesBeforeWarehouseDetail + 1,
                 "detail response must emit one row update instead of a full-list rebuild");
 
   repository.expectDetail(43, 21, repository.accountKey(), repository.sessionGeneration());
@@ -131,20 +232,36 @@ int main(int argc, char* argv[]) {
                     !envelope42.value(QStringLiteral("imageCacheKey")).toString().isEmpty(),
                 "schema-3 detail envelope metadata is incomplete");
 
-  acceptWarehouse(&repository, 11, warehousePacket(7250, QStringLiteral("skin-b")));
+  const QString originalBeforeSkin = repository.warehousePet(42)
+                                         .value(QStringLiteral("_metaOriginalName"))
+                                         .toString();
+  const QString attributesBeforeSkin = repository.warehousePet(42)
+                                           .value(QStringLiteral("_metaAttributes"))
+                                           .toString();
+  acceptWarehouse(&repository, 11, warehousePacket(990001, QStringLiteral("future-skin-b")));
   ok &= require(repository.warehousePet(42).value(QStringLiteral("_visualMismatch")).toBool(),
                 "skin/race change was not detected for the same instance");
   ok &= require(repository.warehousePet(42).value(QStringLiteral("zdl")).toInt() == 30000,
                 "skin change must retain local cached power until detail refresh");
   repository.expectDetail(42, 22, repository.accountKey(), repository.sessionGeneration());
-  deliver(&repository, detailPacket(42, 7250, 7260, 31000));
+  deliver(&repository, detailPacket(42, 990001, 990002, 31000));
   ok &= require(repository.warehousePet(42).value(QStringLiteral("zdl")).toInt() == 31000 &&
                     !repository.warehousePet(42).value(QStringLiteral("_visualMismatch")).toBool(),
                 "same instance did not update after skin detail refresh");
+  ok &= require(!originalBeforeSkin.isEmpty() && !attributesBeforeSkin.isEmpty() &&
+                    repository.warehousePet(42)
+                            .value(QStringLiteral("_metaOriginalName"))
+                            .toString() == originalBeforeSkin &&
+                    repository.warehousePet(42)
+                            .value(QStringLiteral("_metaAttributes"))
+                            .toString() == attributesBeforeSkin,
+                "unknown future skin lost original-name or attribute metadata");
 
   repository.expectDetail(42, 23, repository.accountKey(), repository.sessionGeneration());
   login(&repository, QStringLiteral("account-2002"));
-  deliver(&repository, detailPacket(42, 7250, 7260, 99999));
+  ok &= require(!repository.formationKnown(),
+                "account switch must clear runtime formation state");
+  deliver(&repository, detailPacket(42, 990001, 990002, 99999));
   ok &= require(repository.warehousePets().isEmpty() && repository.detailFor(42).isEmpty(),
                 "old-account delayed detail response leaked into new account");
 

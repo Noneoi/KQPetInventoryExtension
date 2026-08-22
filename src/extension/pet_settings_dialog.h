@@ -25,4 +25,5 @@ private:
   QSpinBox* detailBatchRestSeconds_ = nullptr;
   QSpinBox* detailTimeoutSeconds_ = nullptr;
   QSpinBox* detailMaxRetries_ = nullptr;
+  QSpinBox* moveRequestTimeoutSeconds_ = nullptr;
 };
