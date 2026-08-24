@@ -142,6 +142,20 @@ bool ShopExchangeCatalog::loadRoot(const QJsonObject& root, const QString& sourc
       good.enhanceType = goodObject.value(QStringLiteral("enhanceType")).toString();
       good.unlock = goodObject.value(QStringLiteral("unlock")).toString();
       good.tag = goodObject.value(QStringLiteral("tag")).toString();
+      good.provenGapUnitsPerExchange =
+          goodObject.value(QStringLiteral("provenGapUnitsPerExchange")).toInt();
+      good.provenGapCode =
+          goodObject.value(QStringLiteral("provenGapCode")).toString();
+      const QStringList enhanceCodes =
+          good.enhanceType.split(QLatin1Char('-'), Qt::SkipEmptyParts);
+      // These phrases are copied from the real official project description.
+      // Do not infer a quantity from generic wording such as "满级".
+      if (good.provenGapUnitsPerExchange <= 0 && enhanceCodes.size() == 1 &&
+          (good.description.contains(QStringLiteral("1颗红星")) ||
+           good.description.contains(QStringLiteral("1个1级红色星神")))) {
+        good.provenGapUnitsPerExchange = 1;
+        good.provenGapCode = enhanceCodes.constFirst().trimmed();
+      }
       good.raceIds = intList(goodObject.value(QStringLiteral("raceIds")));
       good.shelfDate = parseYmd(goodObject.value(QStringLiteral("shelfTime")).toString());
       good.removalDate = parseYmd(goodObject.value(QStringLiteral("removalTime")).toString());

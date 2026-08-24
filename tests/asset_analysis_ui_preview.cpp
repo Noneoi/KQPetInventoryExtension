@@ -12,6 +12,7 @@
 #include <QPushButton>
 #include <QTableWidget>
 #include <QTableView>
+#include <QTabWidget>
 #include <QTemporaryDir>
 #include <QTimer>
 
@@ -73,6 +74,14 @@ int main(int argc, char* argv[]) {
       const bool staleWasShown =
           analysisStatus && analysisStatus->text().contains(QStringLiteral("1 只详情已变化"));
       if (refresh) refresh->click();
+      QTabWidget* recommendationTabs =
+          window->findChild<QTabWidget*>(QStringLiteral("KQRecommendationTabs"));
+      QTableView* readyRecommendations =
+          window->findChild<QTableView*>(QStringLiteral("KQReadyRecommendationTable"));
+      QTableView* missingRecommendations =
+          window->findChild<QTableView*>(QStringLiteral("KQMissingRecommendationTable"));
+      QTableView* nearFullRecommendations =
+          window->findChild<QTableView*>(QStringLiteral("KQNearFullRecommendationTable"));
       const bool valid =
           refresh &&
           refresh->text() == QStringLiteral("重新计算养成分析（仅本地）") &&
@@ -83,6 +92,16 @@ int main(int argc, char* argv[]) {
           analysisStatus->text().contains(QStringLiteral("分析状态：最新")) &&
           controller->dirtyPetIds().isEmpty() && controller->snapshots().size() == 1 &&
           window->findChild<QTableView*>(QStringLiteral("KQAssetSnapshotTable")) &&
+          recommendationTabs && recommendationTabs->count() == 3 &&
+          readyRecommendations && missingRecommendations &&
+          nearFullRecommendations &&
+          readyRecommendations->horizontalScrollBarPolicy() ==
+              Qt::ScrollBarAlwaysOff &&
+          missingRecommendations->horizontalScrollBarPolicy() ==
+              Qt::ScrollBarAlwaysOff &&
+          nearFullRecommendations->horizontalScrollBarPolicy() ==
+              Qt::ScrollBarAlwaysOff &&
+          window->findChild<QCheckBox*>(QStringLiteral("KQShowAllRecommendations")) &&
           window->findChild<QTableWidget*>(QStringLiteral("KQAssetInstanceHistoryTable"));
       application.exit(valid ? 0 : 2);
     });

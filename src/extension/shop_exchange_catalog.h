@@ -21,6 +21,10 @@ struct ShopExchangeGood {
   QString enhanceType;
   QString unlock;
   QString tag;
+  // Non-zero only when the official project wording proves that one exchange
+  // resolves an exact number of units for one enhance type.
+  int provenGapUnitsPerExchange = 0;
+  QString provenGapCode;
   QVector<int> raceIds;
   QDate shelfDate;
   QDate removalDate;

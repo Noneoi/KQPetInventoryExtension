@@ -27,6 +27,7 @@ public:
   void setMaterialCounts(const QHash<QString, qint64>& counts, bool valid);
   void setStatus(const QString& status);
   void setRefreshRunning(bool running);
+  void focusGood(const QString& stableKey);
 
 public slots:
   void setMoveRunning(bool running);
@@ -98,4 +99,5 @@ private:
   bool petSortAscending_ = true;
   bool rebuildScheduled_ = false;
   QHash<int, QSet<qint64>> eligiblePetIdsByRace_;
+  QString pendingFocusGoodKey_;
 };

@@ -219,6 +219,12 @@ AccountAssetOverview AssetAnalyzer::analyze() const {
       record.currentPower = power.current;
       record.extremePower = power.extreme;
       record.highestPower = power.highest;
+      record.highestPowerGap = power.highestGap;
+      record.missingRedStars = power.missingRedStars;
+      record.stargodLevelMissingSlots = power.stargodLevelMissingSlots;
+      record.stargodSlotsKnown = power.stargodSlotsKnown;
+      record.hasChangeableSlot = power.hasChangeableSlot;
+      record.changeableRed = power.changeableRed;
       record.completionPercent = power.highest > 0
                                      ? qBound(0, qRound(power.current * 100.0 / power.highest), 100)
                                      : 0;
@@ -230,8 +236,10 @@ AccountAssetOverview AssetAnalyzer::analyze() const {
       record.astrolabeMissing = !power.breakthrough || hasGap(power, QStringLiteral("asv"));
       record.sacredMissing = hasGap(power, QStringLiteral("sjv"));
       record.soulMissing = hasGap(power, QStringLiteral("bsv"));
-      for (const PetBattlePowerGap& gap : power.componentGaps)
+      for (const PetBattlePowerGap& gap : power.componentGaps) {
+        record.gapKeys.append(gap.key);
         record.gaps.append(QStringLiteral("%1 +%2").arg(gap.label).arg(gap.gap));
+      }
       if (record.redStarMissing)
         record.gaps.append(QStringLiteral("星神满战力数量未满足"));
       if (record.astrolabeMissing && !hasGap(power, QStringLiteral("asv")))

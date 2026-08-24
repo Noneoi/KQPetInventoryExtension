@@ -3,6 +3,7 @@
 #include "asset_analysis_filter_proxy_model.h"
 #include "asset_analysis_model.h"
 #include "build_info.h"
+#include "recommendation_model.h"
 #include "snapshot_history_model.h"
 
 #include <QAbstractItemView>
@@ -59,6 +60,35 @@ QTableView* makeView(QWidget* parent) {
   table->horizontalHeader()->setDefaultSectionSize(150);
   table->horizontalHeader()->setStretchLastSection(true);
   return table;
+}
+
+QTableView* makeRecommendationView(QWidget* parent,
+                                   RecommendationModel** model) {
+  auto* view = makeView(parent);
+  *model = new RecommendationModel(view);
+  view->setModel(*model);
+  view->setWordWrap(true);
+  view->setTextElideMode(Qt::ElideNone);
+  view->setHorizontalScrollBarPolicy(Qt::ScrollBarAlwaysOff);
+  view->verticalHeader()->setSectionResizeMode(QHeaderView::ResizeToContents);
+  view->horizontalHeader()->setStretchLastSection(false);
+  for (int column : {RecommendationModel::Pet, RecommendationModel::Gap,
+                     RecommendationModel::Project,
+                     RecommendationModel::Resources,
+                     RecommendationModel::Conclusion})
+    view->horizontalHeader()->setSectionResizeMode(column,
+                                                    QHeaderView::Stretch);
+  for (int column : {RecommendationModel::Status,
+                     RecommendationModel::Remaining,
+                     RecommendationModel::ViewPet,
+                     RecommendationModel::ViewShop})
+    view->horizontalHeader()->setSectionResizeMode(column,
+                                                    QHeaderView::Fixed);
+  view->setColumnWidth(RecommendationModel::Status, 112);
+  view->setColumnWidth(RecommendationModel::Remaining, 88);
+  view->setColumnWidth(RecommendationModel::ViewPet, 76);
+  view->setColumnWidth(RecommendationModel::ViewShop, 76);
+  return view;
 }
 
 QTableWidgetItem* item(const QString& text, const QColor& color = {}) {
@@ -159,6 +189,50 @@ AssetAnalysisWindow::AssetAnalysisWindow(AssetAnalysisController* controller,
   diagnosticLayout->addWidget(diagnosticTable_, 1);
   tabs_->addTab(diagnosticPage, QStringLiteral("养成诊断中心"));
 
+  auto* recommendationPage = new QWidget(tabs_);
+  auto* recommendationLayout = new QVBoxLayout(recommendationPage);
+  auto* recommendationToolbar = new QHBoxLayout();
+  auto* recommendationNote = new QLabel(
+      QStringLiteral("只使用上次手动养成分析、当前账号真实资源缓存和真实兑换目录。每个子页默认显示排序后的前 10 条。"),
+      recommendationPage);
+  recommendationNote->setWordWrap(true);
+  showAllRecommendations_ = new QCheckBox(
+      QStringLiteral("显示全部建议"), recommendationPage);
+  showAllRecommendations_->setObjectName(
+      QStringLiteral("KQShowAllRecommendations"));
+  recommendationToolbar->addWidget(recommendationNote, 1);
+  recommendationToolbar->addWidget(showAllRecommendations_);
+  recommendationLayout->addLayout(recommendationToolbar);
+  recommendationTabs_ = new QTabWidget(recommendationPage);
+  recommendationTabs_->setObjectName(QStringLiteral("KQRecommendationTabs"));
+  const auto addRecommendationSection =
+      [this](const QString& title, const QString& objectName,
+             QTableView** view, RecommendationModel** model) {
+        auto* page = new QWidget(recommendationTabs_);
+        auto* layout = new QVBoxLayout(page);
+        layout->setContentsMargins(0, 0, 0, 0);
+        *view = makeRecommendationView(page, model);
+        (*view)->setObjectName(objectName);
+        connect(*view, &QTableView::clicked, this,
+                &AssetAnalysisWindow::activateRecommendationIndex);
+        layout->addWidget(*view, 1);
+        recommendationTabs_->addTab(page, title);
+      };
+  addRecommendationSection(QStringLiteral("现在可以处理"),
+                           QStringLiteral("KQReadyRecommendationTable"),
+                           &readyRecommendations_,
+                           &readyRecommendationModel_);
+  addRecommendationSection(QStringLiteral("还缺资源 / 资源未知"),
+                           QStringLiteral("KQMissingRecommendationTable"),
+                           &missingRecommendations_,
+                           &missingRecommendationModel_);
+  addRecommendationSection(QStringLiteral("接近满培养"),
+                           QStringLiteral("KQNearFullRecommendationTable"),
+                           &nearFullRecommendations_,
+                           &nearFullRecommendationModel_);
+  recommendationLayout->addWidget(recommendationTabs_, 1);
+  tabs_->addTab(recommendationPage, QStringLiteral("行动建议"));
+
   auto* historyPage = new QWidget(tabs_);
   auto* historyLayout = new QVBoxLayout(historyPage);
   auto* historyToolbar = new QHBoxLayout();
@@ -220,6 +294,8 @@ AssetAnalysisWindow::AssetAnalysisWindow(AssetAnalysisController* controller,
           &AssetAnalysisWindow::selectPetIndex);
   connect(refreshAnalysis_, &QPushButton::clicked, this,
           &AssetAnalysisWindow::refreshAnalysis);
+  connect(showAllRecommendations_, &QCheckBox::toggled, this,
+          &AssetAnalysisWindow::rebuildRecommendations);
   connect(autoSnapshot_, &QCheckBox::toggled, controller_,
           &AssetAnalysisController::setAutoSnapshotEnabled);
   connect(recordSnapshot_, &QPushButton::clicked, this,
@@ -248,6 +324,7 @@ AssetAnalysisWindow::AssetAnalysisWindow(AssetAnalysisController* controller,
   }
   refreshAccountAnalysis();
   rebuildHistory();
+  rebuildRecommendations();
 }
 
 void AssetAnalysisWindow::addOverviewRow(const QString& label,
@@ -279,6 +356,7 @@ void AssetAnalysisWindow::refreshAnalysis() {
   routineSummary_ = controller_->routineSummary();
   rebuildOverview();
   rebuildDiagnostics();
+  rebuildRecommendations();
   updateAnalysisStatus();
   if (controller_->autoSnapshotEnabled()) {
     controller_->recordSnapshotFromOverview(overview_);
@@ -326,6 +404,7 @@ void AssetAnalysisWindow::refreshAccountAnalysis() {
   overview_ = analysisReady_ ? controller_->overview() : AccountAssetOverview{};
   rebuildOverview();
   rebuildDiagnostics();
+  rebuildRecommendations();
   updateAnalysisStatus();
 }
 
@@ -336,6 +415,7 @@ void AssetAnalysisWindow::scheduleAnalysisStatusUpdate() {
     analysisStatusUpdatePending_ = false;
     updateAnalysisStatus();
     updateDiagnosticSummary();
+    rebuildRecommendations();
   });
 }
 
@@ -504,6 +584,63 @@ void AssetAnalysisWindow::updateDiagnosticSummary() {
           .arg(analysisFilterModel_->rowCount())
           .arg(overview_.totalPets)
           .arg(staleNote));
+}
+
+void AssetAnalysisWindow::rebuildRecommendations() {
+  if (!controller_ || !readyRecommendationModel_ ||
+      !missingRecommendationModel_ || !nearFullRecommendationModel_)
+    return;
+  QList<ActionRecommendation> ready;
+  QList<ActionRecommendation> missing;
+  QList<ActionRecommendation> nearFull;
+  if (analysisReady_) {
+    for (const ActionRecommendation& recommendation :
+         controller_->recommendations()) {
+      if (recommendation.type == RecommendationType::ReadyNow)
+        ready.append(recommendation);
+      else if (recommendation.type ==
+               RecommendationType::NearFullCultivation)
+        nearFull.append(recommendation);
+      else
+        missing.append(recommendation);
+    }
+  }
+  const bool showAll = showAllRecommendations_ &&
+                       showAllRecommendations_->isChecked();
+  const auto displayed = [showAll](const QList<ActionRecommendation>& values) {
+    return showAll || values.size() <= 10 ? values : values.mid(0, 10);
+  };
+  const QList<ActionRecommendation> displayedReady = displayed(ready);
+  const QList<ActionRecommendation> displayedMissing = displayed(missing);
+  const QList<ActionRecommendation> displayedNearFull = displayed(nearFull);
+  readyRecommendationModel_->setRecommendations(displayedReady);
+  missingRecommendationModel_->setRecommendations(displayedMissing);
+  nearFullRecommendationModel_->setRecommendations(displayedNearFull);
+  if (recommendationTabs_) {
+    recommendationTabs_->setTabText(
+        0, QStringLiteral("现在可以处理（%1 / %2）")
+               .arg(displayedReady.size()).arg(ready.size()));
+    recommendationTabs_->setTabText(
+        1, QStringLiteral("还缺资源 / 资源未知（%1 / %2）")
+               .arg(displayedMissing.size()).arg(missing.size()));
+    recommendationTabs_->setTabText(
+        2, QStringLiteral("接近满培养（%1 / %2）")
+               .arg(displayedNearFull.size()).arg(nearFull.size()));
+  }
+}
+
+void AssetAnalysisWindow::activateRecommendationIndex(
+    const QModelIndex& index) {
+  if (!index.isValid()) return;
+  if (index.column() == RecommendationModel::ViewPet) {
+    const qint64 instanceId =
+        index.data(RecommendationModel::PetInstanceIdRole).toLongLong();
+    if (instanceId > 0) emit petRequested(instanceId);
+  } else if (index.column() == RecommendationModel::ViewShop) {
+    const QString key =
+        index.data(RecommendationModel::ShopGoodKeyRole).toString();
+    if (!key.isEmpty()) emit shopGoodRequested(key);
+  }
 }
 
 void AssetAnalysisWindow::activatePetIndex(const QModelIndex& index) {

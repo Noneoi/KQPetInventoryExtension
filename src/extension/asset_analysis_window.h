@@ -16,6 +16,7 @@ class QModelIndex;
 class AssetAnalysisModel;
 class AssetAnalysisFilterProxyModel;
 class SnapshotHistoryModel;
+class RecommendationModel;
 
 class AssetAnalysisWindow final : public QDialog {
   Q_OBJECT
@@ -27,6 +28,7 @@ public:
 signals:
   void petRequested(qint64 instanceId);
   void shopRequested();
+  void shopGoodRequested(const QString& stableKey);
   void routineRequested();
 
 private slots:
@@ -41,6 +43,7 @@ private slots:
   void rebuildDiagnostics();
   void applyDiagnosticFilter();
   void rebuildHistory();
+  void activateRecommendationIndex(const QModelIndex& index);
   void activateOverviewRow(int row, int column);
   void activatePetIndex(const QModelIndex& index);
   void selectPetIndex(const QModelIndex& index);
@@ -54,6 +57,7 @@ private:
   void scheduleAnalysisStatusUpdate();
   void updateAnalysisStatus();
   void updateDiagnosticSummary();
+  void rebuildRecommendations();
 
   AssetAnalysisController* controller_ = nullptr;
   AccountInventorySummary inventory_;
@@ -63,6 +67,8 @@ private:
   bool analysisReady_ = false;
   bool analysisStatusUpdatePending_ = false;
   QTabWidget* tabs_ = nullptr;
+  QTabWidget* recommendationTabs_ = nullptr;
+  QCheckBox* showAllRecommendations_ = nullptr;
   QLabel* accountSummary_ = nullptr;
   QLabel* analysisStatus_ = nullptr;
   QLabel* status_ = nullptr;
@@ -74,6 +80,12 @@ private:
   QTableView* diagnosticTable_ = nullptr;
   AssetAnalysisModel* analysisModel_ = nullptr;
   AssetAnalysisFilterProxyModel* analysisFilterModel_ = nullptr;
+  QTableView* readyRecommendations_ = nullptr;
+  QTableView* missingRecommendations_ = nullptr;
+  QTableView* nearFullRecommendations_ = nullptr;
+  RecommendationModel* readyRecommendationModel_ = nullptr;
+  RecommendationModel* missingRecommendationModel_ = nullptr;
+  RecommendationModel* nearFullRecommendationModel_ = nullptr;
   QCheckBox* autoSnapshot_ = nullptr;
   QPushButton* recordSnapshot_ = nullptr;
   QLabel* changeSummary_ = nullptr;

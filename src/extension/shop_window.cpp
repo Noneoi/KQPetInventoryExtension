@@ -264,6 +264,34 @@ void ShopWindow::setRefreshRunning(bool running) {
   refresh_->setText(running ? QStringLiteral("查询中…") : QStringLiteral("刷新兑换次数"));
 }
 
+void ShopWindow::focusGood(const QString& stableKey) {
+  if (stableKey.isEmpty()) return;
+  for (int shopIndex = 0; shopIndex < shopRows_.size(); ++shopIndex) {
+    const QList<GoodRow>& rows = shopRows_.at(shopIndex);
+    for (const GoodRow& row : rows) {
+      if (row.good.stableKey() != stableKey) continue;
+      pendingFocusGoodKey_.clear();
+      if (shopTabs_->currentIndex() != shopIndex)
+        shopTabs_->setCurrentIndex(shopIndex);
+      auto* table = qobject_cast<QTableWidget*>(shopTabs_->widget(shopIndex));
+      if (table) {
+        table->selectRow(row.tableRow);
+        table->scrollToItem(table->item(row.tableRow, 0),
+                            QAbstractItemView::PositionAtCenter);
+      }
+      showGoodPets(row.good);
+      return;
+    }
+  }
+  if (shopRows_.isEmpty()) {
+    pendingFocusGoodKey_ = stableKey;
+    scheduleRebuild();
+  } else {
+    pendingFocusGoodKey_.clear();
+    setStatus(QStringLiteral("建议中的兑换项目已不在当前真实商店目录中"));
+  }
+}
+
 QString ShopWindow::costText(const ShopExchangeGood& good) const {
   QStringList costs;
   QString normalized = good.cost;
@@ -388,6 +416,11 @@ void ShopWindow::rebuild() {
     }
   }
   updateMoveButton();
+  if (!pendingFocusGoodKey_.isEmpty()) {
+    const QString key = pendingFocusGoodKey_;
+    pendingFocusGoodKey_.clear();
+    focusGood(key);
+  }
 }
 
 void ShopWindow::rebuildEligiblePetIndex() {

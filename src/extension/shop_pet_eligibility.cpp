@@ -156,21 +156,24 @@ ShopPetEligibility analyzeShopPetEligibility(const ShopExchangeGood& good,
             QStringLiteral("官方项目没有可识别的培养类型")};
 
   QStringList useful;
+  QStringList usefulCodes;
   QStringList full;
   QStringList unknown;
   for (const QString& code : codes) {
     const ComponentState state = component(code.trimmed(), pet);
     const QString name = componentName(code.trimmed());
-    if (state == ComponentState::Useful)
+    if (state == ComponentState::Useful) {
       useful.append(name);
-    else if (state == ComponentState::Full)
+      usefulCodes.append(code.trimmed());
+    } else if (state == ComponentState::Full)
       full.append(name);
     else
       unknown.append(name);
   }
   if (!useful.isEmpty())
     return {ShopPetEligibilityState::Usable,
-            QStringLiteral("可提升：%1").arg(useful.join(QStringLiteral("、")))};
+            QStringLiteral("可提升：%1").arg(useful.join(QStringLiteral("、"))),
+            usefulCodes};
   if (unknown.isEmpty())
     return {ShopPetEligibilityState::NotUsable,
             QStringLiteral("对应培养项已满：%1").arg(full.join(QStringLiteral("、")))};

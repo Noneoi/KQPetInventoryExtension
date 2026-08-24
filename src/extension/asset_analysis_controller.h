@@ -26,6 +26,7 @@ public:
   AccountAssetOverview recalculateOverview();
   AccountAssetOverview overview() const;
   AccountAssetOverview routineSummary() const;
+  QList<ActionRecommendation> recommendations() const;
   bool hasAnalysis() const;
   QDateTime lastAnalyzedAt() const;
   QSet<qint64> dirtyPetIds() const;

@@ -4,6 +4,7 @@
 
 #include <QJsonObject>
 #include <QString>
+#include <QStringList>
 
 enum class ShopPetEligibilityState {
   Usable,
@@ -14,9 +15,9 @@ enum class ShopPetEligibilityState {
 struct ShopPetEligibility {
   ShopPetEligibilityState state = ShopPetEligibilityState::Unknown;
   QString reason;
+  QStringList usefulCodes;
 };
 
 ShopPetEligibility analyzeShopPetEligibility(const ShopExchangeGood& good,
                                               const QJsonObject& pet,
                                               bool hasFullDetail);
-

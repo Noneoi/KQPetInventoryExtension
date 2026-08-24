@@ -32,6 +32,9 @@ struct PetAssetRecord {
   int extremePower = 0;
   int highestPower = 0;
   int completionPercent = 0;
+  int highestPowerGap = 0;
+  int missingRedStars = 0;
+  int stargodLevelMissingSlots = 0;
   bool detailAvailable = false;
   bool fullyCultivated = false;
   bool improvable = false;
@@ -40,6 +43,10 @@ struct PetAssetRecord {
   bool sacredMissing = false;
   bool soulMissing = false;
   bool shopImprovable = false;
+  bool stargodSlotsKnown = false;
+  bool hasChangeableSlot = false;
+  bool changeableRed = false;
+  QStringList gapKeys;
   QStringList gaps;
   QJsonObject pet;
 };

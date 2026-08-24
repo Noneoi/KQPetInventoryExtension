@@ -2,7 +2,10 @@
 
 #include "asset_snapshot_comparator.h"
 #include "pet_repository.h"
+#include "account_resource_view.h"
+#include "recommendation_engine.h"
 #include "routine_overview_controller.h"
+#include "shop_exchange_catalog.h"
 #include "shop_exchange_controller.h"
 
 AssetAnalysisController::AssetAnalysisController(
@@ -56,6 +59,15 @@ const AccountAnalysisState* AssetAnalysisController::currentStateIfPresent() con
 AccountAssetOverview AssetAnalysisController::recalculateOverview() {
   AccountAnalysisState& state = currentState();
   state.lastValidOverview = analyzer_.analyze();
+  const AccountResourceView resources(
+      shopController_ ? shopController_->materialCounts()
+                      : QHash<QString, qint64>{},
+      shopController_ && shopController_->hasMaterialCounts());
+  state.lastValidRecommendations = RecommendationEngine::generate(
+      account_, state.lastValidOverview,
+      ShopExchangeCatalog::instance().onlineGoods(),
+      shopController_ ? shopController_->packet() : QJsonObject{},
+      shopController_ && shopController_->hasPacket(), resources);
   state.analyzedSignature = analyzer_.inventorySignature();
   state.lastAnalysisAt = QDateTime::currentDateTime();
   state.dirtyPetIds.clear();
@@ -74,6 +86,15 @@ AccountAssetOverview AssetAnalysisController::overview() const {
 
 AccountAssetOverview AssetAnalysisController::routineSummary() const {
   return analyzer_.routineSummary();
+}
+
+QList<ActionRecommendation> AssetAnalysisController::recommendations() const {
+  const AccountAnalysisState* state = currentStateIfPresent();
+  if (!state || !state->hasAnalysis) return {};
+  const bool cultivationStale = state->inventoryStale ||
+                                !state->dirtyPetIds.isEmpty();
+  return RecommendationEngine::applyFreshness(
+      state->lastValidRecommendations, cultivationStale, state->shopStale);
 }
 
 bool AssetAnalysisController::hasAnalysis() const {

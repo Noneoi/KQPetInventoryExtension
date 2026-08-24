@@ -59,6 +59,7 @@ $buildArguments += @('--target', 'KQPetLauncher', 'KQPetInventory', 'KQPetCatalo
                      'KQPetRepositorySmoke', 'KQPetRefreshSmoke', 'KQPetMoveSmoke',
                      'KQPetSearchSmoke', 'KQPetTableModelSmoke', 'KQPetShopSmoke',
                      'KQAssetAnalysisSmoke', 'KQAssetAnalysisPerformance',
+                     'KQRecommendationSmoke',
                      'KQRoutineOverviewSmoke',
                      'KQProtocolFixtureSmoke', 'KQInlineHookPolicySmoke',
                      'KQPetUiPreview', 'KQShopUiPreview',

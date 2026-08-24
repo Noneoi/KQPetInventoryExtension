@@ -393,6 +393,11 @@ void ExtensionContext::showAssetAnalysisWindow() {
             });
     connect(analysisWindow_, &AssetAnalysisWindow::shopRequested, this,
             &ExtensionContext::showShopWindow);
+    connect(analysisWindow_, &AssetAnalysisWindow::shopGoodRequested, this,
+            [this](const QString& stableKey) {
+              showShopWindow();
+              if (shopWindow_) shopWindow_->focusGood(stableKey);
+            });
     connect(analysisWindow_, &AssetAnalysisWindow::routineRequested, this,
             &ExtensionContext::showRoutineWindow);
   }
