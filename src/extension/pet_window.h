@@ -123,6 +123,10 @@ private:
   QTreeWidget* rawTree_ = nullptr;
   QLabel* status_ = nullptr;
   qint64 currentId_ = 0;
+  qint64 renderedDetailId_ = 0;
+  qint64 pendingDetailScrollId_ = 0;
+  int pendingDetailScroll_ = 0;
+  quint64 detailRenderGeneration_ = 0;
   int currentRaceId_ = 0;
   QString currentVisualKey_;
   int backpackPage_ = 0;

@@ -1,6 +1,6 @@
 cmake_minimum_required(VERSION 3.24)
 
-project(KQPetInventoryExtension VERSION 1.3.1 LANGUAGES CXX)
+project(KQPetInventoryExtension VERSION 1.3.2 LANGUAGES CXX)
 
 if(NOT WIN32 OR NOT CMAKE_SIZEOF_VOID_P EQUAL 8)
   message(FATAL_ERROR "This project only supports 64-bit Windows.")

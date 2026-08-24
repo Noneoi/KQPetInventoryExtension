@@ -36,15 +36,25 @@ QJsonObject cultivatedPet(qint64 id, int race, const QString& name,
           {QStringLiteral("zdl"), current},
           {QStringLiteral("xzdl"), 10000},
           {QStringLiteral("astrolabebr"), full},
-          {QStringLiteral("sgs"), QStringLiteral("1:1#2:1#3:1")},
+          {QStringLiteral("sgs"),
+           full ? QJsonValue(QStringLiteral(
+                      "66:8#67:8#70:8#71:8#72:8#73:8#74:8#80:8:80"))
+                : QJsonValue(QStringLiteral(
+                      "66:8#67:8#70:8#0:8#0:8#0:8#0:8#80:8:80"))},
+          {QStringLiteral("sgsp"),
+           full ? QJsonValue(QJsonArray{71, 72, 73, 74})
+                : QJsonValue(QJsonArray{})},
           {QStringLiteral("czdlv"),
-           QJsonObject{{QStringLiteral("sgv"), full ? 1200 : 0},
+           QJsonObject{{QStringLiteral("lv"),
+                        full ? current - 5500 : current - 2615},
+                       {QStringLiteral("sgv"), full ? 5200 : 2600},
                        {QStringLiteral("asv"), full ? 150 : 0},
                        {QStringLiteral("bsv"), full ? 100 : 10},
                        {QStringLiteral("sjv"), full ? 50 : 5}}},
           {QStringLiteral("mzdlv"),
-           QJsonObject{{QStringLiteral("sgv"), 0},
-                       {QStringLiteral("asv"), full ? 0 : 100},
+           QJsonObject{{QStringLiteral("lv"), 5850},
+                       {QStringLiteral("sgv"), 4000},
+                       {QStringLiteral("asv"), 0},
                        {QStringLiteral("bsv"), 100},
                        {QStringLiteral("sjv"), 50}}}};
 }
@@ -357,8 +367,7 @@ int main(int argc, char* argv[]) {
   ok &= require(compatibleSnapshots.size() == 2 &&
                     compatibleSnapshots.constFirst().schemaVersion ==
                         AssetAnalysisVersion::kLegacySnapshotSchema &&
-                    compatibleSnapshots.constFirst().analysisVersion ==
-                        AssetAnalysisVersion::kCurrentAnalysis &&
+                    compatibleSnapshots.constFirst().analysisVersion == 1 &&
                     compatibleSnapshots.constFirst().totalCurrentPower == 12345,
                 "legacy snapshot compatibility or future-schema isolation failed");
 

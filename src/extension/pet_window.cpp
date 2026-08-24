@@ -25,6 +25,7 @@
 #include <QHBoxLayout>
 #include <QJsonArray>
 #include <QJsonDocument>
+#include <QItemSelectionModel>
 #include <QLabel>
 #include <QLineEdit>
 #include <QPainter>
@@ -85,6 +86,8 @@ QString friendlyKey(const QString& key) {
       {QStringLiteral("gt"), QStringLiteral("天赋等级")},
       {QStringLiteral("sgs"), QStringLiteral("星神序列")},
       {QStringLiteral("sgp"), QStringLiteral("星神战力")},
+      {QStringLiteral("sgsp"), QStringLiteral("精灵星神背包")},
+      {QStringLiteral("sguln"), QStringLiteral("精灵星神背包已解锁扩展格")},
       {QStringLiteral("zdl"), QStringLiteral("当前战斗力")},
       {QStringLiteral("xzdl"), QStringLiteral("极限战斗力")},
       {QStringLiteral("czdlv"), QStringLiteral("当前战斗力分项")},
@@ -180,6 +183,9 @@ private:
 void configurePetTable(QTableView* table, bool backpack) {
   table->setSelectionBehavior(QAbstractItemView::SelectRows);
   table->setSelectionMode(QAbstractItemView::SingleSelection);
+  table->setStyleSheet(QStringLiteral(
+      "QTableView::item:selected { background-color:#2563eb; color:#ffffff; }"
+      "QTableView::item:selected:!active { background-color:#3b82f6; color:#ffffff; }"));
   table->setEditTriggers(QAbstractItemView::NoEditTriggers);
   table->setAlternatingRowColors(true);
   table->setWordWrap(false);
@@ -299,10 +305,12 @@ QString battlePowerTableText(const BattlePowerState& state) {
   const QString extreme = state.hasExtreme ? QString::number(state.extreme) : QStringLiteral("—");
   if (state.isHighest)
     return QStringLiteral("%1 / %2（最高）").arg(current, extreme);
-  if (state.hasCurrent && state.hasExtreme)
+  if (state.hasCurrent && state.hasExtreme && state.hasHighest)
     return QStringLiteral("%1 / %2（距最高 %3）")
         .arg(current, extreme)
-        .arg(qMax(0, state.highest - state.current));
+        .arg(state.highestGap);
+  if (state.hasCurrent && state.hasExtreme)
+    return QStringLiteral("%1 / %2（最高待确认）").arg(current, extreme);
   return QStringLiteral("%1 / %2").arg(current, extreme);
 }
 
@@ -970,6 +978,32 @@ void PetWindow::refreshViews(bool rebuildChoices) {
   eliteWarehouseModel_->setPets(eliteAll);
   resizeModelViewColumns(warehouseTable_);
   resizeModelViewColumns(eliteWarehouseTable_);
+
+  if (currentId_ > 0) {
+    const QJsonObject selectedBackpack = repository_->backpackPet(currentId_);
+    const QJsonObject selectedWarehouse = repository_->warehousePet(currentId_);
+    if (!selectedBackpack.isEmpty()) {
+      for (int row = 0; row < backpackTable_->rowCount(); ++row) {
+        if (rowId(backpackTable_, row) != currentId_) continue;
+        backpackTable_->setCurrentCell(row, 0,
+                                       QItemSelectionModel::ClearAndSelect |
+                                           QItemSelectionModel::Rows);
+        break;
+      }
+    } else if (!selectedWarehouse.isEmpty()) {
+      const bool elite = selectedWarehouse.value(QStringLiteral("_warehouseGroup"))
+                             .toString() == QStringLiteral("elite");
+      QTableView* selectedTable = elite ? eliteWarehouseTable_ : warehouseTable_;
+      for (int row = 0; row < selectedTable->model()->rowCount(); ++row) {
+        const QModelIndex index = selectedTable->model()->index(row, 0);
+        if (index.data(PetTableModel::InstanceIdRole).toLongLong() != currentId_)
+          continue;
+        selectedTable->setCurrentIndex(index);
+        selectedTable->selectRow(row);
+        break;
+      }
+    }
+  }
   rebuildPageButtons(pageCount);
 
   backpackTitle_->setText(
@@ -1176,6 +1210,10 @@ void PetWindow::showDetail(const QJsonObject& pet) {
     currentLocation_.clear();
     updateMoveButtons();
     currentVisualKey_.clear();
+    renderedDetailId_ = 0;
+    pendingDetailScrollId_ = 0;
+    pendingDetailScroll_ = 0;
+    ++detailRenderGeneration_;
     detailView_->setHtml(QStringLiteral("<p style='color:#6b7280'>请选择一只精灵</p>"));
     auto* item = new QTreeWidgetItem(rawTree_);
     item->setText(0, QStringLiteral("提示"));
@@ -1200,8 +1238,37 @@ void PetWindow::showDetail(const QJsonObject& pet) {
       PetDetailAnalyzer::analyze(pet, repository_, imagePath, false);
   PetDetailRenderOptions renderOptions;
   renderOptions.visualMismatchRefreshPending = true;
+  const qint64 nextDetailId = model.instanceId > 0 ? model.instanceId : currentId_;
+  const bool preserveScroll = renderedDetailId_ > 0 &&
+                              renderedDetailId_ == nextDetailId;
+  const int visibleScroll = detailView_->verticalScrollBar()->value();
+  const int previousScroll = preserveScroll && visibleScroll == 0 &&
+                                     pendingDetailScrollId_ == nextDetailId
+                                 ? pendingDetailScroll_
+                                 : visibleScroll;
   detailView_->setHtml(PetDetailRenderer::render(model, renderOptions));
-  detailView_->verticalScrollBar()->setValue(0);
+  renderedDetailId_ = nextDetailId;
+  const quint64 renderGeneration = ++detailRenderGeneration_;
+  if (preserveScroll) {
+    pendingDetailScrollId_ = nextDetailId;
+    pendingDetailScroll_ = previousScroll;
+    QScrollBar* scrollBar = detailView_->verticalScrollBar();
+    scrollBar->setValue(qMin(previousScroll, scrollBar->maximum()));
+    QTimer::singleShot(0, detailView_, [this, nextDetailId, previousScroll,
+                                       renderGeneration]() {
+      if (renderedDetailId_ != nextDetailId ||
+          detailRenderGeneration_ != renderGeneration)
+        return;
+      QScrollBar* scrollBar = detailView_->verticalScrollBar();
+      scrollBar->setValue(qMin(previousScroll, scrollBar->maximum()));
+      pendingDetailScrollId_ = 0;
+      pendingDetailScroll_ = 0;
+    });
+  } else {
+    pendingDetailScrollId_ = 0;
+    pendingDetailScroll_ = 0;
+    detailView_->verticalScrollBar()->setValue(0);
+  }
 
   const QStringList priority = {QStringLiteral("id"), QStringLiteral("n"),
                                 QStringLiteral("customName"), QStringLiteral("r"),

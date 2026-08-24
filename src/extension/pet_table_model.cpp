@@ -23,10 +23,12 @@ QString battlePowerText(const PetBattlePowerState& state) {
   const QString extreme = state.hasExtreme ? QString::number(state.extreme)
                                            : QStringLiteral("—");
   if (state.isHighest) return QStringLiteral("%1 / %2（最高）").arg(current, extreme);
-  if (state.hasCurrent && state.hasExtreme)
+  if (state.hasCurrent && state.hasExtreme && state.hasHighest)
     return QStringLiteral("%1 / %2（距最高 %3）")
         .arg(current, extreme)
-        .arg(qMax(0, state.highest - state.current));
+        .arg(state.highestGap);
+  if (state.hasCurrent && state.hasExtreme)
+    return QStringLiteral("%1 / %2（最高待确认）").arg(current, extreme);
   return QStringLiteral("%1 / %2").arg(current, extreme);
 }
 

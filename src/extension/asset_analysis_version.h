@@ -2,7 +2,7 @@
 
 namespace AssetAnalysisVersion {
 
-inline constexpr int kCurrentAnalysis = 1;
+inline constexpr int kCurrentAnalysis = 4;
 inline constexpr int kCurrentSnapshotSchema = 2;
 inline constexpr int kLegacySnapshotSchema = 1;
 

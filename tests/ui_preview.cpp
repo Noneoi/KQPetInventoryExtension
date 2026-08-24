@@ -35,7 +35,13 @@ int main(int argc, char* argv[]) {
           QStringLiteral("KQPetEliteWarehouseTable"));
       const bool valid = backpack && warehouse && elite &&
                          qobject_cast<PetFilterProxyModel*>(warehouse->model()) &&
-                         qobject_cast<PetFilterProxyModel*>(elite->model());
+                         qobject_cast<PetFilterProxyModel*>(elite->model()) &&
+                         backpack->selectionBehavior() == QAbstractItemView::SelectRows &&
+                         warehouse->selectionBehavior() == QAbstractItemView::SelectRows &&
+                         elite->selectionBehavior() == QAbstractItemView::SelectRows &&
+                         backpack->styleSheet().contains(QStringLiteral("#2563eb")) &&
+                         warehouse->styleSheet().contains(QStringLiteral("#2563eb")) &&
+                         elite->styleSheet().contains(QStringLiteral("#2563eb"));
       application.exit(valid ? 0 : 2);
     });
   }

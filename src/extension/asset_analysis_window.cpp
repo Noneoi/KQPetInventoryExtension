@@ -134,7 +134,7 @@ AssetAnalysisWindow::AssetAnalysisWindow(AssetAnalysisController* controller,
       {QStringLiteral("已满培养"), PetAssetFilter::FullyCultivated},
       {QStringLiteral("只看可提升"), PetAssetFilter::Improvable},
       {QStringLiteral("缺少详情缓存"), PetAssetFilter::MissingDetail},
-      {QStringLiteral("缺红星"), PetAssetFilter::RedStarMissing},
+      {QStringLiteral("星神未满"), PetAssetFilter::RedStarMissing},
       {QStringLiteral("星轮未突破"), PetAssetFilter::AstrolabeMissing},
       {QStringLiteral("神源兽未满"), PetAssetFilter::SacredMissing},
       {QStringLiteral("元魂未满"), PetAssetFilter::SoulMissing},
@@ -190,7 +190,7 @@ AssetAnalysisWindow::AssetAnalysisWindow(AssetAnalysisController* controller,
       instancePane,
       {QStringLiteral("日期"), QStringLiteral("名称"), QStringLiteral("当前战斗力"),
        QStringLiteral("最高战斗力"), QStringLiteral("完成度"),
-       QStringLiteral("红星"), QStringLiteral("星轮突破")});
+       QStringLiteral("星神满战力"), QStringLiteral("星轮突破")});
   instanceHistoryTable_->setObjectName(QStringLiteral("KQAssetInstanceHistoryTable"));
   instanceLayout->addLayout(instanceToolbar);
   instanceLayout->addWidget(instanceHistoryTable_, 1);
@@ -411,9 +411,9 @@ void AssetAnalysisWindow::rebuildOverview() {
                  QString::number(inventory_.missingDetailPets),
                  QStringLiteral("先在精灵仓库刷新详情后可分析"),
                  static_cast<int>(PetAssetFilter::MissingDetail));
-  addOverviewRow(QStringLiteral("红星未满"),
+  addOverviewRow(QStringLiteral("星神满战力未满足"),
                  analysisReady_ ? QString::number(overview_.redStarMissingPets) : pending,
-                 QStringLiteral("按已知红星战斗力增益判断"),
+                 QStringLiteral("按每只精灵实际普通栏位数，合计已装备与精灵星神背包判断；固定万变不计入"),
                  static_cast<int>(PetAssetFilter::RedStarMissing));
   addOverviewRow(QStringLiteral("星轮未突破"),
                  analysisReady_ ? QString::number(overview_.astrolabeMissingPets) : pending,
@@ -528,7 +528,7 @@ void AssetAnalysisWindow::rebuildHistory() {
     const AssetSnapshotDelta delta = AssetAnalysisController::compareSnapshots(
         snapshots_.last(), snapshots_.at(snapshots_.size() - 2));
     changeSummary_->setText(
-        QStringLiteral("最近两次快照变化：新增精灵 %1　达到满培养 %2　新增红星 %3　完成星轮突破 %4　账号总战力 %5")
+        QStringLiteral("最近两次快照变化：新增精灵 %1　达到满培养 %2　星神满战力 +%3　完成星轮突破 %4　账号总战力 %5")
             .arg(delta.newPets).arg(delta.newlyFullyCultivated)
             .arg(delta.newlyRedStarComplete).arg(delta.newlyAstrolabeBreakthrough)
             .arg(signedNumber(delta.totalPowerChange)));

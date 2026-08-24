@@ -62,7 +62,7 @@ AccountAssetSnapshot parseSnapshot(const QJsonObject& object, int schema) {
   snapshot.analysisVersion =
       schema == AssetAnalysisVersion::kLegacySnapshotSchema
           ? object.value(QStringLiteral("analysisVersion"))
-                .toInt(AssetAnalysisVersion::kCurrentAnalysis)
+                .toInt(1)
           : object.value(QStringLiteral("analysisVersion")).toInt();
   snapshot.account = object.value(QStringLiteral("account")).toString();
   snapshot.createdAt = QDateTime::fromString(

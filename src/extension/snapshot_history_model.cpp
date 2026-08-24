@@ -33,7 +33,7 @@ QVariant SnapshotHistoryModel::data(const QModelIndex& index, int role) const {
       if (index.row() == 0) return QStringLiteral("首个快照");
       const AssetSnapshotDelta delta = AssetSnapshotComparator::compare(
           snapshot, snapshots_.at(index.row() - 1));
-      return QStringLiteral("新增 %1；满培养 +%2；红星 +%3；星轮 +%4；战力 %5")
+      return QStringLiteral("新增 %1；满培养 +%2；星神满战力 +%3；星轮 +%4；战力 %5")
           .arg(delta.newPets).arg(delta.newlyFullyCultivated)
           .arg(delta.newlyRedStarComplete).arg(delta.newlyAstrolabeBreakthrough)
           .arg(signedNumber(delta.totalPowerChange));

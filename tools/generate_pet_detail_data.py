@@ -125,7 +125,7 @@ def parse_pets(root: Path) -> dict[str, dict]:
     for path in sorted(files, key=lambda item: "Update" in item.name):
         source = path.read_text(encoding="utf-8")
         for args in iter_create_args(source):
-            if len(args) < 43:
+            if len(args) < 64:
                 continue
             race_id = parse_int(args[0], -1)
             if race_id < 0:
@@ -135,6 +135,9 @@ def parse_pets(root: Path) -> dict[str, dict]:
                 "attributes": decode_as_string(args[8]),
                 "jobs": decode_as_string(args[9]),
                 "groupRaceId": parse_int(args[42]),
+                # PetDictionaryDataItem.create(param64).  The official getter
+                # falls back to level 6 when this value is not positive.
+                "stargodSlotMaxLevel": max(6, parse_int(args[63], 6)),
             }
     return pets
 
@@ -161,6 +164,24 @@ def parse_named_sheet(path: Path) -> dict[str, dict]:
         attrs = xml_attributes(opening)
         if "defineId" in attrs and "name" in attrs:
             result[attrs["defineId"]] = attrs
+    return result
+
+
+def parse_stargods(path: Path) -> dict[str, dict]:
+    """Read star-god metadata and the official per-level battle-power table."""
+    result: dict[str, dict] = {}
+    for match in re.finditer(r"<s\s+([^>]*)>(.*?)</s>", swf_text(path), re.S):
+        attrs = xml_attributes(match.group(1))
+        if "defineId" not in attrs or "name" not in attrs:
+            continue
+        levels: dict[str, int] = {}
+        for fragment in re.findall(r"<l\s+([^>]*)/?>", match.group(2)):
+            level = xml_attributes(fragment)
+            number = parse_int(level.get("level", "0"))
+            if number > 0:
+                levels[str(number)] = parse_int(level.get("battlePower", "0"))
+        attrs["battlePower"] = levels
+        result[attrs["defineId"]] = attrs
     return result
 
 
@@ -226,12 +247,18 @@ def star_quality(attrs: dict[str, str]) -> int:
         return 5
     if define_id == 80 or "万变红星" in name:
         return 6
-    # The material service uses 720 supply EXP for gold and a larger value for
-    # red.  Modern red sheets are also allocated from defineId 66 onward.
-    if supply_exp > 720 or define_id >= 66:
+    # Official StarGodItem quality values are green=2, blue=3, purple=4,
+    # gold=5 and red=6.  The service sheet groups those tiers by supply EXP.
+    if supply_exp >= 1080:
         return 6
-    if supply_exp >= 720 or define_id >= 51:
+    if supply_exp >= 720:
         return 5
+    if supply_exp >= 120:
+        return 4
+    if supply_exp >= 60:
+        return 3
+    if supply_exp > 0:
+        return 2
     return 0
 
 
@@ -247,13 +274,14 @@ def main() -> None:
     astrolabe_swf = find_one(root, "astrolabeservice~*.swf")
     stargod_swf = find_one(root, "stargodservice~*.swf")
 
-    stargods = parse_named_sheet(stargod_swf)
+    stargods = parse_stargods(stargod_swf)
     stargods = {
         key: {
             "name": value["name"],
             "quality": star_quality(value),
             "supplyExp": parse_int(value.get("supplyExp", "0")),
             "changeable": key in {"79", "80"} or "万变" in value["name"],
+            "battlePower": value["battlePower"],
         }
         for key, value in stargods.items()
     }

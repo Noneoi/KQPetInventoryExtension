@@ -189,6 +189,7 @@ InventorySignature AssetAnalyzer::inventorySignature() const {
 AccountAssetOverview AssetAnalyzer::analyze() const {
   ++analysisRunCount_;
   AccountAssetOverview result;
+  result.analysisVersion = AssetAnalysisVersion::kCurrentAnalysis;
   if (!repository_) return result;
   result.account = repository_->accountKey();
   result.inventoryUpdatedAt = repository_->updatedAt();
@@ -222,13 +223,17 @@ AccountAssetOverview AssetAnalyzer::analyze() const {
                                      ? qBound(0, qRound(power.current * 100.0 / power.highest), 100)
                                      : 0;
       record.fullyCultivated = power.isHighest;
-      record.redStarMissing = power.hasExtreme && power.missingRedBonus > 0;
+      record.redStarMissing =
+          power.hasExtreme &&
+          (!power.stargodSlotsKnown || !power.redStargodFull ||
+           (power.hasChangeableSlot && !power.changeableRed));
       record.astrolabeMissing = !power.breakthrough || hasGap(power, QStringLiteral("asv"));
       record.sacredMissing = hasGap(power, QStringLiteral("sjv"));
       record.soulMissing = hasGap(power, QStringLiteral("bsv"));
       for (const PetBattlePowerGap& gap : power.componentGaps)
         record.gaps.append(QStringLiteral("%1 +%2").arg(gap.label).arg(gap.gap));
-      if (record.redStarMissing) record.gaps.append(QStringLiteral("红星未满"));
+      if (record.redStarMissing)
+        record.gaps.append(QStringLiteral("星神满战力数量未满足"));
       if (record.astrolabeMissing && !hasGap(power, QStringLiteral("asv")))
         record.gaps.append(QStringLiteral("星轮未突破"));
       record.improvable = !record.fullyCultivated &&
