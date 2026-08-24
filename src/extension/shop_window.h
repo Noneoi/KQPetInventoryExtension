@@ -7,6 +7,7 @@
 #include <QHash>
 #include <QJsonObject>
 #include <QList>
+#include <QSet>
 
 class PetRepository;
 class PetImageCache;
@@ -49,6 +50,11 @@ private:
   };
 
   void rebuild();
+  void scheduleRebuild();
+  void rebuildEligiblePetIndex();
+  int eligiblePetCount(const ShopExchangeGood& good) const;
+  void updateCurrencySummary();
+  void ensureImageCache();
   void showGoodPets(const ShopExchangeGood& good);
   void rebuildPetRows(qint64 preserveInstanceId = 0);
   QList<QJsonObject> eligiblePets(const ShopExchangeGood& good) const;
@@ -70,6 +76,7 @@ private:
   QPushButton* refresh_ = nullptr;
   QPushButton* refreshCatalog_ = nullptr;
   QLabel* status_ = nullptr;
+  QLabel* currencySummary_ = nullptr;
   QTabWidget* shopTabs_ = nullptr;
   QTableWidget* petTable_ = nullptr;
   QLabel* petTitle_ = nullptr;
@@ -89,4 +96,6 @@ private:
   bool moveRunning_ = false;
   int petSortColumn_ = -1;
   bool petSortAscending_ = true;
+  bool rebuildScheduled_ = false;
+  QHash<int, QSet<qint64>> eligiblePetIdsByRace_;
 };

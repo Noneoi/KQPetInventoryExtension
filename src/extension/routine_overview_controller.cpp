@@ -23,8 +23,10 @@ const QString kDailyCommand = QStringLiteral("1008_20170623_dt_0");
 const QString kRedPointCommand = QStringLiteral("1037_0");
 const QString kStarWheelCommand = QStringLiteral("1008_20220603_swa_0_0");
 const QString kArenaCommand = QStringLiteral("16_24_A");
-const QString kPetParkFusionCommand = QStringLiteral("100_13_0");
-const QString kPetParkFeedCommand = QStringLiteral("100_2_0");
+const QString kColorfulTreeCommand = QStringLiteral("1008_20190531_gbt_1");
+const QString kSourceBeastGateCommand = QStringLiteral("2_36_1");
+const QString kNationalCompetitionCommand = QStringLiteral("110_123_0");
+const QString kNewFarmCommand = QStringLiteral("1008_20260522_nf_0");
 
 QJsonObject readObject(const QString& path) {
   QFile file(path);
@@ -130,15 +132,14 @@ bool RoutineOverviewController::requestRefresh() {
               QStringLiteral("{\"ids\":\"lights\"}"), QStringLiteral("活动红点"));
   sendRequest(QStringLiteral("TimelinessActExtension"), kStarWheelCommand,
               QStringLiteral("null"), QStringLiteral("星轮探险次数"));
-  sendRequest(QStringLiteral("null"), kArenaCommand, QStringLiteral("null"),
-              QStringLiteral("竞技场次数"));
-  sendRequest(QStringLiteral("PetParkExtension"), kPetParkFusionCommand,
-              QStringLiteral("null"), QStringLiteral("精灵公园6合1次数"));
-  const QString feedParameters = QString::fromUtf8(
-      QJsonDocument(QJsonObject{{QStringLiteral("m"), account_}})
-          .toJson(QJsonDocument::Compact));
-  sendRequest(QStringLiteral("PetParkExtension"), kPetParkFeedCommand,
-              feedParameters, QStringLiteral("精灵公园带回次数"));
+  sendRequest(QStringLiteral("TimelinessActExtension"), kColorfulTreeCommand,
+              QStringLiteral("null"), QStringLiteral("缤纷树次数"));
+  sendRequest(QStringLiteral("PJXExtension"), kSourceBeastGateCommand,
+              QStringLiteral("null"), QStringLiteral("源兽之门次数"));
+  sendRequest(QStringLiteral("XiaoMoEvolveExtension"), kNationalCompetitionCommand,
+              QStringLiteral("null"), QStringLiteral("全民斗技次数"));
+  sendRequest(QStringLiteral("TimelinessActExtension"), kNewFarmCommand,
+              QStringLiteral("{\"un\":-1}"), QStringLiteral("新版农场次数"));
   if (pendingCommands_.isEmpty()) {
     finish(false, QStringLiteral("发送日常/周常与活动状态查询失败"));
     return false;
@@ -148,9 +149,32 @@ bool RoutineOverviewController::requestRefresh() {
 }
 
 void RoutineOverviewController::handlePacket(const QString& method, const QString& payload) {
-  if (method != QStringLiteral("recivedata") || !running_) return;
+  if (method != QStringLiteral("recivedata")) return;
   const QJsonObject packet = packetObject(payload);
   const QString command = packet.value(QStringLiteral("_cmd")).toString();
+  // 16_24_A updates the game's ArenaV3 challenge cooldown as a side effect.
+  // Never request it here.  When the game itself opens ArenaV3, keep only the
+  // returned challenge counters so the overview can still show exact values.
+  if (command == kArenaCommand) {
+    if (!repository_ || !repository_->isAuthenticated() || account_.isEmpty() ||
+        account_ != repository_->accountKey() ||
+        sessionGeneration_ != repository_->sessionGeneration() ||
+        (packet.contains(QStringLiteral("r")) &&
+         packet.value(QStringLiteral("r")).toInt() != 1))
+      return;
+    const QJsonObject classic = packet.value(QStringLiteral("zao1")).toObject();
+    const QJsonObject legend = packet.value(QStringLiteral("zao2")).toObject();
+    const bool classicValid = classic.value(QStringLiteral("ct")).isDouble() &&
+                              classic.value(QStringLiteral("bct")).isDouble();
+    const bool legendValid = legend.value(QStringLiteral("ct")).isDouble() &&
+                             legend.value(QStringLiteral("bct")).isDouble();
+    if (!classicValid && !legendValid) return;
+    opportunityPackets_.insert(command, packet);
+    saveCache();
+    emit dataUpdated();
+    return;
+  }
+  if (!running_) return;
   if (!pendingCommands_.contains(command)) return;
   if (!repository_ || !repository_->isAuthenticated() || requestAccount_ != account_ ||
       requestAccount_ != repository_->accountKey() ||
@@ -189,12 +213,16 @@ void RoutineOverviewController::handlePacket(const QString& method, const QStrin
     if (command == kStarWheelCommand)
       valid = packet.value(QStringLiteral("ti")).isDouble() &&
               packet.value(QStringLiteral("wgt")).isDouble();
-    else if (command == kArenaCommand)
-      valid = packet.value(QStringLiteral("sweep")).isDouble();
-    else if (command == kPetParkFusionCommand)
-      valid = packet.value(QStringLiteral("pt")).isDouble();
-    else if (command == kPetParkFeedCommand)
-      valid = packet.value(QStringLiteral("rfc")).isDouble();
+    else if (command == kColorfulTreeCommand)
+      valid = packet.value(QStringLiteral("ti")).isDouble();
+    else if (command == kSourceBeastGateCommand)
+      valid = packet.value(QStringLiteral("t")).isDouble();
+    else if (command == kNationalCompetitionCommand)
+      valid = packet.value(QStringLiteral("rwwt")).isDouble() &&
+              packet.value(QStringLiteral("rdt")).isDouble();
+    else if (command == kNewFarmCommand)
+      valid = packet.value(QStringLiteral("pt")).isDouble() &&
+              packet.value(QStringLiteral("rft")).isDouble();
     if (!valid) {
       completeRequest(command, false,
                       QStringLiteral("%1数据不完整").arg(requestLabels_.value(command)));
@@ -267,7 +295,7 @@ void RoutineOverviewController::loadCache() {
                            .filePath(QStringLiteral("routines.json"));
   const QJsonObject root = readObject(path);
   const int schema = root.value(QStringLiteral("schema")).toInt();
-  if ((schema != 1 && schema != 2 && schema != 3) ||
+  if ((schema != 1 && schema != 2 && schema != 3 && schema != 4) ||
       root.value(QStringLiteral("account")).toString() != account_)
     return;
   if (root.value(QStringLiteral("dailyPacket")).isObject()) {
@@ -279,12 +307,17 @@ void RoutineOverviewController::loadCache() {
       activeRedPoints_.insert(value.toInt());
     hasRedPointPacket_ = root.value(QStringLiteral("hasRedPointPacket")).toBool();
   }
-  if (schema == 3 && root.value(QStringLiteral("opportunityPackets")).isObject())
+  if (schema >= 3 && root.value(QStringLiteral("opportunityPackets")).isObject())
     opportunityPackets_ = root.value(QStringLiteral("opportunityPackets")).toObject();
   else if (root.value(QStringLiteral("opportunityPacket")).isObject() &&
            root.value(QStringLiteral("hasOpportunityPacket")).toBool())
     opportunityPackets_.insert(kStarWheelCommand,
                                root.value(QStringLiteral("opportunityPacket")).toObject());
+  opportunityPackets_.remove(QStringLiteral("100_13_0"));
+  opportunityPackets_.remove(QStringLiteral("100_2_0"));
+  // Schema 4 is the first version where ArenaV3 data is guaranteed to have
+  // been observed passively rather than produced by this plugin.
+  if (schema < 4) opportunityPackets_.remove(kArenaCommand);
 }
 
 void RoutineOverviewController::saveCache() const {
@@ -295,7 +328,7 @@ void RoutineOverviewController::saveCache() const {
   for (int point : sorted) points.append(point);
   const QString path = QDir(QFileInfo(repository_->cachePath()).absolutePath())
                            .filePath(QStringLiteral("routines.json"));
-  writeObject(path, {{QStringLiteral("schema"), 3},
+  writeObject(path, {{QStringLiteral("schema"), 4},
                      {QStringLiteral("account"), account_},
                      {QStringLiteral("savedAt"), QDateTime::currentDateTime().toString(Qt::ISODate)},
                      {QStringLiteral("hasDailyPacket"), hasDailyPacket_},

@@ -6,6 +6,7 @@
 #include "routine_overview_controller.h"
 #include "shop_exchange_controller.h"
 #include "target_compatibility_guard.h"
+#include "target_profile_registry.h"
 
 #include <QCoreApplication>
 #include <QDir>
@@ -76,6 +77,13 @@ int main(int argc, char* argv[]) {
                     QString::fromStdWString(nonTargetReport.format())
                         .contains(QStringLiteral("Result: UNSUPPORTED")),
                 "non-KQPro process did not fail closed or report generated version");
+  const TargetProfile* knownProfile =
+      TargetProfileRegistry::find(L"KQProV1.1.3.exe", L"1.1.3");
+  ok &= require(knownProfile && knownProfile->id == L"kqpro-1.1.3-x64" &&
+                    knownProfile->dispatch.trampolinePolicy ==
+                        TrampolinePolicy::ExactRelocationFreePrologue &&
+                    !TargetProfileRegistry::find(L"KQProV1.1.4.exe", L"1.1.4"),
+                "target profile registry did not match known version or fail closed");
 
   PetRepository repository;
   deliver(&repository,
@@ -244,11 +252,9 @@ int main(int argc, char* argv[]) {
                             .toObject()
                             .value(QStringLiteral("ti"))
                             .toInt() == 2 &&
-                    routine.opportunityPackets()
-                            .value(QStringLiteral("16_24_A"))
-                            .toObject()
-                            .value(QStringLiteral("sweep"))
-                            .toInt() == 4,
+                    routine.opportunityPackets().contains(QStringLiteral("16_24_A")) &&
+                    !routine.opportunityPackets().contains(QStringLiteral("100_13_0")) &&
+                    !routine.opportunityPackets().contains(QStringLiteral("100_2_0")),
                 "one failed routine packet discarded siblings or replaced valid cache");
 
   if (!ok) return 2;

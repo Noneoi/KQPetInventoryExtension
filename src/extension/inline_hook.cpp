@@ -24,14 +24,18 @@ void writeAbsoluteJump(unsigned char* destination, const void* address) {
 }  // namespace
 
 bool InlineHook::install(void* target, void* detour, const unsigned char* expectedBytes,
-                         std::size_t patchSize) {
+                         std::size_t patchSize, TrampolinePolicy policy) {
   static_assert(sizeof(void*) == 8, "Only x64 is supported");
+  if (!supportsPolicy(policy)) {
+    error_ = "profile does not authorize a relocation-free trampoline";
+    return false;
+  }
   if (!target || !detour || !expectedBytes || patchSize < kAbsoluteJumpSize) {
     error_ = "invalid hook arguments";
     return false;
   }
   if (std::memcmp(target, expectedBytes, patchSize) != 0) {
-    error_ = "target prologue does not match KQPro V1.1.3";
+    error_ = "target prologue does not exactly match the selected profile";
     return false;
   }
 

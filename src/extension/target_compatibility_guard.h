@@ -5,6 +5,8 @@
 #include <cstdint>
 #include <string>
 
+#include "target_profile.h"
+
 enum class CompatibilityMatchMethod {
   None,
   KnownRva,
@@ -18,6 +20,7 @@ struct CompatibilityEndpoint {
   CompatibilityMatchMethod matchMethod = CompatibilityMatchMethod::None;
   std::array<unsigned char, 32> signature{};
   std::size_t signatureSize = 0;
+  TrampolinePolicy trampolinePolicy = TrampolinePolicy::Unsupported;
 
   bool matched() const {
     return address != 0 && (matchMethod == CompatibilityMatchMethod::KnownRva ||
@@ -32,6 +35,7 @@ struct TargetCompatibilityReport {
   std::wstring targetArchitecture;
   std::wstring kqProName;
   std::wstring kqProVersion;
+  std::wstring targetProfileId;
   std::wstring qtCoreVersion;
   std::wstring qtWidgetsVersion;
   bool processArchitectureOk = false;

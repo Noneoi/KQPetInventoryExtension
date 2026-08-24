@@ -40,7 +40,8 @@ bool OriginalBridge::install() {
   instance_.store(this, std::memory_order_release);
   if (!hook_.install(dispatch, reinterpret_cast<void*>(&OriginalBridge::dispatchDetour),
                      compatibility.dispatch.signature.data(),
-                     compatibility.dispatch.signatureSize)) {
+                     compatibility.dispatch.signatureSize,
+                     compatibility.dispatch.trampolinePolicy)) {
     instance_.store(nullptr, std::memory_order_release);
     lastError_ = QStringLiteral("原版消息入口校验失败：%1")
                      .arg(QString::fromLatin1(hook_.error()));

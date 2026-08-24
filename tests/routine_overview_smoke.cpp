@@ -7,6 +7,7 @@
 #include <QJsonDocument>
 #include <QTemporaryDir>
 
+#include <algorithm>
 #include <iostream>
 
 namespace {
@@ -52,7 +53,7 @@ int main(int argc, char* argv[]) {
     return true;
   });
   ok &= require(controller.requestRefresh(), "manual refresh did not start");
-  ok &= require(sent.size() == 6, "manual refresh must send exactly six requests");
+  ok &= require(sent.size() == 7, "manual refresh must send exactly seven read-only requests");
   ok &= require(sent.value(0).command == QStringLiteral("1008_20170623_dt_0"),
                 "daily/weekly command mismatch");
   ok &= require(sent.value(1).service == QStringLiteral("null") &&
@@ -60,15 +61,19 @@ int main(int argc, char* argv[]) {
                 "activity red-point command mismatch");
   ok &= require(sent.value(2).command == QStringLiteral("1008_20220603_swa_0_0"),
                 "opportunity command mismatch");
-  ok &= require(sent.value(3).service == QStringLiteral("null") &&
-                    sent.value(3).command == QStringLiteral("16_24_A"),
-                "arena opportunity command mismatch");
-  ok &= require(sent.value(4).service == QStringLiteral("PetParkExtension") &&
-                    sent.value(4).command == QStringLiteral("100_13_0"),
-                "pet-park fusion command mismatch");
-  ok &= require(sent.value(5).command == QStringLiteral("100_2_0") &&
-                    sent.value(5).params.contains(QStringLiteral("routine-a")),
-                "pet-park feed command/account mismatch");
+  ok &= require(std::none_of(sent.cbegin(), sent.cend(), [](const Sent& request) {
+                  return request.command == QStringLiteral("16_24_A") ||
+                         request.command == QStringLiteral("16_6_0") ||
+                         request.command == QStringLiteral("100_13_0") ||
+                         request.command == QStringLiteral("100_2_0");
+                }),
+                "arena/ranking or removed pet-park commands must never be sent");
+  ok &= require(sent.value(3).command == QStringLiteral("1008_20190531_gbt_1") &&
+                    sent.value(4).command == QStringLiteral("2_36_1") &&
+                    sent.value(5).command == QStringLiteral("110_123_0") &&
+                    sent.value(6).command == QStringLiteral("1008_20260522_nf_0") &&
+                    sent.value(6).params == QStringLiteral("{\"un\":-1}"),
+                "target opportunity query mapping mismatch");
 
   controller.handlePacket(
       QStringLiteral("recivedata"),
@@ -83,15 +88,17 @@ int main(int argc, char* argv[]) {
   controller.handlePacket(
       QStringLiteral("recivedata"),
       QStringLiteral("{\"_cmd\":\"1008_20220603_swa_0_0\",\"r\":1,\"ti\":2,\"wgt\":4}"));
-  controller.handlePacket(
-      QStringLiteral("recivedata"),
-      QStringLiteral("{\"_cmd\":\"16_24_A\",\"r\":1,\"sweep\":3,"
-                     "\"zao1\":{\"curz\":1,\"ct\":5,\"bct\":1},"
-                     "\"zao2\":{\"curz\":2,\"ct\":1,\"bct\":0}}"));
+  // An incomplete ArenaV3 packet must not be presented as challenge counts.
   controller.handlePacket(QStringLiteral("recivedata"),
-                          QStringLiteral("{\"_cmd\":\"100_13_0\",\"r\":1,\"pt\":1}"));
+                          QStringLiteral("{\"_cmd\":\"16_24_A\",\"r\":1,\"sweep\":3}"));
   controller.handlePacket(QStringLiteral("recivedata"),
-                          QStringLiteral("{\"_cmd\":\"100_2_0\",\"r\":1,\"rfc\":4}"));
+                          QStringLiteral("{\"_cmd\":\"1008_20190531_gbt_1\",\"r\":1,\"ti\":5}"));
+  controller.handlePacket(QStringLiteral("recivedata"),
+                          QStringLiteral("{\"_cmd\":\"2_36_1\",\"t\":6,\"cclt\":0}"));
+  controller.handlePacket(QStringLiteral("recivedata"),
+                          QStringLiteral("{\"_cmd\":\"110_123_0\",\"r\":1,\"rwwt\":18,\"wwt\":2,\"rdt\":4,\"rdb\":0}"));
+  controller.handlePacket(QStringLiteral("recivedata"),
+                          QStringLiteral("{\"_cmd\":\"1008_20260522_nf_0\",\"pt\":8,\"rft\":16}"));
   controller.handlePacket(
       QStringLiteral("recivedata"),
       QString::fromUtf8(QJsonDocument(
@@ -106,10 +113,21 @@ int main(int argc, char* argv[]) {
   ok &= require(controller.opportunityPackets()
                         .value(QStringLiteral("1008_20220603_swa_0_0"))
                         .toObject().value(QStringLiteral("ti")).toInt() == 2 &&
-                    controller.opportunityPackets()
-                        .value(QStringLiteral("16_24_A"))
-                        .toObject().value(QStringLiteral("sweep")).toInt() == 3,
-                "real opportunity packet was not stored");
+                    !controller.opportunityPackets().contains(QStringLiteral("16_24_A")),
+                "safe opportunity packet was not stored or arena data leaked in");
+
+  // The game may request ArenaV3 itself when the user opens it. Observing the
+  // returned challenge counters is safe even when no plugin refresh is active.
+  controller.handlePacket(
+      QStringLiteral("recivedata"),
+      QStringLiteral("{\"_cmd\":\"16_24_A\",\"r\":1,"
+                     "\"zao1\":{\"curz\":102,\"ct\":2,\"bct\":0,\"cd\":99},"
+                     "\"zao2\":{\"curz\":201,\"ct\":3,\"bct\":1,\"cd\":88}}"));
+  ok &= require(controller.opportunityPackets()
+                        .value(QStringLiteral("16_24_A")).toObject()
+                        .value(QStringLiteral("zao1")).toObject()
+                        .value(QStringLiteral("ct")).toInt() == 2,
+                "passive ArenaV3 challenge counters were not cached");
 
   sent.clear();
   ok &= require(controller.requestRefresh(), "partial-failure refresh did not start");
@@ -125,11 +143,13 @@ int main(int argc, char* argv[]) {
       QStringLiteral("recivedata"),
       QStringLiteral("{\"_cmd\":\"1008_20220603_swa_0_0\",\"r\":0}"));
   controller.handlePacket(QStringLiteral("recivedata"),
-                          QStringLiteral("{\"_cmd\":\"16_24_A\",\"r\":1,\"sweep\":4}"));
+                          QStringLiteral("{\"_cmd\":\"1008_20190531_gbt_1\",\"r\":1,\"ti\":4}"));
   controller.handlePacket(QStringLiteral("recivedata"),
-                          QStringLiteral("{\"_cmd\":\"100_13_0\",\"r\":1,\"pt\":2}"));
+                          QStringLiteral("{\"_cmd\":\"2_36_1\",\"t\":5}"));
   controller.handlePacket(QStringLiteral("recivedata"),
-                          QStringLiteral("{\"_cmd\":\"100_2_0\",\"r\":1,\"rfc\":3}"));
+                          QStringLiteral("{\"_cmd\":\"110_123_0\",\"r\":1,\"rwwt\":17,\"rdt\":5}"));
+  controller.handlePacket(QStringLiteral("recivedata"),
+                          QStringLiteral("{\"_cmd\":\"1008_20260522_nf_0\",\"pt\":7,\"rft\":15}"));
   controller.handlePacket(
       QStringLiteral("recivedata"),
       QStringLiteral("{\"_cmd\":\"1037_0\",\"r\":1,\"rs\":\"10026\"}"));

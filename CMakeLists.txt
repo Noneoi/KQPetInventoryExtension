@@ -1,6 +1,6 @@
 cmake_minimum_required(VERSION 3.24)
 
-project(KQPetInventoryExtension VERSION 1.3.0 LANGUAGES CXX)
+project(KQPetInventoryExtension VERSION 1.3.1 LANGUAGES CXX)
 
 if(NOT WIN32 OR NOT CMAKE_SIZEOF_VOID_P EQUAL 8)
   message(FATAL_ERROR "This project only supports 64-bit Windows.")
@@ -78,6 +78,9 @@ add_library(KQPetDiagnostics STATIC
   src/extension/diagnostic_logger.h
   src/extension/target_compatibility_guard.cpp
   src/extension/target_compatibility_guard.h
+  src/extension/target_profile.h
+  src/extension/target_profile_registry.cpp
+  src/extension/target_profile_registry.h
 )
 target_include_directories(KQPetDiagnostics PUBLIC src/extension
                            "${KQPET_GENERATED_INCLUDE_DIR}")
@@ -93,8 +96,19 @@ target_compile_options(KQPetLauncher PRIVATE $<$<CXX_COMPILER_ID:MSVC>:/utf-8>)
 target_link_libraries(KQPetLauncher PRIVATE user32)
 
 add_library(KQPetCore STATIC
+  src/extension/account_analysis_state.h
   src/extension/asset_analysis_controller.cpp
   src/extension/asset_analysis_controller.h
+  src/extension/asset_analysis_settings.cpp
+  src/extension/asset_analysis_settings.h
+  src/extension/asset_analysis_types.h
+  src/extension/asset_analysis_version.h
+  src/extension/asset_analyzer.cpp
+  src/extension/asset_analyzer.h
+  src/extension/asset_snapshot_comparator.cpp
+  src/extension/asset_snapshot_comparator.h
+  src/extension/asset_snapshot_store.cpp
+  src/extension/asset_snapshot_store.h
   src/extension/pet_detail_analyzer.cpp
   src/extension/pet_detail_analyzer.h
   src/extension/pet_detail_catalog.cpp
@@ -142,6 +156,10 @@ target_link_libraries(KQPetBridge PUBLIC KQPetDiagnostics Qt6::Core Qt6::Gui Qt6
 add_library(KQPet::Bridge ALIAS KQPetBridge)
 
 add_library(KQPetUi STATIC
+  src/extension/asset_analysis_filter_proxy_model.cpp
+  src/extension/asset_analysis_filter_proxy_model.h
+  src/extension/asset_analysis_model.cpp
+  src/extension/asset_analysis_model.h
   src/extension/asset_analysis_window.cpp
   src/extension/asset_analysis_window.h
   src/extension/pet_filter_proxy_model.cpp
@@ -158,6 +176,8 @@ add_library(KQPetUi STATIC
   src/extension/shop_window.h
   src/extension/routine_overview_window.cpp
   src/extension/routine_overview_window.h
+  src/extension/snapshot_history_model.cpp
+  src/extension/snapshot_history_model.h
 )
 target_include_directories(KQPetUi PUBLIC src/extension)
 target_compile_definitions(KQPetUi PRIVATE UNICODE _UNICODE NOMINMAX WIN32_LEAN_AND_MEAN)
@@ -241,6 +261,15 @@ target_compile_options(KQAssetAnalysisSmoke PRIVATE $<$<CXX_COMPILER_ID:MSVC>:/u
 target_link_libraries(KQAssetAnalysisSmoke PRIVATE KQPetCore)
 add_test(NAME asset_analysis_smoke COMMAND KQAssetAnalysisSmoke)
 
+add_executable(KQAssetAnalysisPerformance
+  tests/asset_analysis_performance.cpp
+  src/extension/resources.qrc
+)
+target_include_directories(KQAssetAnalysisPerformance PRIVATE src/extension)
+target_compile_options(KQAssetAnalysisPerformance PRIVATE $<$<CXX_COMPILER_ID:MSVC>:/utf-8 /wd4828>)
+target_link_libraries(KQAssetAnalysisPerformance PRIVATE KQPetUi)
+add_test(NAME asset_analysis_performance COMMAND KQAssetAnalysisPerformance)
+
 add_executable(KQPetShopSmoke
   tests/shop_exchange_smoke.cpp
   src/extension/resources.qrc
@@ -272,6 +301,12 @@ target_compile_options(KQProtocolFixtureSmoke PRIVATE $<$<CXX_COMPILER_ID:MSVC>:
 target_link_libraries(KQProtocolFixtureSmoke PRIVATE KQPetCore)
 add_test(NAME protocol_fixture_smoke COMMAND KQProtocolFixtureSmoke)
 
+add_executable(KQInlineHookPolicySmoke tests/inline_hook_policy_smoke.cpp)
+target_include_directories(KQInlineHookPolicySmoke PRIVATE src/extension)
+target_compile_options(KQInlineHookPolicySmoke PRIVATE $<$<CXX_COMPILER_ID:MSVC>:/utf-8 /wd4828>)
+target_link_libraries(KQInlineHookPolicySmoke PRIVATE KQPetBridge)
+add_test(NAME inline_hook_policy_smoke COMMAND KQInlineHookPolicySmoke)
+
 get_target_property(KQ_QT_CORE_RUNTIME Qt6::Core IMPORTED_LOCATION_RELEASE)
 if(NOT KQ_QT_CORE_RUNTIME)
   get_target_property(KQ_QT_CORE_RUNTIME Qt6::Core IMPORTED_LOCATION)
@@ -281,8 +316,12 @@ set_tests_properties(
   pet_detail_catalog_smoke pet_repository_smoke pet_refresh_controller_smoke
   pet_move_controller_smoke pet_search_smoke pet_table_model_smoke shop_exchange_smoke
   asset_analysis_smoke routine_overview_smoke protocol_fixture_smoke
+  asset_analysis_performance
+  inline_hook_policy_smoke
   PROPERTIES ENVIRONMENT_MODIFICATION "PATH=path_list_prepend:${KQ_QT_RUNTIME_DIR}"
 )
+set_tests_properties(asset_analysis_performance
+  PROPERTIES ENVIRONMENT "QT_QPA_PLATFORM=offscreen" TIMEOUT 20)
 
 add_executable(KQPetUiPreview
   tests/ui_preview.cpp
@@ -332,7 +371,7 @@ set_tests_properties(
     TIMEOUT 15
 )
 
-foreach(target KQPetDiagnostics KQPetCore KQPetBridge KQPetUi KQPetLauncher KQPetInventory KQPetCatalogSmoke KQPetRepositorySmoke KQPetRefreshSmoke KQPetMoveSmoke KQPetSearchSmoke KQPetTableModelSmoke KQAssetAnalysisSmoke KQPetShopSmoke KQRoutineOverviewSmoke KQProtocolFixtureSmoke KQPetUiPreview KQShopUiPreview KQRoutineUiPreview KQAssetAnalysisUiPreview)
+foreach(target KQPetDiagnostics KQPetCore KQPetBridge KQPetUi KQPetLauncher KQPetInventory KQPetCatalogSmoke KQPetRepositorySmoke KQPetRefreshSmoke KQPetMoveSmoke KQPetSearchSmoke KQPetTableModelSmoke KQAssetAnalysisSmoke KQAssetAnalysisPerformance KQPetShopSmoke KQRoutineOverviewSmoke KQProtocolFixtureSmoke KQInlineHookPolicySmoke KQPetUiPreview KQShopUiPreview KQRoutineUiPreview KQAssetAnalysisUiPreview)
   set_target_properties(${target} PROPERTIES
     RUNTIME_OUTPUT_DIRECTORY "${CMAKE_BINARY_DIR}/bin"
     LIBRARY_OUTPUT_DIRECTORY "${CMAKE_BINARY_DIR}/bin"

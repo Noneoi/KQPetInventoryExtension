@@ -181,8 +181,17 @@ int main(int argc, char* argv[]) {
                         {QStringLiteral("r"), 1},
                         {QStringLiteral("si1"), QJsonObject{}}});
   ok &= require(controller.hasMaterialCounts() &&
-                    controller.materialCounts().value(QStringLiteral("4:3237")) == 456,
+                    controller.materialCounts().value(QStringLiteral("4:3237")) == 456 &&
+                    !controller.materialCounts().contains(QStringLiteral("134:1")),
                 "manual material response was not cached by material identity");
+  sendControllerPacket(
+      {{QStringLiteral("_cmd"), QStringLiteral("1015_2A")},
+       {QStringLiteral("r"), 1},
+       {QStringLiteral("infos"),
+        QJsonObject{{QStringLiteral("UnionMemberInfo"),
+                     QJsonObject{{QStringLiteral("lCToken"), 192147}}}}}});
+  ok &= require(controller.materialCounts().value(QStringLiteral("134:1")) == 192147,
+                "passive league overview did not update personal contribution currency");
   sendControllerPacket({{QStringLiteral("_cmd"), QStringLiteral("3_11")},
                         {QStringLiteral("r"), 1},
                         {QStringLiteral("4"),

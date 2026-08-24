@@ -1,5 +1,6 @@
 #include "target_compatibility_guard.h"
 
+#include "target_profile_registry.h"
 #include "version.h"
 
 #include <windows.h>
@@ -13,19 +14,6 @@
 #include <vector>
 
 namespace {
-
-constexpr std::uintptr_t kDispatchRva = 0x115920;
-constexpr std::uintptr_t kServiceGetterRva = 0x115450;
-constexpr std::uintptr_t kCommandSenderRva = 0x116470;
-constexpr std::array<unsigned char, 17> kDispatchPrologue = {
-    0x48, 0x89, 0x5C, 0x24, 0x10, 0x55, 0x56, 0x57, 0x41,
-    0x56, 0x41, 0x57, 0x48, 0x8D, 0x6C, 0x24, 0xD1};
-constexpr std::array<unsigned char, 21> kCommandSenderPrologue = {
-    0x48, 0x89, 0x5C, 0x24, 0x18, 0x55, 0x56, 0x57, 0x41, 0x54, 0x41,
-    0x55, 0x41, 0x56, 0x41, 0x57, 0x48, 0x8D, 0x6C, 0x24, 0xD9};
-constexpr std::array<unsigned char, 16> kServiceGetterPrologue = {
-    0x40, 0x53, 0x48, 0x83, 0xEC, 0x40, 0x48, 0x8B,
-    0x05, 0x8B, 0x7F, 0x10, 0x00, 0x48, 0x85, 0xC0};
 
 TargetCompatibilityReport gLastReport;
 
@@ -114,25 +102,25 @@ bool moduleIsX64(HMODULE module) {
          nt->OptionalHeader.Magic == IMAGE_NT_OPTIONAL_HDR64_MAGIC;
 }
 
-template <size_t Size>
 CompatibilityEndpoint resolveEndpoint(HMODULE module, const wchar_t* name,
-                                      std::uintptr_t knownRva,
-                                      const std::array<unsigned char, Size>& pattern) {
+                                      const TargetEndpointProfile& profile) {
   CompatibilityEndpoint result;
   result.name = name;
-  static_assert(Size <= result.signature.size(), "endpoint signature storage is too small");
-  std::copy(pattern.begin(), pattern.end(), result.signature.begin());
-  result.signatureSize = Size;
+  result.signature = profile.signature;
+  result.signatureSize = profile.signatureSize;
+  result.trampolinePolicy = profile.trampolinePolicy;
   if (!module) return result;
+  const std::size_t size = profile.signatureSize;
+  if (size == 0 || size > profile.signature.size()) return result;
   auto* base = reinterpret_cast<unsigned char*>(module);
   const auto* dos = reinterpret_cast<const IMAGE_DOS_HEADER*>(base);
   if (dos->e_magic != IMAGE_DOS_SIGNATURE) return result;
   const auto* nt = reinterpret_cast<const IMAGE_NT_HEADERS64*>(base + dos->e_lfanew);
   if (nt->Signature != IMAGE_NT_SIGNATURE) return result;
 
-  if (knownRva + Size <= nt->OptionalHeader.SizeOfImage &&
-      std::memcmp(base + knownRva, pattern.data(), Size) == 0) {
-    result.address = reinterpret_cast<std::uintptr_t>(base + knownRva);
+  if (profile.rva + size <= nt->OptionalHeader.SizeOfImage &&
+      std::memcmp(base + profile.rva, profile.signature.data(), size) == 0) {
+    result.address = reinterpret_cast<std::uintptr_t>(base + profile.rva);
     result.matchMethod = CompatibilityMatchMethod::KnownRva;
     return result;
   }
@@ -148,10 +136,10 @@ CompatibilityEndpoint resolveEndpoint(HMODULE module, const wchar_t* name,
     const size_t available = nt->OptionalHeader.SizeOfImage - section.VirtualAddress;
     const size_t sectionSize = (std::min)(static_cast<size_t>(section.Misc.VirtualSize),
                                           available);
-    if (sectionSize < Size) continue;
+    if (sectionSize < size) continue;
     unsigned char* begin = base + section.VirtualAddress;
-    for (size_t offset = 0; offset + Size <= sectionSize; ++offset) {
-      if (std::memcmp(begin + offset, pattern.data(), Size) != 0) continue;
+    for (size_t offset = 0; offset + size <= sectionSize; ++offset) {
+      if (std::memcmp(begin + offset, profile.signature.data(), size) != 0) continue;
       match = begin + offset;
       ++matchCount;
       if (matchCount > 1) {
@@ -191,6 +179,8 @@ std::wstring TargetCompatibilityReport::format() const {
       << L"Build time: " << buildTimeUtc << L"\r\n"
       << L"KQPro: " << (kqProVersion.empty() ? L"unknown" : L"V" + kqProVersion)
       << L" (" << kqProName << L") " << okText(kqProIdentityOk) << L"\r\n"
+      << L"Target profile: "
+      << (targetProfileId.empty() ? L"not matched" : targetProfileId) << L"\r\n"
       << L"Architecture: " << targetArchitecture << L" " << okText(processArchitectureOk)
       << L"\r\n"
       << L"Qt6Core: " << (qtCoreVersion.empty() ? L"not loaded" : qtCoreVersion)
@@ -234,32 +224,39 @@ TargetCompatibilityReport TargetCompatibilityGuard::evaluate() {
   report.kqProName = fileName(executablePath);
   report.kqProVersion = fileVersion(executablePath);
   if (report.kqProVersion.empty()) report.kqProVersion = versionFromKqProName(report.kqProName);
-  report.kqProIdentityOk = startsWithInsensitive(report.kqProName, L"KQPro") &&
-                           endsWithInsensitive(report.kqProName, L".exe") &&
-                           !report.kqProVersion.empty();
+  const TargetProfile* profile =
+      TargetProfileRegistry::find(report.kqProName, report.kqProVersion);
+  report.kqProIdentityOk = profile != nullptr;
+  if (profile) report.targetProfileId = profile->id;
   report.processArchitectureOk = moduleIsX64(executable);
 
-  const HMODULE qtCore = GetModuleHandleW(L"Qt6Core.dll");
-  const HMODULE qtWidgets = GetModuleHandleW(L"Qt6Widgets.dll");
+  const HMODULE qtCore =
+      GetModuleHandleW(profile ? profile->qtCoreModule.c_str() : L"Qt6Core.dll");
+  const HMODULE qtWidgets = GetModuleHandleW(
+      profile ? profile->qtWidgetsModule.c_str() : L"Qt6Widgets.dll");
   report.qtCoreVersion = qtCore ? fileVersion(modulePath(qtCore)) : std::wstring();
   report.qtWidgetsVersion = qtWidgets ? fileVersion(modulePath(qtWidgets)) : std::wstring();
-  const std::wstring expectedQt = widenAscii(KQPET_QT_VERSION_STRING);
+  const std::wstring expectedQt = profile ? profile->qtVersion : std::wstring();
   report.qtCoreOk = report.qtCoreVersion == expectedQt;
   report.qtWidgetsOk = report.qtWidgetsVersion == expectedQt;
 
-  const HMODULE qcefView = GetModuleHandleW(L"QCefView.dll");
+  const HMODULE qcefView = GetModuleHandleW(
+      profile ? profile->qcefViewModule.c_str() : L"QCefView.dll");
   report.qcefViewPresent = qcefView != nullptr && !modulePath(qcefView).empty();
   if (qcefView) {
-    report.qcefViewExecuteJavascript = reinterpret_cast<std::uintptr_t>(GetProcAddress(
-        qcefView, "?executeJavascript@QCefView@@QEAA_NAEB_JAEBVQString@@1@Z"));
+    report.qcefViewExecuteJavascript = reinterpret_cast<std::uintptr_t>(
+        GetProcAddress(qcefView, profile ? profile->qcefExecuteJavascriptSymbol.c_str()
+                                        : ""));
   }
   report.qcefViewSymbolPresent = report.qcefViewExecuteJavascript != 0;
 
-  report.dispatch = resolveEndpoint(executable, L"Dispatch", kDispatchRva, kDispatchPrologue);
-  report.serviceGetter =
-      resolveEndpoint(executable, L"ServiceGetter", kServiceGetterRva, kServiceGetterPrologue);
-  report.commandSender =
-      resolveEndpoint(executable, L"CommandSender", kCommandSenderRva, kCommandSenderPrologue);
+  if (profile) {
+    report.dispatch = resolveEndpoint(executable, L"Dispatch", profile->dispatch);
+    report.serviceGetter =
+        resolveEndpoint(executable, L"ServiceGetter", profile->serviceGetter);
+    report.commandSender =
+        resolveEndpoint(executable, L"CommandSender", profile->commandSender);
+  }
 
   report.supported = report.processArchitectureOk && report.kqProIdentityOk &&
                      report.qtCoreOk && report.qtWidgetsOk && report.qcefViewPresent &&

@@ -26,6 +26,7 @@
 #include <QTableWidget>
 #include <QTabWidget>
 #include <QTextBrowser>
+#include <QTimer>
 #include <QVBoxLayout>
 #include <QVariant>
 
@@ -121,8 +122,6 @@ ShopWindow::ShopWindow(PetRepository* repository, QWidget* parent)
   resize(1420, 860);
   setMinimumSize(1100, 680);
   setAttribute(Qt::WA_DeleteOnClose, false);
-  imageCache_ = new PetImageCache(repository_ ? repository_->dataRoot() : QString(), this);
-
   auto* root = new QVBoxLayout(this);
   auto* toolbar = new QHBoxLayout();
   refresh_ = new QPushButton(QStringLiteral("刷新兑换次数"), this);
@@ -136,8 +135,22 @@ ShopWindow::ShopWindow(PetRepository* repository, QWidget* parent)
 
   auto* horizontal = new QSplitter(Qt::Horizontal, this);
   auto* left = new QSplitter(Qt::Vertical, horizontal);
-  shopTabs_ = new QTabWidget(left);
+  auto* shopPane = new QWidget(left);
+  auto* shopLayout = new QVBoxLayout(shopPane);
+  shopLayout->setContentsMargins(0, 0, 0, 0);
+  shopLayout->setSpacing(6);
+  currencySummary_ = new QLabel(QStringLiteral("当前商店资源：未查询"), shopPane);
+  currencySummary_->setObjectName(QStringLiteral("KQShopCurrencySummary"));
+  currencySummary_->setWordWrap(true);
+  currencySummary_->setTextInteractionFlags(Qt::TextSelectableByMouse);
+  currencySummary_->setStyleSheet(QStringLiteral(
+      "QLabel{padding:8px 12px;border:1px solid #d7deea;border-radius:6px;"
+      "background:#f6f8fc;color:#344054;font-weight:600;}"));
+  shopTabs_ = new QTabWidget(shopPane);
+  shopTabs_->setObjectName(QStringLiteral("KQShopTabs"));
   shopTabs_->setUsesScrollButtons(true);
+  shopLayout->addWidget(currencySummary_);
+  shopLayout->addWidget(shopTabs_, 1);
 
   auto* petPane = new QWidget(left);
   auto* petLayout = new QVBoxLayout(petPane);
@@ -168,7 +181,7 @@ ShopWindow::ShopWindow(PetRepository* repository, QWidget* parent)
   petDetail_->setHtml(QStringLiteral(
       "<p style='color:#718096'>点击上方精灵会立即显示本地缓存；账号在线时会按实例 ID 在后台刷新一次详情。</p>"));
 
-  left->addWidget(shopTabs_);
+  left->addWidget(shopPane);
   left->addWidget(petPane);
   left->setChildrenCollapsible(false);
   left->setStretchFactor(0, 3);
@@ -202,6 +215,7 @@ ShopWindow::ShopWindow(PetRepository* repository, QWidget* parent)
   connect(moveToBackpack_, &QPushButton::clicked, this,
           &ShopWindow::moveCurrentToBackpack);
   connect(shopTabs_, &QTabWidget::currentChanged, this, [this]() {
+    updateCurrencySummary();
     petTable_->setRowCount(0);
     currentEligibility_.clear();
     currentGood_ = {};
@@ -214,26 +228,33 @@ ShopWindow::ShopWindow(PetRepository* repository, QWidget* parent)
     updateMoveButton();
   });
   if (repository_) {
-    connect(repository_, &PetRepository::dataChanged, this, &ShopWindow::rebuild);
+    connect(repository_, &PetRepository::dataChanged, this, &ShopWindow::scheduleRebuild);
     connect(repository_, &PetRepository::detailChanged, this,
             &ShopWindow::updateCurrentDetail);
   }
-  connect(imageCache_, &PetImageCache::petImageReady, this,
-          &ShopWindow::updateCurrentImage);
   updateMoveButton();
-  rebuild();
+  scheduleRebuild();
 }
 
 void ShopWindow::setPacket(const QJsonObject& packet, bool hasPacket) {
   packet_ = packet;
   hasPacket_ = hasPacket;
-  rebuild();
+  scheduleRebuild();
 }
 
 void ShopWindow::setMaterialCounts(const QHash<QString, qint64>& counts, bool valid) {
   materialCounts_ = counts;
   hasMaterialCounts_ = valid;
-  rebuild();
+  scheduleRebuild();
+}
+
+void ShopWindow::scheduleRebuild() {
+  if (rebuildScheduled_) return;
+  rebuildScheduled_ = true;
+  QTimer::singleShot(0, this, [this]() {
+    rebuildScheduled_ = false;
+    rebuild();
+  });
 }
 
 void ShopWindow::setStatus(const QString& status) { status_->setText(status); }
@@ -271,15 +292,16 @@ QString ShopWindow::shopCurrencyText(const ShopExchangeShop& shop) const {
       const QString name = PetDetailCatalog::instance().materialName(
           fields.at(0).toInt(), fields.at(1).toInt());
       currencies.append(QStringLiteral("%1 %2")
-                            .arg(name, hasMaterialCounts_
-                                           ? QString::number(materialCounts_.value(key, 0))
-                                           : QStringLiteral("未查询")));
+                            .arg(name, hasMaterialCounts_ && materialCounts_.contains(key)
+                                           ? QString::number(materialCounts_.value(key))
+                                           : QStringLiteral("未读取")));
     }
   }
   return currencies.join(QStringLiteral(" / "));
 }
 
 void ShopWindow::rebuild() {
+  setProperty("rebuildCount", property("rebuildCount").toInt() + 1);
   const int current = shopTabs_->currentIndex();
   const QString selectedGoodKey = currentGood_.itemServerId > 0
                                       ? currentGood_.stableKey() : QString();
@@ -292,6 +314,7 @@ void ShopWindow::rebuild() {
     delete page;
   }
   shopRows_.clear();
+  rebuildEligiblePetIndex();
   const auto shops = ShopExchangeCatalog::instance().shops();
   shopRows_.reserve(shops.size());
   for (const ShopExchangeShop& shop : shops) {
@@ -300,8 +323,12 @@ void ShopWindow::rebuild() {
                              QStringLiteral("限次"), QStringLiteral("剩余"),
                              QStringLiteral("对应个体")});
     table->setObjectName(QStringLiteral("KQShopGoodsTable-%1").arg(shop.shopId));
-    table->horizontalHeader()->setSectionResizeMode(QHeaderView::ResizeToContents);
+    table->horizontalHeader()->setSectionResizeMode(QHeaderView::Interactive);
     table->horizontalHeader()->setSectionResizeMode(0, QHeaderView::Stretch);
+    table->setColumnWidth(1, 220);
+    table->setColumnWidth(2, 110);
+    table->setColumnWidth(3, 90);
+    table->setColumnWidth(4, 90);
     QList<GoodRow> rows;
     table->setRowCount(shop.goods.size());
     int row = 0;
@@ -315,7 +342,7 @@ void ShopWindow::rebuild() {
                                  ? textItem(QStringLiteral("未查询"))
                                  : textItem(QStringLiteral("%1 / %2").arg(remaining).arg(good.limitCount),
                                             remaining > 0));
-      table->setItem(row, 4, textItem(QString::number(eligiblePets(good).size())));
+      table->setItem(row, 4, textItem(QString::number(eligiblePetCount(good))));
       rows.append({good, row});
       ++row;
     }
@@ -327,9 +354,7 @@ void ShopWindow::rebuild() {
       showGoodPets(shopRows_.at(shopIndex).at(row).good);
     });
     const QString currency = shopCurrencyText(shop);
-    const int tabIndex = shopTabs_->addTab(
-        table, currency.isEmpty() ? shop.name
-                                  : QStringLiteral("%1（%2）").arg(shop.name, currency));
+    const int tabIndex = shopTabs_->addTab(table, shop.name);
     shopTabs_->setTabToolTip(tabIndex,
                              currency.isEmpty() ? shop.name
                                                 : QStringLiteral("%1｜账号拥有：%2")
@@ -337,6 +362,7 @@ void ShopWindow::rebuild() {
     shopRows_.append(rows);
   }
   if (current >= 0 && current < shopTabs_->count()) shopTabs_->setCurrentIndex(current);
+  updateCurrencySummary();
 
   bool restoredGood = false;
   if (!selectedGoodKey.isEmpty()) {
@@ -362,6 +388,51 @@ void ShopWindow::rebuild() {
     }
   }
   updateMoveButton();
+}
+
+void ShopWindow::rebuildEligiblePetIndex() {
+  eligiblePetIdsByRace_.clear();
+  if (!repository_) return;
+  const auto indexPets = [this](const QList<QJsonObject>& pets) {
+    for (const QJsonObject& pet : pets) {
+      const qint64 id = petInstanceId(pet);
+      if (id <= 0) continue;
+      const int currentRace = petRaceId(pet);
+      if (currentRace > 0) eligiblePetIdsByRace_[currentRace].insert(id);
+      const int metadataRace = pet.value(QStringLiteral("_metaRaceId")).toInt();
+      if (metadataRace > 0) eligiblePetIdsByRace_[metadataRace].insert(id);
+    }
+  };
+  indexPets(repository_->backpackPets());
+  indexPets(repository_->warehousePets());
+}
+
+int ShopWindow::eligiblePetCount(const ShopExchangeGood& good) const {
+  QSet<qint64> ids;
+  for (int raceId : good.raceIds) ids.unite(eligiblePetIdsByRace_.value(raceId));
+  return ids.size();
+}
+
+void ShopWindow::updateCurrencySummary() {
+  if (!currencySummary_) return;
+  const auto shops = ShopExchangeCatalog::instance().shops();
+  const int index = shopTabs_ ? shopTabs_->currentIndex() : -1;
+  if (index < 0 || index >= shops.size()) {
+    currencySummary_->setText(QStringLiteral("当前商店资源：无可用商店"));
+    return;
+  }
+  const QString currency = shopCurrencyText(shops.at(index));
+  currencySummary_->setText(
+      currency.isEmpty()
+          ? QStringLiteral("%1 · 暂无资源信息").arg(shops.at(index).name)
+          : QStringLiteral("%1 · 账号拥有：%2").arg(shops.at(index).name, currency));
+}
+
+void ShopWindow::ensureImageCache() {
+  if (imageCache_) return;
+  imageCache_ = new PetImageCache(repository_ ? repository_->dataRoot() : QString(), this);
+  connect(imageCache_, &PetImageCache::petImageReady, this,
+          &ShopWindow::updateCurrentImage);
 }
 
 QList<QJsonObject> ShopWindow::eligiblePets(const ShopExchangeGood& good) const {
@@ -537,9 +608,10 @@ void ShopWindow::showPetDetail(qint64 instanceId, bool requestLatest) {
   } else {
     const PetDetailCatalog& catalog = PetDetailCatalog::instance();
     currentVisualKey_ = petVisualKey(pet);
-    const QString imagePath = imageCache_->ensurePetImage(
+    ensureImageCache();
+    const QString imagePath = imageCache_ ? imageCache_->ensurePetImage(
         pet, {displayName(pet), catalog.resolvedOriginalName(pet),
-              catalog.petName(petRaceId(pet))});
+              catalog.petName(petRaceId(pet))}) : QString();
     const ShopPetEligibility eligibility = currentEligibility_.value(instanceId);
     const bool usable = eligibility.state == ShopPetEligibilityState::Usable;
     const QString state = usable ? QStringLiteral("可以使用")

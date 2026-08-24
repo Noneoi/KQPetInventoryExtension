@@ -212,54 +212,74 @@ void RoutineOverviewWindow::rebuildOpportunities() {
          6 - starWeekPlayed, QStringLiteral("6"), QString::number(starWeekPlayed),
          QStringLiteral("1008_20220603_swa_0_0：wgt"));
 
+  const QJsonObject tree = opportunityPackets_
+      .value(QStringLiteral("1008_20190531_gbt_1")).toObject();
+  const bool hasTree = tree.value(QStringLiteral("ti")).isDouble();
+  addRow(QStringLiteral("缤纷树"), QStringLiteral("今日"), hasTree,
+         tree.value(QStringLiteral("ti")).toInt(), QStringLiteral("—"),
+         QStringLiteral("—"), QStringLiteral("1008_20190531_gbt_1：ti（服务器剩余次数）"));
+
+  const QJsonObject beast = opportunityPackets_.value(QStringLiteral("2_36_1")).toObject();
+  const bool hasBeast = beast.value(QStringLiteral("t")).isDouble();
+  addRow(QStringLiteral("源兽之门"), QStringLiteral("今日"), hasBeast,
+         beast.value(QStringLiteral("t")).toInt(), QStringLiteral("—"),
+         QStringLiteral("—"), QStringLiteral("PJXExtension / 2_36_1：t"));
+
+  const QJsonObject competition = opportunityPackets_
+      .value(QStringLiteral("110_123_0")).toObject();
+  const bool hasCompetition = competition.value(QStringLiteral("rwwt")).isDouble() &&
+                              competition.value(QStringLiteral("rdt")).isDouble();
+  const int competitionBought = competition.value(QStringLiteral("rdb")).toInt();
+  const int competitionDailyUsed = competition.value(QStringLiteral("rdt")).toInt();
+  addRow(QStringLiteral("全民斗技"), QStringLiteral("今日"), hasCompetition,
+         40 + competitionBought - competitionDailyUsed,
+         competitionBought > 0 ? QStringLiteral("40 + 已购 %1").arg(competitionBought)
+                               : QStringLiteral("40"),
+         QString::number(competitionDailyUsed),
+         QStringLiteral("110_123_0：40 + rdb - rdt"));
+  addRow(QStringLiteral("全民斗技"), QStringLiteral("本周"), hasCompetition,
+         competition.value(QStringLiteral("rwwt")).toInt(), QStringLiteral("40"),
+         QString::number(competition.value(QStringLiteral("wwt")).toInt()),
+         QStringLiteral("110_123_0：rwwt"));
+
+  const QJsonObject farm = opportunityPackets_
+      .value(QStringLiteral("1008_20260522_nf_0")).toObject();
+  const bool hasFarm = farm.value(QStringLiteral("pt")).isDouble() &&
+                       farm.value(QStringLiteral("rft")).isDouble();
+  addRow(QStringLiteral("最新版农场·可用次数"), QStringLiteral("今日"), hasFarm,
+         farm.value(QStringLiteral("pt")).toInt(), QStringLiteral("—"),
+         QStringLiteral("—"), QStringLiteral("1008_20260522_nf_0：pt"));
+  addRow(QStringLiteral("最新版农场·刷新次数"), QStringLiteral("今日"), hasFarm,
+         farm.value(QStringLiteral("rft")).toInt(), QStringLiteral("16"),
+         hasFarm ? QString::number(qMax(0, 16 - farm.value(QStringLiteral("rft")).toInt()))
+                 : QStringLiteral("—"),
+         QStringLiteral("1008_20260522_nf_0：rft"));
+
+  addRow(QStringLiteral("灵骑破封"), QStringLiteral("今日"), false, 0,
+         QStringLiteral("—"), QStringLiteral("—"),
+         QStringLiteral("官方现有 129_0_1 是执行破封，不作为只读次数查询"));
+
   const QJsonObject arena = opportunityPackets_.value(QStringLiteral("16_24_A")).toObject();
-  const bool hasArena = arena.value(QStringLiteral("sweep")).isDouble();
-  int arenaChallenges = 0;
-  for (const QString& key : {QStringLiteral("zao1"), QStringLiteral("zao2")}) {
-    const QJsonObject field = arena.value(key).toObject();
-    if (field.value(QStringLiteral("curz")).toInt() > 0)
-      arenaChallenges += qMax(0, field.value(QStringLiteral("ct")).toInt());
-  }
-  const int sweepUsed = arena.value(QStringLiteral("sweep")).toInt();
-  addRow(QStringLiteral("竞技场·金币奖励挑战"), QStringLiteral("今日"), hasArena,
-         8 - arenaChallenges, QStringLiteral("8"), QString::number(arenaChallenges),
-         QStringLiteral("16_24_A：zao1/zao2.ct"));
-  addRow(QStringLiteral("竞技场·扫荡"), QStringLiteral("今日"), hasArena,
-         8 - sweepUsed, QStringLiteral("8"), QString::number(sweepUsed),
-         QStringLiteral("16_24_A：sweep"));
-  if (hasArena) {
-    const QStringList fieldKeys{QStringLiteral("zao1"), QStringLiteral("zao2")};
-    const QStringList fieldNames{QStringLiteral("竞技场·经典场挑战"),
-                                 QStringLiteral("竞技场·精英场挑战")};
-    for (int index = 0; index < fieldKeys.size(); ++index) {
-      const QJsonObject field = arena.value(fieldKeys.at(index)).toObject();
-      if (field.value(QStringLiteral("curz")).toInt() <= 0) continue;
-      const int used = qMax(0, field.value(QStringLiteral("ct")).toInt());
-      const int bought = qMax(0, field.value(QStringLiteral("bct")).toInt());
-      addRow(fieldNames.at(index), QStringLiteral("今日"), true, 8 - used + bought,
-             bought > 0 ? QStringLiteral("8＋已购%1").arg(bought) : QStringLiteral("8"),
-             QString::number(used),
-             QStringLiteral("16_24_A：%1.ct / bct").arg(fieldKeys.at(index)));
-    }
-  }
-
-  const QJsonObject fusion = opportunityPackets_.value(QStringLiteral("100_13_0")).toObject();
-  const bool hasFusion = fusion.value(QStringLiteral("pt")).isDouble();
-  const int fusionUsed = fusion.value(QStringLiteral("pt")).toInt();
-  addRow(QStringLiteral("精灵公园·6只圈养精灵兑换"), QStringLiteral("本周"), hasFusion,
-         3 - fusionUsed, QStringLiteral("3"), QString::number(fusionUsed),
-         QStringLiteral("PetParkExtension / 100_13_0：pt"));
-
-  const QJsonObject feed = opportunityPackets_.value(QStringLiteral("100_2_0")).toObject();
-  const bool hasFeed = feed.value(QStringLiteral("rfc")).isDouble();
-  addRow(QStringLiteral("精灵公园·新手带回"), QStringLiteral("今日"), hasFeed,
-         feed.value(QStringLiteral("rfc")).toInt(), QStringLiteral("—"),
-         QStringLiteral("—"), QStringLiteral("PetParkExtension / 100_2_0：rfc"));
+  const auto addArena = [&](const QString& name, const QString& field) {
+    const QJsonObject info = arena.value(field).toObject();
+    const bool available = info.value(QStringLiteral("ct")).isDouble() &&
+                           info.value(QStringLiteral("bct")).isDouble();
+    const int used = info.value(QStringLiteral("ct")).toInt();
+    const int bought = info.value(QStringLiteral("bct")).toInt();
+    addRow(name, QStringLiteral("今日"), available, 8 - used + bought,
+           bought > 0 ? QStringLiteral("8 + 已购 %1").arg(bought) : QStringLiteral("8"),
+           QString::number(used),
+           available
+               ? QStringLiteral("游戏打开竞技场时被动读取 16_24_A：%1.ct/bct").arg(field)
+               : QStringLiteral("请先打开游戏内竞技场；插件不会主动查询，以免覆盖挑战冷却"));
+  };
+  addArena(QStringLiteral("经典竞技场·挑战"), QStringLiteral("zao1"));
+  addArena(QStringLiteral("传奇竞技场·挑战"), QStringLiteral("zao2"));
 
   opportunityNote_->setText(QStringLiteral(
       "这里显示玩法服务器直接返回的可用次数，不再把“任务目标－任务进度”冒充剩余机会。"
-      "当前已接入星轮探险、竞技场和精灵公园；竞技场分场行只在账号已进入对应场次时显示。"
-      "农场等未能从当前官方资源确认查询协议与字段的玩法暂不猜测，后续可按独立协议适配器继续增加。"));
+      "已移除两个无用的精灵公园项目。经典/传奇竞技场只被动读取游戏自身返回，插件绝不主动发送"
+      " 16_24_A 或排位赛 16_6_0；灵骑破封没有安全的只读次数接口，因此不会用执行协议猜测。"));
 }
 
 void RoutineOverviewWindow::rebuildTasks() {

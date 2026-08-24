@@ -2,10 +2,13 @@
 #include "shop_window.h"
 
 #include <QApplication>
+#include <QElapsedTimer>
 #include <QJsonArray>
 #include <QJsonDocument>
+#include <QLabel>
 #include <QTableWidget>
 #include <QHeaderView>
+#include <QTabWidget>
 #include <QTemporaryDir>
 #include <QTextBrowser>
 #include <QTimer>
@@ -33,8 +36,8 @@ int main(int argc, char* argv[]) {
                                      QStringLiteral("preview-account")}}}});
   repository->beginListRefresh(1, repository->accountKey(),
                                repository->sessionGeneration());
-  deliver(repository,
-          {{QStringLiteral("_cmd"), QStringLiteral("2_1_10")},
+  QJsonObject backpackPacket{
+          {QStringLiteral("_cmd"), QStringLiteral("2_1_10")},
            {QStringLiteral("pl"),
             QJsonArray{QJsonObject{{QStringLiteral("id"), 10001},
                                    {QStringLiteral("r"), 7115},
@@ -48,7 +51,15 @@ int main(int argc, char* argv[]) {
                                    {QStringLiteral("lv"), 80},
                                    {QStringLiteral("zdl"), 18000},
                                    {QStringLiteral("xzdl"), 23000}}}},
-           {QStringLiteral("pps"), QJsonArray{QStringLiteral("10001")}}});
+           {QStringLiteral("pps"), QJsonArray{QStringLiteral("10001")}}};
+  QJsonArray backpackPets = backpackPacket.value(QStringLiteral("pl")).toArray();
+  for (int index = 0; index < 1998; ++index)
+    backpackPets.append(QJsonObject{{QStringLiteral("id"), 20000 + index},
+                                    {QStringLiteral("r"), 999999},
+                                    {QStringLiteral("n"), QStringLiteral("性能样本")},
+                                    {QStringLiteral("lv"), 1}});
+  backpackPacket.insert(QStringLiteral("pl"), backpackPets);
+  deliver(repository, backpackPacket);
   repository->expectListPart(QStringLiteral("2_1_S"), 1,
                              repository->accountKey(), repository->sessionGeneration());
   deliver(repository,
@@ -61,6 +72,8 @@ int main(int argc, char* argv[]) {
            {QStringLiteral("es"), QJsonArray{}},
            {QStringLiteral("rb"), QJsonArray{}}});
 
+  QElapsedTimer firstOpenTimer;
+  firstOpenTimer.start();
   auto* window = new ShopWindow(repository);
   window->setPacket(
       {{QStringLiteral("si1"),
@@ -84,8 +97,18 @@ int main(int argc, char* argv[]) {
       auto* goods = window->findChild<QTableWidget*>(QStringLiteral("KQShopGoodsTable-1"));
       auto* pets = window->findChild<QTableWidget*>(QStringLiteral("KQShopPetTable"));
       auto* detail = window->findChild<QTextBrowser*>();
-      if (!goods || !pets || !detail || goods->rowCount() <= 0) {
+      auto* currency = window->findChild<QLabel*>(QStringLiteral("KQShopCurrencySummary"));
+      auto* tabs = window->findChild<QTabWidget*>(QStringLiteral("KQShopTabs"));
+      if (!goods || !pets || !detail || !currency || !tabs || goods->rowCount() <= 0) {
         application.exit(2);
+        return;
+      }
+      if (window->property("rebuildCount").toInt() != 1 ||
+          firstOpenTimer.elapsed() > 3000 ||
+          currency->text().contains(QStringLiteral("未查询")) ||
+          !currency->text().contains(QStringLiteral("1888")) ||
+          tabs->tabText(0).contains(QStringLiteral("（"))) {
+        application.exit(9);
         return;
       }
       const QPoint goodsTop = goods->mapToGlobal(QPoint(0, 0));
@@ -148,8 +171,9 @@ int main(int argc, char* argv[]) {
                                        {QStringLiteral("ri"), 7185},
                                        {QStringLiteral("n"), QStringLiteral("预览精灵 B2")},
                                        {QStringLiteral("lv"), 100}}}},
-               {QStringLiteral("es"), QJsonArray{}},
-               {QStringLiteral("rb"), QJsonArray{}}});
+                {QStringLiteral("es"), QJsonArray{}},
+                {QStringLiteral("rb"), QJsonArray{}}});
+      QCoreApplication::processEvents();
       pets = window->findChild<QTableWidget*>(QStringLiteral("KQShopPetTable"));
       const bool preserved = pets && pets->rowCount() > 0 &&
                              pets->currentRow() >= 0 && detail &&

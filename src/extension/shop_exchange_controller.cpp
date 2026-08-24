@@ -129,6 +129,29 @@ void ShopExchangeController::handlePacket(const QString& method, const QString& 
   }
   const QJsonObject packet = document.object();
   const QString command = packet.value(QStringLiteral("_cmd")).toString();
+  // Personal league contribution (material 134:1) is not part of the generic
+  // MaterialExtension/3_11 response.  The game already requests this league
+  // overview during its normal flow, so observe that response without adding
+  // another server request.
+  if (command == QStringLiteral("1015_2A")) {
+    if (!repository_ || !repository_->isAuthenticated() || account_.isEmpty() ||
+        account_ != repository_->accountKey() ||
+        sessionGeneration_ != repository_->sessionGeneration() ||
+        (packet.contains(QStringLiteral("r")) &&
+         packet.value(QStringLiteral("r")).toInt() != 1))
+      return;
+    const QJsonObject member = packet.value(QStringLiteral("infos"))
+                                   .toObject()
+                                   .value(QStringLiteral("UnionMemberInfo"))
+                                   .toObject();
+    if (!member.value(QStringLiteral("lCToken")).isDouble()) return;
+    materialCounts_.insert(QStringLiteral("134:1"),
+                           member.value(QStringLiteral("lCToken")).toVariant().toLongLong());
+    hasMaterialCounts_ = true;
+    saveCache();
+    emit infoUpdated();
+    return;
+  }
   const bool shopResponse =
       command == ShopExchangeCatalog::instance().getInfoCommand();
   const bool materialResponse = command == QStringLiteral("3_11");
@@ -151,7 +174,11 @@ void ShopExchangeController::handlePacket(const QString& method, const QString& 
     hasPacket_ = true;
     shopResponseReceived_ = true;
   } else {
+    const bool hadContribution = materialCounts_.contains(QStringLiteral("134:1"));
+    const qint64 contribution = materialCounts_.value(QStringLiteral("134:1"));
     materialCounts_ = parseRequiredMaterialCounts(packet);
+    if (hadContribution)
+      materialCounts_.insert(QStringLiteral("134:1"), contribution);
     hasMaterialCounts_ = true;
     materialResponseReceived_ = true;
   }
@@ -249,6 +276,9 @@ QHash<QString, qint64> ShopExchangeController::parseRequiredMaterialCounts(
     }
   }
   QHash<QString, qint64> result;
+  // 134:1 lives in LeagueExtension/1015_2A (lCToken), not in 3_11.  Omitting
+  // it here prevents an absent value from being presented as a real zero.
+  required.remove(QStringLiteral("134:1"));
   for (const QString& key : required) result.insert(key, 0);
   for (auto iterator = packet.begin(); iterator != packet.end(); ++iterator) {
     bool typeOk = false;

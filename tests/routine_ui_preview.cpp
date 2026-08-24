@@ -23,16 +23,18 @@ int main(int argc, char* argv[]) {
       true, QSet<int>{10011, 10025, 10037}, true,
       {{QStringLiteral("1008_20220603_swa_0_0"),
         QJsonObject{{QStringLiteral("ti"), 2}, {QStringLiteral("wgt"), 4}}},
+       {QStringLiteral("1008_20190531_gbt_1"), QJsonObject{{QStringLiteral("ti"), 5}}},
+       {QStringLiteral("2_36_1"), QJsonObject{{QStringLiteral("t"), 6}}},
+       {QStringLiteral("110_123_0"),
+        QJsonObject{{QStringLiteral("rwwt"), 18}, {QStringLiteral("wwt"), 2},
+                    {QStringLiteral("rdt"), 4}, {QStringLiteral("rdb"), 0}}},
+       {QStringLiteral("1008_20260522_nf_0"),
+        QJsonObject{{QStringLiteral("pt"), 8}, {QStringLiteral("rft"), 16}}},
        {QStringLiteral("16_24_A"),
-        QJsonObject{{QStringLiteral("sweep"), 3},
-                    {QStringLiteral("zao1"),
-                     QJsonObject{{QStringLiteral("curz"), 1}, {QStringLiteral("ct"), 5},
-                                 {QStringLiteral("bct"), 1}}},
+        QJsonObject{{QStringLiteral("zao1"),
+                     QJsonObject{{QStringLiteral("ct"), 2}, {QStringLiteral("bct"), 0}}},
                     {QStringLiteral("zao2"),
-                     QJsonObject{{QStringLiteral("curz"), 2}, {QStringLiteral("ct"), 1},
-                                 {QStringLiteral("bct"), 0}}}}},
-       {QStringLiteral("100_13_0"), QJsonObject{{QStringLiteral("pt"), 1}}},
-       {QStringLiteral("100_2_0"), QJsonObject{{QStringLiteral("rfc"), 4}}}});
+                     QJsonObject{{QStringLiteral("ct"), 3}, {QStringLiteral("bct"), 1}}}}}});
   window->setStatus(QStringLiteral("界面预览：全部数据仅为模拟，不会发送网络请求"));
   window->show();
 
@@ -48,9 +50,14 @@ int main(int argc, char* argv[]) {
       valid = valid && daily && weekly && daily->columnCount() == 6 &&
               weekly->columnCount() == 6 && activity && activity->columnCount() == 6 &&
               opportunity && opportunity->columnCount() == 7 &&
-              opportunity->rowCount() == 8 &&
+              opportunity->rowCount() == 11 &&
               opportunity->item(0, 2) &&
               opportunity->item(0, 2)->text() == QStringLiteral("2") &&
+              opportunity->item(9, 0) &&
+              opportunity->item(9, 0)->text().contains(QStringLiteral("经典竞技场")) &&
+              opportunity->item(9, 2)->text() == QStringLiteral("6") &&
+              opportunity->item(10, 0)->text().contains(QStringLiteral("传奇竞技场")) &&
+              opportunity->item(10, 2)->text() == QStringLiteral("6") &&
               daily->item(0, 4) &&
               daily->item(0, 4)->text() == QStringLiteral("0");
       application.exit(valid ? 0 : 2);
