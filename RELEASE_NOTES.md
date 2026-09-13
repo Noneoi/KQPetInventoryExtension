@@ -4,6 +4,14 @@
 
 本版本将精灵、商店、日常和资产功能整合为工作台，并完成本地缓存、手动公共资料更新及培养分析的主要改造。版本号来自 CMake 项目配置；具体二进制还包含独立的 `releaseId`、源码摘要和工具链信息。
 
+### 复制即用安装与升级
+
+推荐从 [v2.0.0-preview.1 发行页](https://github.com/Noneoi/KQPetInventoryExtension/releases/tag/v2.0.0-preview.1) 下载名称含 **copy-ready** 的 ZIP。关闭氪奇、解压，将 **启动精灵工作台.cmd** 和 **KQPetQuickStart** 文件夹复制到 `KQPro*.exe` 同目录，再双击 **启动精灵工作台.cmd**。
+
+程序自动安装或更新扩展并启动，无需输入路径或命令，原版客户端和已有缓存保留。复制即用包沿用已验证标准包的应用二进制与报告，应用版本不变。
+
+高级 PowerShell 部署仍可使用。开发者可通过 `scripts/package-copy-ready.ps1 -PackageDirectory <已验证标准包解压目录>` 生成复制即用包，具体命令见 [README](README.md)。
+
 ### 本地数据与手动刷新
 
 - 精灵详情按账号和实例长期保存，最新有效数据覆盖旧文件。点击精灵先显示缓存，在线时更新这一只；批量仓库详情仅刷新勾选的时代。
