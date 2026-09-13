@@ -1,274 +1,229 @@
 #include <windows.h>
-#include <cwctype>
+#include <shellapi.h>
 #include <filesystem>
 #include <string>
 #include <vector>
+#include <algorithm>
+#include <cstring>
+#include "client_target.h"
+#include "remote_module.h"
+#include "data_root_config.h"
+#include "target_check.h"
+#include "startup_channel.h"
+#include "release_activation.h"
+#include "version.h"
 
 namespace {
-
-constexpr wchar_t kExtensionDllName[] = L"KQPetInventory.dll";
-constexpr wchar_t kPendingExtensionDllName[] = L"KQPetInventory.pending.dll";
-
-std::wstring lower(std::wstring value) {
-  for (wchar_t& character : value) character = std::towlower(character);
-  return value;
-}
-
-std::vector<int> versionNumbers(const std::wstring& filename) {
-  std::vector<int> result;
-  int current = -1;
-  for (wchar_t character : filename) {
-    if (std::iswdigit(character)) {
-      if (current < 0) current = 0;
-      current = current * 10 + (character - L'0');
-    } else if (current >= 0) {
-      result.push_back(current);
-      current = -1;
-    }
-  }
-  if (current >= 0) result.push_back(current);
-  return result;
-}
-
-bool newerVersion(const std::vector<int>& left, const std::vector<int>& right) {
-  const size_t count = (std::max)(left.size(), right.size());
-  for (size_t index = 0; index < count; ++index) {
-    const int leftPart = index < left.size() ? left[index] : 0;
-    const int rightPart = index < right.size() ? right[index] : 0;
-    if (leftPart != rightPart) return leftPart > rightPart;
-  }
-  return false;
-}
-
-std::filesystem::path findOriginalExe(const std::filesystem::path& directory) {
-  std::filesystem::path best;
-  std::vector<int> bestVersion;
+using kqpet::startup::Channel;
+using kqpet::startup::State;
+std::wstring canonical(const std::wstring& path) {
   std::error_code error;
-  for (const auto& entry : std::filesystem::directory_iterator(directory, error)) {
-    if (error || !entry.is_regular_file(error)) continue;
-    const std::filesystem::path path = entry.path();
-    const std::wstring filename = lower(path.filename().wstring());
-    if (path.extension() != L".exe" && lower(path.extension().wstring()) != L".exe") continue;
-    if (filename.rfind(L"kqpro", 0) != 0) continue;
-    const std::vector<int> version = versionNumbers(filename);
-    if (best.empty() || newerVersion(version, bestVersion)) {
-      best = path;
-      bestVersion = version;
-    }
+  auto resolved = std::filesystem::weakly_canonical(path, error);
+  return error ? std::wstring{} : resolved.wstring();
+}
+bool samePath(const std::wstring& a, const std::wstring& b) {
+  const auto first = canonical(a), second = canonical(b);
+  return !first.empty() && !second.empty() && !_wcsicmp(first.c_str(), second.c_str());
+}
+std::wstring quoteArgument(const std::wstring& input) {
+  std::wstring output = L"\"";
+  std::size_t slashes = 0;
+  for (wchar_t c : input) {
+    if (c == L'\\') { ++slashes; continue; }
+    if (c == L'\"') { output.append(slashes * 2 + 1, L'\\'); output += c; }
+    else { output.append(slashes, L'\\'); output += c; }
+    slashes = 0;
   }
-  return best;
+  output.append(slashes * 2, L'\\');
+  return output + L"\"";
 }
-
-std::wstring winError(DWORD code) {
-  wchar_t* text = nullptr;
-  const DWORD size = FormatMessageW(FORMAT_MESSAGE_ALLOCATE_BUFFER |
-                                        FORMAT_MESSAGE_FROM_SYSTEM |
-                                        FORMAT_MESSAGE_IGNORE_INSERTS,
-                                    nullptr, code, 0,
-                                    reinterpret_cast<wchar_t*>(&text), 0, nullptr);
-  std::wstring result = size && text ? std::wstring(text, size) : L"未知错误";
-  if (text)
-    LocalFree(text);
-  return result;
-}
-
-#if 0  // Legacy hash checker retained only for source-history context; no version binding.
-bool sha256File(const std::filesystem::path& path, std::wstring* hex, std::wstring* error) {
-  HANDLE file = CreateFileW(path.c_str(), GENERIC_READ, FILE_SHARE_READ, nullptr,
-                            OPEN_EXISTING, FILE_ATTRIBUTE_NORMAL, nullptr);
-  if (file == INVALID_HANDLE_VALUE) {
-    *error = L"无法读取原版程序：" + winError(GetLastError());
-    return false;
-  }
-
-  BCRYPT_ALG_HANDLE algorithm = nullptr;
-  BCRYPT_HASH_HANDLE hash = nullptr;
-  std::vector<UCHAR> hashObject;
-  std::array<UCHAR, 32> digest{};
-  bool ok = false;
-
-  do {
-    if (BCryptOpenAlgorithmProvider(&algorithm, BCRYPT_SHA256_ALGORITHM, nullptr, 0) < 0) {
-      *error = L"无法初始化 SHA-256。";
-      break;
-    }
-
-    DWORD objectLength = 0;
-    DWORD returned = 0;
-    if (BCryptGetProperty(algorithm, BCRYPT_OBJECT_LENGTH,
-                          reinterpret_cast<PUCHAR>(&objectLength), sizeof(objectLength),
-                          &returned, 0) < 0) {
-      *error = L"无法读取 SHA-256 参数。";
-      break;
-    }
-    hashObject.resize(objectLength);
-    if (BCryptCreateHash(algorithm, &hash, hashObject.data(), objectLength,
-                         nullptr, 0, 0) < 0) {
-      *error = L"无法创建 SHA-256 计算器。";
-      break;
-    }
-
-    // Keep the 1 MiB I/O buffer off the default Windows thread stack. A local
-    // std::array of this size can exhaust the launcher's 1 MiB stack before
-    // the original client is even started.
-    std::vector<UCHAR> buffer(1024 * 1024);
-    DWORD read = 0;
-    BOOL readSucceeded = TRUE;
-    while ((readSucceeded = ReadFile(file, buffer.data(), static_cast<DWORD>(buffer.size()),
-                                     &read, nullptr)) && read != 0) {
-      if (BCryptHashData(hash, buffer.data(), read, 0) < 0) {
-        *error = L"计算原版程序 SHA-256 时失败。";
-        break;
-      }
-    }
-    if (!error->empty())
-      break;
-    if (!readSucceeded) {
-      *error = L"读取原版程序时失败：" + winError(GetLastError());
-      break;
-    }
-    if (BCryptFinishHash(hash, digest.data(), static_cast<ULONG>(digest.size()), 0) < 0) {
-      *error = L"无法完成 SHA-256 计算。";
-      break;
-    }
-
-    std::wostringstream out;
-    out << std::uppercase << std::hex << std::setfill(L'0');
-    for (UCHAR byte : digest)
-      out << std::setw(2) << static_cast<unsigned>(byte);
-    *hex = out.str();
-    ok = true;
-  } while (false);
-
-  if (hash)
-    BCryptDestroyHash(hash);
-  if (algorithm)
-    BCryptCloseAlgorithmProvider(algorithm, 0);
-  CloseHandle(file);
-  return ok;
-}
-#endif
-
-bool injectDll(HANDLE process, const std::filesystem::path& dllPath, std::wstring* error) {
-  const std::wstring path = dllPath.wstring();
-  const SIZE_T byteCount = (path.size() + 1) * sizeof(wchar_t);
-  void* remotePath = VirtualAllocEx(process, nullptr, byteCount,
-                                    MEM_COMMIT | MEM_RESERVE, PAGE_READWRITE);
-  if (!remotePath) {
-    *error = L"无法在原版进程中分配扩展路径：" + winError(GetLastError());
-    return false;
-  }
-
-  bool ok = false;
-  do {
-    SIZE_T written = 0;
-    if (!WriteProcessMemory(process, remotePath, path.c_str(), byteCount, &written) ||
-        written != byteCount) {
-      *error = L"无法把扩展路径写入原版进程：" + winError(GetLastError());
-      break;
-    }
-
-    const HMODULE kernel32 = GetModuleHandleW(L"kernel32.dll");
-    const auto loadLibrary = reinterpret_cast<LPTHREAD_START_ROUTINE>(
-        GetProcAddress(kernel32, "LoadLibraryW"));
-    if (!loadLibrary) {
-      *error = L"无法定位 LoadLibraryW。";
-      break;
-    }
-
-    HANDLE thread = CreateRemoteThread(process, nullptr, 0, loadLibrary, remotePath, 0, nullptr);
-    if (!thread) {
-      *error = L"无法加载精灵扩展 DLL：" + winError(GetLastError());
-      break;
-    }
-    const DWORD waitResult = WaitForSingleObject(thread, 15000);
-    DWORD moduleResult = 0;
-    if (waitResult != WAIT_OBJECT_0 || !GetExitCodeThread(thread, &moduleResult) ||
-        moduleResult == 0) {
-      *error = L"精灵扩展 DLL 未能在原版进程中启动。";
-      CloseHandle(thread);
-      break;
-    }
-    CloseHandle(thread);
-    ok = true;
-  } while (false);
-
-  VirtualFreeEx(process, remotePath, 0, MEM_RELEASE);
-  return ok;
-}
-
 void showError(const std::wstring& text) {
-  MessageBoxW(nullptr, text.c_str(), L"原版氪奇精灵扩展", MB_OK | MB_ICONERROR);
+  MessageBoxW(nullptr, text.c_str(), L"KQPet 扩展启动状态", MB_OK | MB_ICONWARNING);
 }
-
-bool activatePendingExtension(const std::filesystem::path& directory,
-                              std::wstring* error) {
-  const std::filesystem::path pending = directory / kPendingExtensionDllName;
-  if (!std::filesystem::exists(pending)) return true;
-  const std::filesystem::path extension = directory / kExtensionDllName;
-  std::error_code copyError;
-  std::filesystem::copy_file(pending, extension,
-                             std::filesystem::copy_options::overwrite_existing,
-                             copyError);
-  if (copyError) {
-    *error = L"检测到待安装的扩展更新，但当前 DLL 仍被占用。请先关闭正在运行的原版氪奇，"
-             L"再重新运行 KQPetLauncher.exe。\n\n系统错误：" +
-             winError(static_cast<DWORD>(copyError.value()));
+std::vector<unsigned char> identityResource(HMODULE module) {
+  HRSRC resource = FindResourceW(module, MAKEINTRESOURCEW(200), RT_RCDATA);
+  const DWORD size = resource ? SizeofResource(module, resource) : 0;
+  HGLOBAL loaded = resource ? LoadResource(module, resource) : nullptr;
+  const auto* bytes = loaded ? static_cast<const unsigned char*>(LockResource(loaded)) : nullptr;
+  return bytes && size && size <= 65536 ? std::vector<unsigned char>(bytes, bytes + size)
+                                       : std::vector<unsigned char>{};
+}
+bool matchingBuildIdentity(HMODULE launcher, const std::filesystem::path& extension) {
+  // Resource-only mapping: no DllMain, imports, version export or Qt initializer.
+  HMODULE data = LoadLibraryExW(extension.c_str(), nullptr,
+      LOAD_LIBRARY_AS_DATAFILE_EXCLUSIVE | LOAD_LIBRARY_AS_IMAGE_RESOURCE);
+  if (!data) return false;
+  const auto own = identityResource(launcher), other = identityResource(data);
+  FreeLibrary(data);
+  return !own.empty() && own == other;
+}
+std::wstring systemFailure(const std::wstring& stage, DWORD code) {
+  return stage + L"失败（Windows 错误 " + std::to_wstring(code) + L"）。";
+}
+bool injectDll(HANDLE process, DWORD pid, const std::filesystem::path& path,
+               DWORD waitBudget, bool* unconfirmed, std::wstring* error) {
+  const ULONGLONG loadDeadline = GetTickCount64() + waitBudget;
+  const std::wstring name = path.wstring();
+  const SIZE_T bytes = (name.size() + 1) * sizeof(wchar_t);
+  void* remote = VirtualAllocEx(process, nullptr, bytes, MEM_COMMIT | MEM_RESERVE, PAGE_READWRITE);
+  if (!remote) { *error = systemFailure(L"分配扩展路径", GetLastError()); return false; }
+  SIZE_T written = 0;
+  kqpet::launcher::ModuleProbeFailure probeFailure;
+  LPTHREAD_START_ROUTINE load = kqpet::launcher::resolveRemoteLoadLibrary(pid,
+      std::min(loadDeadline, GetTickCount64() + 2000), &probeFailure);
+  if (!load) {
+    VirtualFreeEx(process, remote, 0, MEM_RELEASE);
+    *error = systemFailure(probeFailure.stage, probeFailure.systemError);
     return false;
   }
-  std::error_code removeError;
-  std::filesystem::remove(pending, removeError);
+  const BOOL pathWritten = WriteProcessMemory(process, remote, name.c_str(), bytes, &written);
+  if (!pathWritten || written != bytes) {
+    const DWORD writeError = pathWritten ? ERROR_PARTIAL_COPY : GetLastError();
+    VirtualFreeEx(process, remote, 0, MEM_RELEASE);
+    *error = systemFailure(L"写入完整 DLL 路径", writeError) +
+        L" 已写入 " + std::to_wstring(written) + L" / " + std::to_wstring(bytes) + L" 字节。";
+    return false;
+  }
+  HANDLE thread = CreateRemoteThread(process, nullptr, 0, load, remote, 0, nullptr);
+  if (!thread) {
+    const DWORD createError = GetLastError();
+    VirtualFreeEx(process, remote, 0, MEM_RELEASE);
+    *error = systemFailure(L"创建扩展加载线程", createError);
+    return false;
+  }
+  const auto waitStarted = GetTickCount64();
+  const DWORD waited = WaitForSingleObject(thread,
+      waitStarted < loadDeadline ? static_cast<DWORD>(loadDeadline - waitStarted) : 0);
+  if (waited != WAIT_OBJECT_0) {
+    // LoadLibrary may still read this memory. Keep it until process exit, and
+    // never issue a second injection to compensate for an uncertain first one.
+    *unconfirmed = true;
+    *error = L"扩展初始化尚未确认；加载可能稍后完成，请勿重复注入。";
+    CloseHandle(thread);
+    return false;
+  }
+  DWORD auxiliaryExitCode = 0;
+  GetExitCodeThread(thread, &auxiliaryExitCode); // Not a 64-bit HMODULE.
+  CloseHandle(thread);
+  VirtualFreeEx(process, remote, 0, MEM_RELEASE);
+  // The host may still be loading other modules, making a Toolhelp snapshot
+  // temporarily unavailable. Retry only the read-only confirmation; never
+  // create another remote loading thread for this process.
+  const auto loaded = kqpet::launcher::findRemoteModule(pid, path.filename().wstring(),
+      std::min(loadDeadline, GetTickCount64() + 1000), &probeFailure);
+  if (!loaded.base || !samePath(loaded.path, path.wstring())) {
+    *error = loaded.base ? L"已加载扩展模块的路径与本次版本不匹配。"
+        : systemFailure(L"确认扩展模块", probeFailure.systemError);
+    return false;
+  }
   return true;
 }
+DWORD remaining(ULONGLONG deadline, DWORD maximum) {
+  const auto now = GetTickCount64();
+  return now < deadline ? static_cast<DWORD>(std::min<ULONGLONG>(deadline - now, maximum)) : 0;
+}
+}
 
-}  // namespace
-
-int WINAPI wWinMain(HINSTANCE instance, HINSTANCE, PWSTR arguments, int) {
-  wchar_t launcherPath[MAX_PATH]{};
-  if (!GetModuleFileNameW(instance, launcherPath, MAX_PATH)) {
-    showError(L"无法取得启动器路径。");
-    return 1;
+int WINAPI wWinMain(HINSTANCE instance, HINSTANCE, PWSTR, int) {
+  wchar_t launcherPath[32768]{};
+  const DWORD length = GetModuleFileNameW(instance, launcherPath, 32768);
+  if (!length || length >= 32768) return 1;
+  const auto versionDirectory = std::filesystem::path(launcherPath).parent_path();
+  std::filesystem::path clientRoot;
+  int argc = 0;
+  LPWSTR* argv = CommandLineToArgvW(GetCommandLineW(), &argc);
+  std::vector<std::wstring> gameArguments;
+  bool hasClientRoot = false;
+  bool gameOptions = false;
+  for (int index = 1; argv && index < argc; ++index) {
+    if (!gameOptions && std::wstring(argv[index]) == L"--") {
+      gameOptions = true;
+    } else if (!gameOptions && std::wstring(argv[index]) == L"--client-root") {
+      if (hasClientRoot || index + 1 == argc) { LocalFree(argv); return 64; }
+      clientRoot = argv[++index]; hasClientRoot = true;
+    } else if (gameOptions) gameArguments.emplace_back(argv[index]);
+    else { LocalFree(argv); return 64; }
   }
-
-  const std::filesystem::path directory = std::filesystem::path(launcherPath).parent_path();
+  if (argv) LocalFree(argv);
+  kqpet::release::Failure pathFailure;
+  if (!hasClientRoot || !kqpet::release::safeDirectory(clientRoot, &clientRoot, &pathFailure)) {
+    showError(L"版本加载器需要明确且有效的 --client-root；请从原版目录的稳定启动入口运行。");
+    return 64;
+  }
+  auto dataRoot = kqpet::launcher::resolveDataRoot(clientRoot, kqpet::launcher::inheritedDataRoot());
+  if (!dataRoot.warning.empty()) showError(dataRoot.warning);
+  std::wstring migrationNotice;
+  if (!dataRoot.pendingRoot.empty()) {
+    const bool hostStopped = kqpet::release::originalProcessState(clientRoot) == kqpet::release::ProcessState::Stopped;
+    if (!kqpet::launcher::prepareDataRootMigration(instance, clientRoot, &dataRoot, hostStopped, &migrationNotice))
+      showError(migrationNotice);
+  }
+  std::wstring dataRootError;
+  if (!kqpet::launcher::applyDataRootEnvironment(dataRoot, clientRoot, &dataRootError)) {
+    showError(dataRootError);
+    return 65;
+  }
+  const auto original = kqpet::launcher::findClientExecutable(clientRoot);
+  if (clientRoot.empty() || original.empty()) { showError(L"指定目录没有可识别接口的原版客户端。"); return 2; }
+  const auto extension = versionDirectory / L"KQPetInventory.dll";
+  const auto disk = kqpet::compatibility::checkTargetFile(original.wstring(), extension.wstring());
+  // A valid manifest is necessary, but only an active/recovered record grants
+  // launch authority. An arbitrary pending directory is never loaded directly.
+  const auto selected = kqpet::release::resolveRelease(clientRoot);
+  bool extensionAllowed = disk.supported && selected.ok && selected.release.valid &&
+      selected.release.manifest.releaseId == KQPET_RELEASE_ID &&
+      samePath(selected.release.directory.wstring(), versionDirectory.wstring()) &&
+      matchingBuildIdentity(instance, extension);
   std::wstring error;
-  if (!activatePendingExtension(directory, &error)) {
-    showError(error);
-    return 2;
+  std::shared_ptr<Channel> channel;
+  if (extensionAllowed) {
+    channel = Channel::create(KQPET_RELEASE_ID_WSTRING, disk.profile->id, &error);
+    extensionAllowed = bool(channel);
+  } else if (!disk.supported) {
+    error = L"当前客户端接口或 Qt 运行库无法匹配，扩展未加载；本次仅启动原版。\r\n" +
+        std::wstring(disk.error.begin(), disk.error.end());
+  } else error = L"扩展激活记录、manifest 或成对构建身份未通过验证；本次仅启动原版。";
+  std::wstring command = quoteArgument(original.wstring());
+  for (const auto& argument : gameArguments) command += L" " + quoteArgument(argument);
+  auto environment = channel ? channel->childEnvironment() : std::vector<wchar_t>{};
+  STARTUPINFOW startup{sizeof(STARTUPINFOW)};
+  PROCESS_INFORMATION process{};
+  const DWORD flags = CREATE_SUSPENDED | (channel ? CREATE_UNICODE_ENVIRONMENT : 0);
+  if (!CreateProcessW(original.c_str(), command.data(), nullptr, nullptr, FALSE, flags,
+      channel ? environment.data() : nullptr, clientRoot.c_str(), &startup, &process)) {
+    showError(L"无法启动原版客户端。"); return 5;
   }
-  const std::filesystem::path originalExe = findOriginalExe(directory);
-  const std::filesystem::path extensionDll = directory / kExtensionDllName;
-  if (originalExe.empty() || !std::filesystem::exists(extensionDll)) {
-    showError(L"请把 KQPetLauncher.exe 与 KQPetInventory.dll 放到 KQPro*.exe 同一目录。\n"
-              L"原版 EXE 不需要也不会被替换。");
-    return 2;
+  if (channel && !channel->bindChild(process.hProcess, process.dwProcessId)) {
+    extensionAllowed = false;
+    error = L"无法绑定本次启动的进程身份，扩展未加载。";
   }
-
-  std::wstring commandLine = L"\"" + originalExe.wstring() + L"\"";
-  if (arguments && *arguments) {
-    commandLine += L" ";
-    commandLine += arguments;
+  const ULONGLONG deadline = GetTickCount64() + 30000;
+  ResumeThread(process.hThread);
+  CloseHandle(process.hThread);
+  if (!extensionAllowed) { CloseHandle(process.hProcess); showError(error); return 6; }
+  WaitForInputIdle(process.hProcess, remaining(deadline, 20000));
+  bool modulesReady = false;
+  while (remaining(deadline, 30000) && WaitForSingleObject(process.hProcess, 0) == WAIT_TIMEOUT) {
+    if (kqpet::compatibility::checkProcessModulePaths(process.dwProcessId, disk).supported) { modulesReady = true; break; }
+    Sleep(50);
   }
-  std::vector<wchar_t> mutableCommand(commandLine.begin(), commandLine.end());
-  mutableCommand.push_back(L'\0');
-
-  STARTUPINFOW startup{};
-  startup.cb = sizeof(startup);
-  PROCESS_INFORMATION processInfo{};
-  if (!CreateProcessW(originalExe.c_str(), mutableCommand.data(), nullptr, nullptr, FALSE, 0,
-                      nullptr, directory.c_str(), &startup, &processInfo)) {
-    showError(L"无法启动原版氪奇：" + winError(GetLastError()));
-    return 5;
+  bool unconfirmed = false;
+  if (!modulesReady || !injectDll(process.hProcess, process.dwProcessId, extension,
+                                  remaining(deadline, 15000), &unconfirmed, &error)) {
+    CloseHandle(process.hProcess);
+    showError(modulesReady ? error : L"原版实际运行模块未通过路径/架构/ABI预检，扩展未加载。");
+    return unconfirmed ? 8 : 6;
   }
-
-  WaitForInputIdle(processInfo.hProcess, 20000);
-  Sleep(500);
-  const bool injected = injectDll(processInfo.hProcess, extensionDll, &error);
-  CloseHandle(processInfo.hThread);
-  CloseHandle(processInfo.hProcess);
-  if (!injected) {
-    showError(error + L"\n\n原版进程没有被修改；可以关闭后重试。 ");
-    return 6;
+  while (channel->state() != State::Ready && channel->state() != State::Failed &&
+         remaining(deadline, 30000) && WaitForSingleObject(process.hProcess, 0) == WAIT_TIMEOUT)
+    channel->wait(remaining(deadline, 250));
+  const State state = channel->state();
+  CloseHandle(process.hProcess);
+  if (state == State::Ready) return 0;
+  if (state == State::Failed) {
+    showError(L"扩展初始化失败，错误码 " + std::to_wstring(channel->errorCode()) + L"。原版可继续使用。");
+    return 7;
   }
-  return 0;
+  showError(L"扩展初始化尚未确认（30秒）。加载器已退出，迟到结果会显示在本机诊断与扩展入口；未卸载模块或终止原版。");
+  return 8;
 }

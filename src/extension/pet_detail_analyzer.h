@@ -4,12 +4,12 @@
 
 #include <QJsonObject>
 
-class PetRepository;
+class InventoryReadView;
 
 class PetDetailAnalyzer final {
 public:
   static PetDetailViewModel analyze(const QJsonObject& pet,
-                                    const PetRepository* repository,
+                                    const InventoryReadView* repository,
                                     const QString& imagePath = {},
                                     bool fetchingLatest = false);
   static PetBattlePowerState analyzeBattlePower(const QJsonObject& pet);

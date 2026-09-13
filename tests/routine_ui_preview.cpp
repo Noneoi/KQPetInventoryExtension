@@ -1,19 +1,31 @@
 #include "routine_overview_catalog.h"
 #include "routine_overview_window.h"
+#include "catalog_test_support.h"
 
 #include <QApplication>
 #include <QJsonArray>
 #include <QTableWidget>
 #include <QTemporaryDir>
 #include <QTimer>
+#include <QLabel>
+#include <QBrush>
+#include <limits>
+#include <cstdio>
 
 int main(int argc, char* argv[]) {
   QApplication application(argc, argv);
   application.setApplicationName(QStringLiteral("KQRoutineUiPreview"));
   QTemporaryDir dataRoot;
-  RoutineOverviewCatalog::instance().updateFromOfficialData(dataRoot.path());
+  QTemporaryDir officialRoot;
+  if (!writeRoutineOfficialFixture(officialRoot.path())) return 1;
+  StorageService storage(dataRoot.path());
+  CatalogIoOptions options;
+  options.officialRoot = officialRoot.path();
+  CatalogIoService catalogIo(&storage, options);
+  if (!runCatalogRequest(&catalogIo, CatalogKind::Routine, CatalogRequestMode::OfficialUpdate)) return 1;
 
   auto* window = new RoutineOverviewWindow();
+  window->setCatalogSnapshot(RoutineOverviewCatalog::instance().snapshot());
   window->setData(
       {{QStringLiteral("av"), 85}, {QStringLiteral("wav"), 574},
        {QStringLiteral("bi"), QJsonArray{true, true, false, false, false}},
@@ -60,6 +72,61 @@ int main(int argc, char* argv[]) {
               opportunity->item(10, 2)->text() == QStringLiteral("6") &&
               daily->item(0, 4) &&
               daily->item(0, 4)->text() == QStringLiteral("0");
+      const auto check = [&](bool condition, const char* message) {
+        if (!condition) std::fprintf(stderr, "FAIL: %s\n", message);
+        valid = valid && condition;
+      };
+      if (!valid) { application.exit(2); return; }
+      check(daily->item(0, 1)->text().contains(QStringLiteral("周期未确认")) &&
+            daily->item(0, 1)->foreground().style() == Qt::NoBrush &&
+            opportunity->item(0, 2)->foreground().style() == Qt::NoBrush,
+            "unproved periods displayed green actionable/completed state");
+      ObservationValidity current;
+      current.state = ObservationValidityState::Current;
+      current.periodId = QStringLiteral("synthetic-ui-window");
+      current.evidenceReference = QStringLiteral("isolated display fixture, not server evidence");
+      current.observedAtUtc = QDateTime::fromString(QStringLiteral("2026-09-12T00:00:00Z"), Qt::ISODate);
+      QHash<QString, ObservationValidity> validity;
+      for (const QString& key : {QStringLiteral("ti:daily"), QStringLiteral("av:daily"), QStringLiteral("bi:daily"),
+          QStringLiteral("wti:weekly"), QStringLiteral("wav:weekly"), QStringLiteral("wbi:weekly"), QStringLiteral("rs:activity"),
+          QStringLiteral("110_123_0:activity"), QStringLiteral("1008_20220603_swa_0_0:activity"),
+          QStringLiteral("1008_20260522_nf_0:activity"), QStringLiteral("16_24_A:zao1:activity"), QStringLiteral("16_24_A:zao2:activity")})
+        validity.insert(key, current);
+      window->setPeriodValidity(validity);
+      check(daily->item(0, 1)->text() == QStringLiteral("已完成") &&
+            daily->item(0, 1)->foreground().color() == QColor(QStringLiteral("#087a43")),
+            "verified current progress did not preserve completed display");
+      auto expired = current; expired.state = ObservationValidityState::Invalidated;
+      expired.reason = QStringLiteral("fixture invalidation"); validity[QStringLiteral("ti:daily")] = expired;
+      window->setPeriodValidity(validity);
+      check(daily->item(0, 1)->text().contains(QStringLiteral("已失效")) &&
+            daily->item(0, 1)->foreground().style() == Qt::NoBrush,
+            "invalidated progress retained its completed color");
+      window->setData({{QStringLiteral("av"), 100}, {QStringLiteral("ti"), QJsonArray{0.5}},
+                       {QStringLiteral("wti"), QJsonArray{QStringLiteral("bad")}}}, true, {}, true,
+          {{QStringLiteral("110_123_0"), QJsonObject{{QStringLiteral("rdt"), 1},
+              {QStringLiteral("rdb"), std::numeric_limits<int>::max()}, {QStringLiteral("rwwt"), 4}}},
+           {QStringLiteral("1008_20220603_swa_0_0"), QJsonObject{{QStringLiteral("ti"), 2}, {QStringLiteral("wgt"), QStringLiteral("bad")}}},
+           {QStringLiteral("1008_20260522_nf_0"), QJsonObject{{QStringLiteral("pt"), 5}}},
+           {QStringLiteral("16_24_A"), QJsonObject{{QStringLiteral("zao1"), QJsonObject{{QStringLiteral("ct"), 1},
+               {QStringLiteral("bct"), std::numeric_limits<int>::max()}}},
+               {QStringLiteral("zao2"), QJsonObject{{QStringLiteral("ct"), 1}, {QStringLiteral("bct"), 0}}}}}});
+      check(daily->item(0, 2)->text() == QStringLiteral("—") && daily->item(0, 4)->text() == QStringLiteral("—") &&
+            weekly->item(0, 2)->text() == QStringLiteral("—"), "invalid/missing task counters became numeric zero");
+      auto* summary = window->findChild<QLabel*>(QStringLiteral("KQRoutineDailySummary"));
+      check(summary && !summary->text().contains(QStringLiteral("可领取")) && summary->text().contains(QStringLiteral("领取状态未知")),
+            "missing claim flags were treated as unclaimed rewards");
+      check(opportunity->rowCount() == 11 && opportunity->item(4, 2)->text() == QStringLiteral("—") &&
+            opportunity->item(5, 2)->text() == QStringLiteral("4") && opportunity->item(0, 2)->text() == QStringLiteral("2") &&
+            opportunity->item(1, 2)->text() == QStringLiteral("—") && opportunity->item(6, 2)->text() == QStringLiteral("5") &&
+            opportunity->item(7, 2)->text() == QStringLiteral("—") && opportunity->item(9, 2)->text() == QStringLiteral("—") &&
+            opportunity->item(10, 2)->text() == QStringLiteral("7"),
+            "overflow or unrelated missing fields corrupted independent opportunity observations");
+      check(activity->item(0, 1)->foreground().style() == Qt::NoBrush &&
+            !activity->item(0, 1)->text().contains(QStringLiteral("已完成")), "unlit red points were shown as completed");
+      window->resetSessionContext();
+      check(daily->item(0, 2)->text() == QStringLiteral("—") && opportunity->item(0, 2)->text() == QStringLiteral("—"),
+            "session reset retained old routine counters");
       application.exit(valid ? 0 : 2);
     });
   }

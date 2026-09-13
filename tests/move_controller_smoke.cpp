@@ -1,14 +1,21 @@
+#include "protocol_test_support.h"
 #include "pet_move_policy.h"
 #include "pet_refresh_controller.h"
 #include "pet_repository.h"
+#include "storage_service.h"
 
 #include <QCoreApplication>
 #include <QDir>
 #include <QElapsedTimer>
 #include <QEventLoop>
+#include <QFileInfo>
+#include <QFile>
+#include <QSaveFile>
+#include <QSemaphore>
 #include <QJsonArray>
 #include <QJsonDocument>
 #include <QJsonObject>
+#include <QJsonParseError>
 #include <QSet>
 #include <QStringList>
 #include <QTemporaryDir>
@@ -18,6 +25,7 @@
 #include <cstdio>
 #include <algorithm>
 #include <functional>
+#include <atomic>
 
 namespace {
 
@@ -38,9 +46,43 @@ bool waitUntil(const std::function<bool()>& predicate, int timeoutMs = 1500) {
 }
 
 void deliver(PetRepository* repository, const QJsonObject& packet) {
-  repository->handlePacket(
-      QStringLiteral("recivedata"),
-      QString::fromUtf8(QJsonDocument(packet).toJson(QJsonDocument::Compact)));
+  deliverVerifiedFixture(repository, packet);
+}
+
+// Fixture inspection only. Production recovery consumes StorageService reads
+// through MoveOperationJournal::recoveryRecord and has no synchronous scanner.
+QList<QJsonObject> unresolvedFixture(const QString& accountDirectory, QStringList* readErrors = nullptr) {
+  QList<QJsonObject> records;
+  const QDir directory(QDir(accountDirectory).filePath(QStringLiteral("operations")));
+  for (const QString& name : directory.entryList({QStringLiteral("*.json")}, QDir::Files)) {
+    QFile file(directory.filePath(name));
+    if (!file.open(QIODevice::ReadOnly)) { if (readErrors) readErrors->append(name + QStringLiteral(": ") + file.errorString()); continue; }
+    const auto bytes = file.readAll(); QJsonParseError error;
+    const auto document = QJsonDocument::fromJson(bytes,&error);
+    if (file.error() != QFileDevice::NoError || error.error != QJsonParseError::NoError || !document.isObject()) {
+      if (readErrors) readErrors->append(name + QStringLiteral(": ") + (file.error() != QFileDevice::NoError ? file.errorString() : error.errorString()));
+      continue;
+    }
+    const QJsonObject record = MoveOperationJournal::recoveryRecord(bytes);
+    if (!record.isEmpty()) records.append(record);
+  }
+  return records;
+}
+
+QJsonArray journalFixtureDiagnostics(const QString& accountDirectory) {
+  QJsonArray records; const QDir directory(QDir(accountDirectory).filePath(QStringLiteral("operations")));
+  for (const auto& name : directory.entryList({QStringLiteral("*.json")},QDir::Files)) {
+    QFile file(directory.filePath(name)); QJsonObject diagnostic{{QStringLiteral("file"),name}};
+    if (!file.open(QIODevice::ReadOnly)) diagnostic.insert(QStringLiteral("readError"),file.errorString());
+    else {
+      const auto bytes = file.readAll(); const auto object = QJsonDocument::fromJson(bytes).object();
+      for (const auto& key : {"operationId","account","outcome","recordRevision","sessionEpoch","instanceId"}) diagnostic.insert(QString::fromLatin1(key),object.value(QString::fromLatin1(key)));
+      diagnostic.insert(QStringLiteral("bytes"),bytes.size());
+      diagnostic.insert(QStringLiteral("unresolved"),!MoveOperationJournal::recoveryRecord(bytes).isEmpty());
+    }
+    records.append(diagnostic);
+  }
+  return records;
 }
 
 QJsonObject pet(qint64 id) {
@@ -60,15 +102,36 @@ int main(int argc, char* argv[]) {
   bool ok = require(temporary.isValid(), "temporary directory unavailable");
   qputenv("KQPET_DATA_ROOT", temporary.path().toUtf8());
 
-  PetRepository repository;
+  std::atomic_bool holdNextDetail{false}, holdNextIntent{false}, failNextIntent{false};
+  QSemaphore storageEntered, storageRelease;
+  StorageService storage(temporary.path(), {}, [&](const QString& path, const QByteArray& bytes) {
+    const QString normalized = QDir::fromNativeSeparators(path);
+    const bool detail = normalized.contains(QStringLiteral("/details/"));
+    const bool intent = normalized.contains(QStringLiteral("/operations/")) &&
+        QJsonDocument::fromJson(bytes).object().value(QStringLiteral("recordRevision")).toString() == QStringLiteral("1");
+    if ((detail && holdNextDetail.exchange(false)) || (intent && holdNextIntent.exchange(false))) {
+      storageEntered.release(); storageRelease.acquire();
+    }
+    if (intent && failNextIntent.exchange(false))
+      return StorageWriteAttempt{false, 0, QStringLiteral("synthetic intent failure")};
+    QSaveFile file(path); file.setDirectWriteFallback(false);
+    if (!file.open(QIODevice::WriteOnly)) return StorageWriteAttempt{false, 0, file.errorString()};
+    const qint64 written = file.write(bytes);
+    return written == bytes.size() && file.commit() ? StorageWriteAttempt{true, written, {}}
+                                                    : StorageWriteAttempt{false, written, file.errorString()};
+  });
+  PetRepository repository(nullptr, &storage);
   PetRefreshController controller(&repository);
+  QString observedOperationId;
+  QObject::connect(&controller,&PetRefreshController::moveOutcomeChanged,&application,
+      [&](const QString& operationId,const QString&,MoveOutcome,const QString&) { if (!operationId.isEmpty()) observedOperationId = operationId; });
   PetRefreshController::Timings timings;
   timings.automaticIntervalMs = 100000;
   timings.listRequestGapMs = 2;
   timings.listTimeoutMs = 100;
   timings.detailRequestGapMs = 2;
   timings.detailTimeoutMs = 50;
-  timings.moveRequestTimeoutMs = 25;
+  timings.moveRequestTimeoutMs = 150;
   controller.setTimings(timings);
 
   QList<qint64> pack{1, 2};
@@ -198,6 +261,8 @@ int main(int argc, char* argv[]) {
   bool finished = false;
   bool succeeded = false;
   QString result;
+  bool invalidateReplacementOnce = false;
+  int replacementPrompts = 0;
   QObject::connect(&controller, &PetRefreshController::moveFinished, &application,
                    [&](bool success, const QString& message) {
                      finished = true;
@@ -207,6 +272,12 @@ int main(int argc, char* argv[]) {
   QObject::connect(
       &controller, &PetRefreshController::replacementRequired, &application,
       [&](qint64, const QList<qint64>& eligible) {
+        ++replacementPrompts;
+        if (invalidateReplacementOnce) {
+          invalidateReplacementOnce = false;
+          repository.beginListRefresh(9000, repository.accountKey(), repository.sessionGeneration());
+          deliver(&repository, backpackPacket());
+        }
         if (eligible.contains(3))
           controller.chooseMoveReplacement(3);
         else if (eligible.contains(2))
@@ -239,6 +310,8 @@ int main(int argc, char* argv[]) {
                 "clicked instance detail did not finish before move preflight");
 
   finished = false;
+  invalidateReplacementOnce = true;
+  const int promptsBeforeReplacement = replacementPrompts;
   controller.requestMoveToBackpack(2);
   ok &= require(waitUntil([&]() { return finished; }),
                 "full-pack replacement did not finish");
@@ -247,6 +320,8 @@ int main(int argc, char* argv[]) {
                 "full-pack replacement result is incorrect");
   ok &= require(repository.hasCachedDetail(3),
                 "replaced backpack detail was not preserved");
+  ok &= require(replacementPrompts >= promptsBeforeReplacement + 2,
+                "changed list revision did not invalidate replacement selection and redo preflight");
 
   pets[1].insert(QStringLiteral("srpi"), 99);
   finished = false;
@@ -278,6 +353,224 @@ int main(int argc, char* argv[]) {
                 "write-timeout reconciliation did not finish");
   ok &= require(succeeded && writes == writesBeforeTimeout + 1,
                 "timed-out write was resent or not reconciled by reads");
+
+  const auto restoreFixtureSource = [&]() {
+    deliver(&repository, {{QStringLiteral("_cmd"), QStringLiteral("21_1")},
+        {QStringLiteral("info"), QJsonObject{{QStringLiteral("n"), QStringLiteral("move-test")}}}});
+  };
+  const auto drainStorage = [&]() {
+    return waitUntil([&] { return storage.state().outstandingTasks == 0; }, 2500);
+  };
+  const auto waitForStorageEntry = [&]() {
+    bool entered = false;
+    // waitUntil may inspect its predicate again after the loop. Consume a
+    // semaphore token once and retain the observation for subsequent checks.
+    return waitUntil([&] { entered = entered || storageEntered.tryAcquire(1, 0); return entered; });
+  };
+  ok &= require(drainStorage(), "baseline storage did not drain");
+  const int beforeStorageCases = writes;
+  holdNextDetail.store(true);
+  finished = false;
+  controller.requestMoveToWarehouse(3);
+  const bool detailHeld = waitForStorageEntry();
+  ok &= require(detailHeld, "detail persistence fixture did not reach its held writer");
+  ok &= require(!finished && writes == beforeStorageCases,
+                "move submitted before necessary detail was durably saved");
+  controller.cancelMove();
+  storageRelease.release();
+  ok &= require(finished && drainStorage() && writes == beforeStorageCases &&
+                    controller.lastMoveOutcome() == MoveOutcome::NotSent,
+                "cancel during detail preservation was sent by a late Saved callback");
+
+  holdNextIntent.store(true);
+  finished = false;
+  controller.requestMoveToWarehouse(3);
+  const bool intentHeld = waitForStorageEntry();
+  ok &= require(intentHeld, "intent persistence fixture did not reach its held writer");
+  ok &= require(!finished && writes == beforeStorageCases,
+                "move submitted after intent admission but before Saved");
+  const bool timedOutBeforeSend = waitUntil([&] { return finished; }, 2000);
+  storageRelease.release();
+  ok &= require(timedOutBeforeSend && drainStorage() && writes == beforeStorageCases &&
+                    controller.lastMoveOutcome() == MoveOutcome::NotSent,
+                "intent persistence timeout or its late completion submitted a write");
+
+  failNextIntent.store(true);
+  finished = false;
+  controller.requestMoveToWarehouse(3);
+  ok &= require(waitUntil([&] { return finished; }) && drainStorage() && writes == beforeStorageCases &&
+                    controller.lastMoveOutcome() == MoveOutcome::NotSent,
+                "failed intent persistence reached a host write");
+
+  const auto savedIntentReentry = QObject::connect(&controller, &PetRefreshController::movePersistenceChanged,
+      &application, [&](const QString&, const QString&, quint64, StorageStatus status, const QString&) {
+    if (status == StorageStatus::Saved && controller.moveRunning())
+      repository.markSessionUncertain(QStringLiteral("source changed in intent Saved observer"));
+  });
+  finished = false;
+  controller.requestMoveToWarehouse(3);
+  ok &= require(waitUntil([&] { return finished; }) && drainStorage() && writes == beforeStorageCases &&
+                    controller.lastMoveOutcome() == MoveOutcome::NotSent,
+                "Saved observer source loss still triggered host submission");
+  QObject::disconnect(savedIntentReentry);
+  restoreFixtureSource();
+
+  // A received detail can be waiting on disk longer than the network timeout.
+  // Its observation must not cause a second 2_1_R request while I/O is pending.
+  ok &= require(drainStorage(), "storage before slow-detail test did not drain");
+  holdNextDetail.store(true);
+  const int beforeSlowDetail = detailRequests;
+  controller.requestSingleDetail(3);
+  const bool responseHeld = waitForStorageEntry();
+  QElapsedTimer diskWait; diskWait.start();
+  waitUntil([&] { return diskWait.elapsed() > timings.detailTimeoutMs * 3; }, 600);
+  ok &= require(responseHeld, "received-detail fixture did not reach its held writer");
+  ok &= require(detailRequests == beforeSlowDetail + 1,
+                "received detail was retried as a network timeout while awaiting persistence");
+  storageRelease.release();
+  ok &= require(drainStorage() && repository.isDetailPersisted(3),
+                "slow detail did not finish after its real Saved completion");
+
+  const int beforeReentry = writes;
+  const auto statusReentry = QObject::connect(&controller, &PetRefreshController::statusChanged,
+      &application, [&](const QString& message) {
+    if (message.startsWith(QStringLiteral("正在将实例")))
+      repository.markSessionUncertain(QStringLiteral("synthetic synchronous source loss"));
+  });
+  finished = false;
+  controller.requestMoveToWarehouse(3);
+  ok &= require(waitUntil([&]() { return finished; }) && writes == beforeReentry &&
+                    controller.lastMoveOutcome() == MoveOutcome::NotSent,
+                "status observer source loss still called host or mislabeled intent");
+  QObject::disconnect(statusReentry);
+  restoreFixtureSource();
+
+  controller.setWriteFlashInvoker([](const QString&, const QString&) {
+    return SubmissionOutcome::DefinitelyNotSubmitted;
+  });
+  const auto commandReentry = QObject::connect(&controller, &PetRefreshController::commandSent,
+      &application, [&](const QString& command, qint64, quint64) {
+    if (command == QStringLiteral("2_1_11"))
+      repository.markSessionUncertain(QStringLiteral("synthetic fallback source loss"));
+  });
+  finished = false;
+  controller.requestMoveToWarehouse(3);
+  ok &= require(waitUntil([&]() { return finished; }) && writes == beforeReentry &&
+                    controller.lastMoveOutcome() == MoveOutcome::NotSent,
+                "command observer source loss still called fallback host");
+  QObject::disconnect(commandReentry);
+  restoreFixtureSource();
+
+  // A false legacy/ambiguous host result cannot prove non-submission and must
+  // never trigger the raw command fallback.
+  controller.setWriteFlashInvoker([](const QString&, const QString&) {
+    return SubmissionOutcome::Unknown;
+  });
+  finished = false;
+  const int beforeUnknown = writes;
+  controller.requestMoveToWarehouse(3);
+  ok &= require(waitUntil([&]() { return finished; }), "unknown submission did not reconcile");
+  ok &= require(writes == beforeUnknown && !succeeded &&
+                    controller.lastMoveOutcome() == MoveOutcome::Unknown,
+                "ambiguous host submission retried via fallback or became NotSent");
+  const QString originalAccountDirectory = QFileInfo(repository.cachePath()).absolutePath();
+  const QString originalAccount = repository.accountKey();
+  const QString originalUnknownOperationId = observedOperationId;
+  // The move signal describes the UI outcome; accepted journal updates still
+  // need their I/O terminal result before this synchronous fixture inspects disk.
+  ok &= require(drainStorage(),"unknown-operation storage did not reach its terminal receipt");
+  QStringList initialReadErrors;
+  const auto initialUnknowns = unresolvedFixture(originalAccountDirectory,&initialReadErrors);
+  const bool initialOperationFound = std::any_of(initialUnknowns.begin(),initialUnknowns.end(),[&](const QJsonObject& record) {
+    return record.value(QStringLiteral("operationId")).toString() == originalUnknownOperationId && record.value(QStringLiteral("account")).toString() == originalAccount;
+  });
+  ok &= require(initialReadErrors.isEmpty() && initialOperationFound,
+                "unknown operation was not retained on original account");
+
+  controller.setWriteFlashInvoker([](const QString&, const QString&) {
+    return SubmissionOutcome::DefinitelyNotSubmitted;
+  });
+  int terminalNotifications = 0;
+  const auto terminalReentry = QObject::connect(&controller, &PetRefreshController::moveOutcomeChanged,
+      &application, [&](const QString&, const QString&, MoveOutcome outcome, const QString&) {
+    if (outcome == MoveOutcome::Confirmed) {
+      ++terminalNotifications;
+      controller.cancelMove();
+      repository.markSessionUncertain(QStringLiteral("source changed in terminal observer"));
+    }
+  });
+  finished = false;
+  controller.requestMoveToWarehouse(3);
+  ok &= require(waitUntil([&]() { return finished; }), "definite non-submission fallback did not finish");
+  ok &= require(writes == beforeUnknown + 1 && succeeded &&
+                    controller.lastMoveOutcome() == MoveOutcome::Confirmed,
+                "confirmed non-submission did not permit exactly one fallback write");
+  ok &= require(terminalNotifications == 1,
+                "terminal observer generated another completion for same operation");
+  QObject::disconnect(terminalReentry);
+  restoreFixtureSource();
+
+  // The adapter may observe a source boundary synchronously before returning.
+  // The already durable original-account intent must then remain Unknown.
+  controller.setWriteFlashInvoker([&](const QString&, const QString& argument) {
+    applySequenceWrite(PetMovePolicy::parseSequence(argument));
+    deliver(&repository, {{QStringLiteral("_cmd"), QStringLiteral("21_1")},
+        {QStringLiteral("info"), QJsonObject{{QStringLiteral("n"), QStringLiteral("move-other")}}}});
+    return SubmissionOutcome::Submitted;
+  });
+  finished = false;
+  const int beforeSwitch = writes;
+  controller.requestMoveToBackpack(1);
+  ok &= require(waitUntil([&]() { return finished; }), "account switch did not resolve UI operation");
+  ok &= require(!succeeded && writes == beforeSwitch + 1 &&
+                    controller.lastMoveOutcome() == MoveOutcome::Unknown,
+                "account switch after submission was reported as failure/not-sent or replayed");
+  const QString switchedOperationId = observedOperationId;
+  const auto beforeJournalDrain = storage.state();
+  // Include all already accepted old-account updates in the isolation check;
+  // checking the new directory while those writes are queued could miss a leak.
+  const bool journalWritesDrained = drainStorage();
+  const QString newAccountDirectory = QFileInfo(repository.cachePath()).absolutePath();
+  QStringList oldReadErrors,newReadErrors;
+  const auto oldUnresolved = unresolvedFixture(originalAccountDirectory,&oldReadErrors);
+  const auto newUnresolved = unresolvedFixture(newAccountDirectory,&newReadErrors);
+  QSet<QString> originalPendingIds;
+  for (const auto& record : oldUnresolved)
+    if (record.value(QStringLiteral("account")).toString() == originalAccount) originalPendingIds.insert(record.value(QStringLiteral("operationId")).toString());
+  const bool journalsIsolated = journalWritesDrained && repository.accountKey() == QStringLiteral("move-other") &&
+      originalAccountDirectory != newAccountDirectory && oldReadErrors.isEmpty() && newReadErrors.isEmpty() &&
+      oldUnresolved.size() >= 2 && newUnresolved.isEmpty() && originalUnknownOperationId != switchedOperationId &&
+      originalPendingIds.contains(originalUnknownOperationId) && originalPendingIds.contains(switchedOperationId);
+  if (!journalsIsolated) {
+    const auto queue = storage.state();
+    const QJsonObject diagnostic{{QStringLiteral("stage"),QStringLiteral("after-account-switch-storage-terminal")},
+        {QStringLiteral("oldDirectory"),originalAccountDirectory},{QStringLiteral("newDirectory"),newAccountDirectory},
+        {QStringLiteral("currentAccount"),repository.accountKey()},{QStringLiteral("epoch"),QString::number(repository.sessionGeneration())},
+        {QStringLiteral("oldUnresolvedCount"),oldUnresolved.size()},{QStringLiteral("newUnresolvedCount"),newUnresolved.size()},
+        {QStringLiteral("storageOutstanding"),queue.outstandingTasks},{QStringLiteral("storageQueued"),queue.queuedTasks},
+        {QStringLiteral("storageOutstandingAtUiFinished"),beforeJournalDrain.outstandingTasks},
+        {QStringLiteral("storageDrained"),journalWritesDrained},
+        {QStringLiteral("expectedOriginalOperationId"),originalUnknownOperationId},{QStringLiteral("expectedSwitchedOperationId"),switchedOperationId},
+        {QStringLiteral("oldReadErrors"),QJsonArray::fromStringList(oldReadErrors)},{QStringLiteral("newReadErrors"),QJsonArray::fromStringList(newReadErrors)},
+        {QStringLiteral("repositoryWrites"),repository.pendingPersistenceCount()},
+        {QStringLiteral("oldJournals"),journalFixtureDiagnostics(originalAccountDirectory)},
+        {QStringLiteral("newJournals"),journalFixtureDiagnostics(newAccountDirectory)}};
+    std::fprintf(stderr,"MOVE_ISOLATION_STATE %s\n",QJsonDocument(diagnostic).toJson(QJsonDocument::Compact).constData());
+    // Diagnose the receipt boundary without rescuing the original assertion:
+    // UI completion and a queued record are not themselves a Saved receipt.
+    const bool drained = drainStorage();
+    const QJsonObject settled{{QStringLiteral("stage"),QStringLiteral("after-diagnostic-storage-drain")},
+        {QStringLiteral("drained"),drained},{QStringLiteral("oldDirectory"),originalAccountDirectory},
+        {QStringLiteral("newDirectory"),QFileInfo(repository.cachePath()).absolutePath()},
+        {QStringLiteral("oldUnresolvedCount"),unresolvedFixture(originalAccountDirectory).size()},
+        {QStringLiteral("newUnresolvedCount"),unresolvedFixture(QFileInfo(repository.cachePath()).absolutePath()).size()},
+        {QStringLiteral("storageOutstanding"),storage.state().outstandingTasks},
+        {QStringLiteral("oldJournals"),journalFixtureDiagnostics(originalAccountDirectory)},
+        {QStringLiteral("newJournals"),journalFixtureDiagnostics(QFileInfo(repository.cachePath()).absolutePath())}};
+    std::fprintf(stderr,"MOVE_ISOLATION_STATE %s\n",QJsonDocument(settled).toJson(QJsonDocument::Compact).constData());
+  }
+  ok &= require(journalsIsolated,
+                "original account pending operations leaked into new account");
 
   if (!ok) return 1;
   std::fprintf(stdout,

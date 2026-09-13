@@ -1,0 +1,2 @@
+# Keep vendored upstream formatting without project whitespace checks.
+third_party/** -whitespace

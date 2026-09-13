@@ -3,6 +3,7 @@
 #include "target_profile.h"
 
 #include <cstddef>
+#include <array>
 
 class InlineHook {
 public:
@@ -14,6 +15,10 @@ public:
 
   bool install(void* target, void* detour, const unsigned char* expectedBytes,
                std::size_t patchSize, TrampolinePolicy policy);
+  bool createDisabled(void* target, void* detour, const unsigned char* expectedBytes,
+                      std::size_t signatureSize, TrampolinePolicy policy);
+  bool enable();
+  bool removeDisabled();
   static bool supportsPolicy(TrampolinePolicy policy) {
     return policy == TrampolinePolicy::ExactRelocationFreePrologue;
   }
@@ -24,5 +29,7 @@ private:
   void* target_ = nullptr;
   void* trampoline_ = nullptr;
   std::size_t patchSize_ = 0;
+  std::array<unsigned char, 64> expected_{};
+  bool enabled_ = false;
   const char* error_ = "";
 };

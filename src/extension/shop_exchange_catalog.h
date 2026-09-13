@@ -1,90 +1,51 @@
 #pragma once
 
+#include "../domain/catalog_types.h"
+#include "../application/catalog_business_date.h"
+
 #include <QDate>
 #include <QDateTime>
 #include <QJsonObject>
 #include <QList>
 #include <QString>
 #include <QVector>
+#include <memory>
+#include <atomic>
 
-struct ShopExchangeGood {
-  int shopId = 0;
-  int itemServerId = 0;
-  int tab = 0;
-  QString shopName;
-  QString description;
-  QString limitText;
-  QString limitKey;
-  QString limitLabel;
-  int limitCount = 0;
-  QString cost;
-  QString enhanceType;
-  QString unlock;
-  QString tag;
-  // Non-zero only when the official project wording proves that one exchange
-  // resolves an exact number of units for one enhance type.
-  int provenGapUnitsPerExchange = 0;
-  QString provenGapCode;
-  QVector<int> raceIds;
-  QDate shelfDate;
-  QDate removalDate;
-  bool hasRemovalDate = false;
-
-  bool isOnlineOn(const QDate& date) const;
-  QString itemKey() const;
-  QString stableKey() const;
-};
-
-struct ShopExchangeShop {
-  int shopId = 0;
-  QString name;
-  QString siKey;
-  QList<ShopExchangeGood> goods;
-};
 
 class ShopExchangeCatalog final {
 public:
   static ShopExchangeCatalog& instance();
 
-  bool isLoaded() const { return loaded_; }
-  QString extension() const { return extension_; }
-  QString getInfoCommand() const { return getInfoCommand_; }
-  QString getInfoParams() const { return getInfoParams_; }
-  int activityId() const { return activityId_; }
-  QList<ShopExchangeShop> shops(const QDate& date = QDate::currentDate()) const;
-  QList<ShopExchangeGood> onlineGoods(const QDate& date = QDate::currentDate()) const;
-  QString sourceLabel() const { return sourceLabel_; }
-  QDateTime sourceUpdatedAt() const { return sourceUpdatedAt_; }
+  std::shared_ptr<const ShopCatalogSnapshot> snapshot() const { return std::atomic_load(&snapshot_); }
+  bool isLoaded() const { return snapshot()->loaded; }
+  QString extension() const { return snapshot()->extension; }
+  QString getInfoCommand() const { return snapshot()->getInfoCommand; }
+  QString getInfoParams() const { return snapshot()->getInfoParams; }
+  int activityId() const { return snapshot()->activityId; }
+  QList<ShopExchangeShop> shops(const QDate& date = currentCatalogBusinessDate()) const;
+  QList<ShopExchangeShop> protocolShops(const QDate& date = currentCatalogBusinessDate()) const;
+  QList<ShopExchangeGood> onlineGoods(const QDate& date = currentCatalogBusinessDate()) const;
+  QString sourceLabel() const { return snapshot()->sourceLabel; }
+  QDateTime sourceUpdatedAt() const { return snapshot()->sourceUpdatedAt; }
 
-  // Loads an already generated external catalog when present. The embedded
-  // catalog remains the last-known-good fallback.
-  bool reloadFromDataRoot(const QString& dataRoot, QString* error = nullptr);
-  // Finds the newest official SEFConfig.as, parses every CommonEnhancePrize,
-  // atomically writes a runtime catalog, then switches to it.
-  bool updateFromOfficialData(const QString& dataRoot, QString* error = nullptr);
+  static std::shared_ptr<const ShopCatalogSnapshot> prepare(
+      const QJsonObject& root, const QString& source, const QDateTime& updatedAt,
+      QString* error = nullptr);
+  static QJsonObject parseOfficialText(const QString& text, const QJsonObject& protocol,
+                                      QString* error = nullptr);
 
   static QJsonObject itemObject(const QJsonObject& packet, const ShopExchangeGood& good);
+  // -1 means unknown; absent fields are never assumed to mean zero uses.
   static int usedCount(const QJsonObject& packet, const ShopExchangeGood& good);
+  // Explicit unlimited contracts return INT_MAX for legacy display consumers.
   static int remainingCount(const QJsonObject& packet, const ShopExchangeGood& good);
 
 private:
   ShopExchangeCatalog();
-  bool loadRoot(const QJsonObject& root, const QString& source,
-                const QDateTime& updatedAt, QString* error = nullptr);
-  static QJsonObject parseOfficialConfig(const QString& path,
-                                         const QJsonObject& protocol,
-                                         QString* error);
-  static QString findOfficialConfig(QString* error);
+  friend class CatalogIoService;
+  void publish(std::shared_ptr<const ShopCatalogSnapshot> value) { std::atomic_store(&snapshot_, std::move(value)); }
   static QDate parseYmd(const QString& text);
-  static QJsonObject objectValue(const QJsonObject& object, const QString& key);
 
-  QJsonObject root_;
-  QList<ShopExchangeShop> shops_;
-  QString extension_;
-  QString getInfoCommand_;
-  QString getInfoParams_ = QStringLiteral("{}");
-  int activityId_ = 0;
-  bool loaded_ = false;
-  QString sourceLabel_;
-  QDateTime sourceUpdatedAt_;
+  std::shared_ptr<const ShopCatalogSnapshot> snapshot_ = std::make_shared<ShopCatalogSnapshot>();
 };

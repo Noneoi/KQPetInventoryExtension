@@ -1,58 +1,18 @@
 #include "routine_overview_catalog.h"
+#include "packet_contract.h"
 
-#include <QDir>
-#include <QDirIterator>
-#include <QFile>
-#include <QFileInfo>
 #include <QHash>
 #include <QJsonArray>
 #include <QJsonDocument>
 #include <QJsonObject>
 #include <QJsonParseError>
 #include <QRegularExpression>
-#include <QSaveFile>
 #include <QSet>
 
 #include <algorithm>
 #include <climits>
 
 namespace {
-
-QJsonObject readObject(const QString& path) {
-  QFile file(path);
-  if (!file.open(QIODevice::ReadOnly)) return {};
-  QJsonParseError error{};
-  const QJsonDocument document = QJsonDocument::fromJson(file.readAll(), &error);
-  return error.error == QJsonParseError::NoError && document.isObject()
-             ? document.object()
-             : QJsonObject{};
-}
-
-bool writeObject(const QString& path, const QJsonObject& object) {
-  QDir().mkpath(QFileInfo(path).absolutePath());
-  QSaveFile file(path);
-  if (!file.open(QIODevice::WriteOnly)) return false;
-  file.write(QJsonDocument(object).toJson(QJsonDocument::Indented));
-  return file.commit();
-}
-
-QString newestFile(const QString& root, const QString& fileName) {
-  QString best;
-  qulonglong bestVersion = 0;
-  QDirIterator iterator(root, {fileName}, QDir::Files, QDirIterator::Subdirectories);
-  const QRegularExpression versionExpression(QStringLiteral("~(\\d+)_decomp"));
-  while (iterator.hasNext()) {
-    const QString path = iterator.next();
-    const QRegularExpressionMatch match = versionExpression.match(path);
-    const qulonglong version = match.hasMatch() ? match.captured(1).toULongLong() : 0;
-    if (best.isEmpty() || version > bestVersion ||
-        (version == bestVersion && QFileInfo(path).lastModified() > QFileInfo(best).lastModified())) {
-      best = path;
-      bestVersion = version;
-    }
-  }
-  return best;
-}
 
 QStringList splitArguments(const QString& text) {
   QStringList result;
@@ -94,9 +54,16 @@ QString decodedQuoted(QString value) {
 }
 
 int asNumber(QString value) {
-  value.remove(QRegularExpression(QStringLiteral("\\s+")));
-  if (value.contains(QStringLiteral("MAX_VALUE"))) return INT_MAX;
-  return value.toInt();
+  value = value.trimmed();
+  if (value.contains(QStringLiteral("MAX_VALUE"))) {
+    QString compact;
+    compact.reserve(value.size());
+    for (QChar character : value) if (!character.isSpace()) compact.append(character);
+    return compact == QStringLiteral("Number.MAX_VALUE") ? INT_MAX : -1;
+  }
+  bool valid = false;
+  const int parsed = value.toInt(&valid);
+  return valid && parsed >= 0 && QString::number(parsed) == value ? parsed : -1;
 }
 
 QVector<int> parseNumberArray(const QString& text, const QString& constant) {
@@ -107,12 +74,13 @@ QVector<int> parseNumberArray(const QString& text, const QString& constant) {
   QVector<int> result;
   if (!match.hasMatch()) return result;
   for (const QString& value : match.captured(1).split(QLatin1Char(','), Qt::SkipEmptyParts))
-    result.append(value.trimmed().toInt());
+    result.append(asNumber(value));
   return result;
 }
 
 bool extractJsonObject(const QString& text, const QString& marker, QJsonObject* object) {
   const int markerIndex = text.indexOf(marker);
+  if (markerIndex < 0) return false;
   const int begin = text.indexOf(QLatin1Char('{'), markerIndex < 0 ? 0 : markerIndex);
   if (begin < 0) return false;
   int depth = 0;
@@ -149,12 +117,13 @@ bool extractJsonObject(const QString& text, const QString& marker, QJsonObject* 
   return true;
 }
 
-void collectHudEntries(const QJsonValue& value, QHash<QString, QJsonObject>* entries) {
+bool collectHudEntries(const QJsonValue& value, QHash<QString, QJsonObject>* entries, int depth = 0) {
+  if (depth > 64 || entries->size() > 10000) return false;
   if (value.isArray()) {
-    for (const QJsonValue& child : value.toArray()) collectHudEntries(child, entries);
-    return;
+    for (const QJsonValue& child : value.toArray()) if (!collectHudEntries(child, entries, depth + 1)) return false;
+    return true;
   }
-  if (!value.isObject()) return;
+  if (!value.isObject()) return true;
   const QJsonObject object = value.toObject();
   const QString key = object.value(QStringLiteral("key")).toString().trimmed();
   const QString name = object.value(QStringLiteral("name")).toString().trimmed();
@@ -165,14 +134,19 @@ void collectHudEntries(const QJsonValue& value, QHash<QString, QJsonObject>* ent
        object.contains(QStringLiteral("redPointId"))))
     entries->insert(key, object);
   for (auto iterator = object.begin(); iterator != object.end(); ++iterator)
-    collectHudEntries(iterator.value(), entries);
+    if (!collectHudEntries(iterator.value(), entries, depth + 1)) return false;
+  return true;
 }
 
 void collectRedDescendants(int id, const QHash<int, QVector<int>>& graph,
                            QSet<int>* visited) {
-  if (id <= 0 || visited->contains(id)) return;
-  visited->insert(id);
-  for (int child : graph.value(id)) collectRedDescendants(child, graph, visited);
+  QList<int> pending{id};
+  while (!pending.isEmpty()) {
+    const int current = pending.takeLast();
+    if (current <= 0 || visited->contains(current)) continue;
+    visited->insert(current);
+    for (int child : graph.value(current)) if (!visited->contains(child)) pending.append(child);
+  }
 }
 
 QJsonObject builtInRoot() {
@@ -215,11 +189,63 @@ RoutineOverviewCatalog& RoutineOverviewCatalog::instance() {
 }
 
 RoutineOverviewCatalog::RoutineOverviewCatalog() {
-  loadObject(builtInRoot(), QStringLiteral("程序内置日常/周常配置"), {}, nullptr);
+  snapshot_ = prepare(builtInRoot(), QStringLiteral("程序内置日常/周常配置"), {}, nullptr);
+  if (!snapshot_) snapshot_ = std::make_shared<RoutineCatalogSnapshot>();
 }
 
-bool RoutineOverviewCatalog::loadObject(const QJsonObject& root, const QString& source,
+std::shared_ptr<const RoutineCatalogSnapshot> RoutineOverviewCatalog::prepare(const QJsonObject& root, const QString& source,
                                         const QDateTime& updatedAt, QString* error) {
+  const auto invalid = [error]() -> std::shared_ptr<const RoutineCatalogSnapshot> {
+    if (error) *error = QStringLiteral("任务/活动目录结构或数字无效，保留上一份完整目录");
+    return {};
+  };
+  const auto integer = [](const QJsonValue& value, int minimum = 0) {
+    return value.isDouble() && PacketContracts::checkedInteger(value, nullptr, minimum, INT_MAX);
+  };
+  if (!integer(root.value(QStringLiteral("schema")), 1) || root.value(QStringLiteral("schema")).toInt() != 1)
+    return invalid();
+  for (const QString& array : {QStringLiteral("tasks"), QStringLiteral("activities"),
+           QStringLiteral("dayPrizeThresholds"), QStringLiteral("weekPrizeThresholds")})
+    if (!root.value(array).isArray()) return invalid();
+  QSet<int> taskIds;
+  for (const auto& value : root.value(QStringLiteral("tasks")).toArray()) {
+    if (!value.isObject()) return invalid();
+    const auto task = value.toObject();
+    if (!integer(task.value(QStringLiteral("id")), 1) ||
+        !task.value(QStringLiteral("name")).isString() || task.value(QStringLiteral("name")).toString().trimmed().isEmpty())
+      return invalid();
+    const int id = task.value(QStringLiteral("id")).toInt();
+    if (taskIds.contains(id)) return invalid();
+    taskIds.insert(id);
+    for (const QString& field : {QStringLiteral("dayFinish"), QStringLiteral("dayActive"),
+             QStringLiteral("weekFinish"), QStringLiteral("weekDailyMax"), QStringLiteral("weekActive")})
+      if (!integer(task.value(field))) return invalid();
+  }
+  QSet<QString> activityKeys;
+  for (const auto& value : root.value(QStringLiteral("activities")).toArray()) {
+    if (!value.isObject()) return invalid();
+    const auto activity = value.toObject();
+    for (const QString& field : {QStringLiteral("key"), QStringLiteral("name")})
+      if (!activity.value(field).isString() || activity.value(field).toString().trimmed().isEmpty()) return invalid();
+    const auto key = activity.value(QStringLiteral("key")).toString();
+    if (activityKeys.contains(key)) return invalid();
+    activityKeys.insert(key);
+    if (activity.contains(QStringLiteral("redPointId")) && !integer(activity.value(QStringLiteral("redPointId")))) return invalid();
+    if (activity.contains(QStringLiteral("redPointIds"))) {
+      if (!activity.value(QStringLiteral("redPointIds")).isArray()) return invalid();
+      for (const auto& id : activity.value(QStringLiteral("redPointIds")).toArray()) if (!integer(id, 1)) return invalid();
+    }
+    const auto start = activity.value(QStringLiteral("startTime"));
+    if (!start.isUndefined() && (!start.isString() || (!start.toString().isEmpty() &&
+        !QDate::fromString(start.toString(), QStringLiteral("yyyyMMdd")).isValid()))) return invalid();
+  }
+  for (const QString& field : {QStringLiteral("dayPrizeThresholds"), QStringLiteral("weekPrizeThresholds")}) {
+    int previous = 0;
+    for (const auto& value : root.value(field).toArray()) {
+      if (!integer(value, 1) || value.toInt() <= previous) return invalid();
+      previous = value.toInt();
+    }
+  }
   QList<RoutineTaskDefinition> tasks;
   for (const QJsonValue& value : root.value(QStringLiteral("tasks")).toArray()) {
     const QJsonObject object = value.toObject();
@@ -235,7 +261,7 @@ bool RoutineOverviewCatalog::loadObject(const QJsonObject& root, const QString& 
   }
   if (tasks.isEmpty()) {
     if (error) *error = QStringLiteral("没有解析到日常/周常任务");
-    return false;
+    return {};
   }
   QList<ActivityOverviewDefinition> activities;
   for (const QJsonValue& value : root.value(QStringLiteral("activities")).toArray()) {
@@ -256,43 +282,23 @@ bool RoutineOverviewCatalog::loadObject(const QJsonObject& root, const QString& 
   QVector<int> week;
   for (const QJsonValue& value : root.value(QStringLiteral("weekPrizeThresholds")).toArray())
     week.append(value.toInt());
-  tasks_ = tasks;
-  activities_ = activities;
-  dayPrizeThresholds_ = day.isEmpty() ? QVector<int>{10, 20, 30, 60, 100} : day;
-  weekPrizeThresholds_ = week.isEmpty() ? QVector<int>{150, 300, 600, 900, 1200} : week;
-  sourceLabel_ = source;
-  sourceUpdatedAt_ = updatedAt;
-  return true;
+  static std::atomic<quint64> revisions{0};
+  auto next = std::make_shared<RoutineCatalogSnapshot>();
+  next->revision = ++revisions;
+  next->root = root;
+  next->tasks = tasks;
+  next->activities = activities;
+  next->dayPrizeThresholds = day;
+  next->weekPrizeThresholds = week;
+  next->sourceLabel = source;
+  next->sourceUpdatedAt = updatedAt;
+  return next;
 }
 
-bool RoutineOverviewCatalog::reloadFromDataRoot(const QString& dataRoot, QString* error) {
-  const QString path = QDir(dataRoot).filePath(QStringLiteral("catalog/routine-overview.json"));
-  if (!QFileInfo::exists(path)) return false;
-  return loadObject(readObject(path), QStringLiteral("本地官方任务/活动配置缓存"),
-                    QFileInfo(path).lastModified(), error);
-}
-
-bool RoutineOverviewCatalog::updateFromOfficialData(const QString& dataRoot, QString* error) {
-  QString officialRoot = qEnvironmentVariable("KQPET_OFFICIAL_UNPACK_ROOT");
-  if (officialRoot.isEmpty()) officialRoot = QStringLiteral("D:/奥奇工程/奥奇传说解包");
-  const QString taskPath = newestFile(officialRoot, QStringLiteral("DiamondTaskConfig.as"));
-  const QString hudPath = newestFile(officialRoot, QStringLiteral("CommonHudConfig.as"));
-  const QString redPath = newestFile(officialRoot, QStringLiteral("RedPointConfig.as"));
-  if (taskPath.isEmpty() || hudPath.isEmpty() || redPath.isEmpty()) {
-    if (error) *error = QStringLiteral("官方解包缺少 DiamondTaskConfig/CommonHudConfig/RedPointConfig");
-    return false;
-  }
-  QFile taskFile(taskPath), hudFile(hudPath), redFile(redPath);
-  if (!taskFile.open(QIODevice::ReadOnly) || !hudFile.open(QIODevice::ReadOnly) ||
-      !redFile.open(QIODevice::ReadOnly)) {
-    if (error) *error = QStringLiteral("无法读取官方任务/活动配置");
-    return false;
-  }
-  QString taskText = QString::fromUtf8(taskFile.readAll());
+QJsonObject RoutineOverviewCatalog::parseOfficialTexts(QString taskText, const QString& hudText,
+    const QString& redText, QString* error) {
   taskText.replace(QStringLiteral("Number\n      .MAX_VALUE"), QStringLiteral("Number.MAX_VALUE"));
   taskText.replace(QStringLiteral("Number\r\n      .MAX_VALUE"), QStringLiteral("Number.MAX_VALUE"));
-  const QString hudText = QString::fromUtf8(hudFile.readAll());
-  const QString redText = QString::fromUtf8(redFile.readAll());
 
   QJsonArray tasks;
   const QRegularExpression taskExpression(
@@ -300,8 +306,15 @@ bool RoutineOverviewCatalog::updateFromOfficialData(const QString& dataRoot, QSt
       QRegularExpression::DotMatchesEverythingOption);
   QRegularExpressionMatchIterator taskMatches = taskExpression.globalMatch(taskText);
   while (taskMatches.hasNext()) {
+    if (tasks.size() >= 10000) {
+      if (error) *error = QStringLiteral("官方任务数量超过目录预算");
+      return {};
+    }
     const QStringList fields = splitArguments(taskMatches.next().captured(1));
-    if (fields.size() < 7) continue;
+    if (fields.size() < 7) {
+      if (error) *error = QStringLiteral("官方日常任务参数不完整，保留旧目录");
+      return {};
+    }
     tasks.append(QJsonObject{{QStringLiteral("id"), asNumber(fields.at(0))},
                              {QStringLiteral("name"), decodedQuoted(fields.at(1))},
                              {QStringLiteral("dayFinish"), asNumber(fields.at(2))},
@@ -312,27 +325,49 @@ bool RoutineOverviewCatalog::updateFromOfficialData(const QString& dataRoot, QSt
   }
   if (tasks.isEmpty()) {
     if (error) *error = QStringLiteral("官方日常任务格式无法识别，已保留旧配置");
-    return false;
+    return {};
   }
 
   QJsonObject hudRoot;
   if (!extractJsonObject(hudText, QStringLiteral("DATA:Object"), &hudRoot)) {
     if (error) *error = QStringLiteral("官方 HUD 活动配置格式无法识别，已保留旧配置");
-    return false;
+    return {};
   }
   QHash<QString, QJsonObject> hudEntries;
-  collectHudEntries(hudRoot.value(QStringLiteral("hud")), &hudEntries);
+  if (!collectHudEntries(hudRoot.value(QStringLiteral("hud")), &hudEntries)) {
+    if (error) *error = QStringLiteral("官方活动目录深度或数量超过预算");
+    return {};
+  }
 
   QHash<int, QVector<int>> redGraph;
   const QRegularExpression redExpression(
       QStringLiteral("new\\s+RedPointConfigNode\\s*\\(\\s*(\\d+)\\s*(?:,\\s*\\[([^\\]]*)\\])?\\s*\\)"));
   QRegularExpressionMatchIterator redMatches = redExpression.globalMatch(redText);
+  int redReferences = 0;
   while (redMatches.hasNext()) {
+    if (++redReferences > 50000) {
+      if (error) *error = QStringLiteral("官方红点关系数量超过目录预算");
+      return {};
+    }
     const QRegularExpressionMatch match = redMatches.next();
+    const int id = asNumber(match.captured(1));
+    if (id <= 0 || redGraph.contains(id)) {
+      if (error) *error = QStringLiteral("官方红点目录标识无效或重复");
+      return {};
+    }
     QVector<int> children;
-    for (const QString& value : match.captured(2).split(QLatin1Char(','), Qt::SkipEmptyParts))
-      children.append(value.trimmed().toInt());
-    redGraph.insert(match.captured(1).toInt(), children);
+    QSet<int> seenChildren;
+    if (!match.captured(2).trimmed().isEmpty()) {
+      for (const QString& value : match.captured(2).split(QLatin1Char(','), Qt::KeepEmptyParts)) {
+        const int child = asNumber(value);
+        if (child <= 0 || ++redReferences > 50000) {
+          if (error) *error = QStringLiteral("官方红点目录子标识无效");
+          return {};
+        }
+        if (!seenChildren.contains(child)) { seenChildren.insert(child); children.append(child); }
+      }
+    }
+    redGraph.insert(id, children);
   }
 
   QList<QString> keys = hudEntries.keys();
@@ -345,7 +380,13 @@ bool RoutineOverviewCatalog::updateFromOfficialData(const QString& dataRoot, QSt
   QJsonArray activities;
   for (const QString& key : keys) {
     const QJsonObject entry = hudEntries.value(key);
-    const int redPointId = entry.value(QStringLiteral("redPointId")).toInt();
+    qint64 redPoint = 0;
+    if (entry.contains(QStringLiteral("redPointId")) &&
+        !PacketContracts::checkedInteger(entry.value(QStringLiteral("redPointId")), &redPoint, 0, INT_MAX)) {
+      if (error) *error = QStringLiteral("官方活动目录红点标识无效");
+      return {};
+    }
+    const int redPointId = static_cast<int>(redPoint);
     QSet<int> redIds;
     collectRedDescendants(redPointId, redGraph, &redIds);
     QList<int> sortedIds = redIds.values();
@@ -366,31 +407,10 @@ bool RoutineOverviewCatalog::updateFromOfficialData(const QString& dataRoot, QSt
   for (int value : parseNumberArray(taskText, QStringLiteral("WEEK_PRIZE_PROGRESS")))
     weekThresholds.append(value);
   const QJsonObject root{{QStringLiteral("schema"), 1},
-                         {QStringLiteral("generatedAt"), QDateTime::currentDateTime().toString(Qt::ISODate)},
-                         {QStringLiteral("taskSource"), taskPath},
-                         {QStringLiteral("hudSource"), hudPath},
-                         {QStringLiteral("redPointSource"), redPath},
+                         {QStringLiteral("generatedAt"), QDateTime::currentDateTimeUtc().toString(Qt::ISODate)},
                          {QStringLiteral("tasks"), tasks},
                          {QStringLiteral("dayPrizeThresholds"), dayThresholds},
                          {QStringLiteral("weekPrizeThresholds"), weekThresholds},
                          {QStringLiteral("activities"), activities}};
-  const QDateTime updatedAt = (std::max)({QFileInfo(taskPath).lastModified(),
-                                          QFileInfo(hudPath).lastModified(),
-                                          QFileInfo(redPath).lastModified()});
-  const QList<RoutineTaskDefinition> oldTasks = tasks_;
-  const QList<ActivityOverviewDefinition> oldActivities = activities_;
-  const QVector<int> oldDay = dayPrizeThresholds_;
-  const QVector<int> oldWeek = weekPrizeThresholds_;
-  if (!loadObject(root, QStringLiteral("官方解包动态任务/活动配置"), updatedAt, error))
-    return false;
-  const QString target = QDir(dataRoot).filePath(QStringLiteral("catalog/routine-overview.json"));
-  if (!writeObject(target, root)) {
-    tasks_ = oldTasks;
-    activities_ = oldActivities;
-    dayPrizeThresholds_ = oldDay;
-    weekPrizeThresholds_ = oldWeek;
-    if (error) *error = QStringLiteral("无法原子写入任务/活动配置缓存");
-    return false;
-  }
-  return true;
+  return root;
 }

@@ -1,85 +1,91 @@
 #include "inline_hook.h"
-
 #include <windows.h>
-
-#include <array>
-#include <cstdint>
+#include <MinHook.h>
 #include <cstring>
+#include <cstdint>
+#include <mutex>
 
 namespace {
-
-constexpr std::size_t kAbsoluteJumpSize = 14;
-
-void writeAbsoluteJump(unsigned char* destination, const void* address) {
-  destination[0] = 0xFF;
-  destination[1] = 0x25;
-  destination[2] = 0x00;
-  destination[3] = 0x00;
-  destination[4] = 0x00;
-  destination[5] = 0x00;
-  const auto value = reinterpret_cast<std::uint64_t>(address);
-  std::memcpy(destination + 6, &value, sizeof(value));
+std::mutex installationMutex;
+bool initialized = false;
+bool executableSpan(const void* address, std::size_t size) {
+  MEMORY_BASIC_INFORMATION memory{};
+  if (!address || !size || !VirtualQuery(address, &memory, sizeof(memory)) ||
+      memory.State != MEM_COMMIT || (memory.Protect & (PAGE_GUARD | PAGE_NOACCESS))) return false;
+  const DWORD protection = memory.Protect & 0xff;
+  if (protection != PAGE_EXECUTE_READ && protection != PAGE_EXECUTE_READWRITE &&
+      protection != PAGE_EXECUTE_WRITECOPY) return false;
+  const auto begin = reinterpret_cast<std::uintptr_t>(address);
+  const auto region = reinterpret_cast<std::uintptr_t>(memory.BaseAddress);
+  return begin >= region && begin - region <= memory.RegionSize &&
+         size <= memory.RegionSize - (begin - region);
+}
 }
 
-}  // namespace
-
-bool InlineHook::install(void* target, void* detour, const unsigned char* expectedBytes,
-                         std::size_t patchSize, TrampolinePolicy policy) {
+bool InlineHook::createDisabled(void* target, void* detour,
+    const unsigned char* expectedBytes, std::size_t signatureSize, TrampolinePolicy policy) {
   static_assert(sizeof(void*) == 8, "Only x64 is supported");
+  std::lock_guard<std::mutex> lock(installationMutex);
   if (!supportsPolicy(policy)) {
-    error_ = "profile does not authorize a relocation-free trampoline";
+    error_ = "profile does not authorize this Dispatch hook";
     return false;
   }
-  if (!target || !detour || !expectedBytes || patchSize < kAbsoluteJumpSize) {
-    error_ = "invalid hook arguments";
+  if (target_ || !target || !detour || !expectedBytes || signatureSize < 5 ||
+      signatureSize > expected_.size() || !executableSpan(target, signatureSize)) {
+    error_ = "invalid, unreadable, non-executable or already-created hook target";
     return false;
   }
-  if (std::memcmp(target, expectedBytes, patchSize) != 0) {
-    error_ = "target prologue does not exactly match the selected profile";
+  if (std::memcmp(target, expectedBytes, signatureSize) != 0) {
+    error_ = "target prologue conflicts with selected profile; refusing foreign hook";
     return false;
   }
-
-  const std::size_t trampolineSize = patchSize + kAbsoluteJumpSize;
-  auto* trampoline = static_cast<unsigned char*>(
-      VirtualAlloc(nullptr, trampolineSize, MEM_COMMIT | MEM_RESERVE, PAGE_EXECUTE_READWRITE));
-  if (!trampoline) {
-    error_ = "VirtualAlloc failed";
-    return false;
+  if (!initialized) {
+    const MH_STATUS status = MH_Initialize();
+    if (status != MH_OK) { error_ = MH_StatusToString(status); return false; }
+    initialized = true;
   }
-  std::memcpy(trampoline, target, patchSize);
-  writeAbsoluteJump(trampoline + patchSize,
-                    static_cast<unsigned char*>(target) + patchSize);
+  void* trampoline = nullptr;
+  const MH_STATUS status = MH_CreateHook(target, detour, &trampoline);
+  if (status != MH_OK) { error_ = MH_StatusToString(status); return false; }
   target_ = target;
   trampoline_ = trampoline;
-  patchSize_ = patchSize;
-
-  DWORD oldProtection = 0;
-  if (!VirtualProtect(target, patchSize, PAGE_EXECUTE_READWRITE, &oldProtection)) {
-    VirtualFree(trampoline, 0, MEM_RELEASE);
-    target_ = nullptr;
-    trampoline_ = nullptr;
-    patchSize_ = 0;
-    error_ = "VirtualProtect failed";
-    return false;
-  }
-
-  std::array<unsigned char, 64> patch{};
-  if (patchSize > patch.size()) {
-    DWORD ignored = 0;
-    VirtualProtect(target, patchSize, oldProtection, &ignored);
-    VirtualFree(trampoline, 0, MEM_RELEASE);
-    target_ = nullptr;
-    trampoline_ = nullptr;
-    patchSize_ = 0;
-    error_ = "patch is too large";
-    return false;
-  }
-  patch.fill(0x90);
-  writeAbsoluteJump(patch.data(), detour);
-  std::memcpy(target, patch.data(), patchSize);
-  FlushInstructionCache(GetCurrentProcess(), target, patchSize);
-
-  DWORD ignored = 0;
-  VirtualProtect(target, patchSize, oldProtection, &ignored);
+  patchSize_ = signatureSize;
+  std::memcpy(expected_.data(), expectedBytes, signatureSize);
+  error_ = "";
   return true;
+}
+
+bool InlineHook::enable() {
+  std::lock_guard<std::mutex> lock(installationMutex);
+  if (!target_ || enabled_) { error_ = "hook is absent or already enabled"; return false; }
+  if (!executableSpan(target_, patchSize_) ||
+      std::memcmp(target_, expected_.data(), patchSize_) != 0) {
+    error_ = "target changed after creation; refusing conflicting patch";
+    return false;
+  }
+  // Only our verified Dispatch is managed. Never use MH_ALL_HOOKS. Upstream
+  // thread-context limitations remain; MH_OK is not universal suspension proof.
+  const MH_STATUS status = MH_EnableHook(target_);
+  if (status != MH_OK) { error_ = MH_StatusToString(status); return false; }
+  enabled_ = true;
+  return true;
+}
+
+bool InlineHook::removeDisabled() {
+  std::lock_guard<std::mutex> lock(installationMutex);
+  if (!target_ || enabled_) return false;
+  const MH_STATUS status = MH_RemoveHook(target_);
+  if (status != MH_OK) { error_ = MH_StatusToString(status); return false; }
+  target_ = nullptr;
+  trampoline_ = nullptr;
+  patchSize_ = 0;
+  return true;
+}
+
+bool InlineHook::install(void* target, void* detour, const unsigned char* expectedBytes,
+                         std::size_t signatureSize, TrampolinePolicy policy) {
+  if (!createDisabled(target, detour, expectedBytes, signatureSize, policy)) return false;
+  if (enable()) return true;
+  removeDisabled();
+  return false;
 }

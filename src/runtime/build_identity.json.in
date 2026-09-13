@@ -1,0 +1,1 @@
+{"schema":1,"releaseId":"@KQPET_RELEASE_ID@","version":"@PROJECT_VERSION@","architecture":"x64","qt":"@KQPET_QT_VERSION@","sourceSha256":"@KQPET_SOURCE_SHA256@","profileSha256":"@KQPET_PROFILE_SHA256@","toolchain":"@KQPET_TOOLCHAIN@","configuration":"@KQPET_CONFIGURATION@","startupProtocol":1,"bootstrapProtocol":1,"minHookCommit":"c3fcafdc10146beb5919319d0683e44e3c30d537"}

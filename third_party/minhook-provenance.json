@@ -1,0 +1,12 @@
+{
+  "name": "MinHook",
+  "version": "1.3.4",
+  "upstream": "https://github.com/TsudaKageyu/minhook",
+  "commit": "c3fcafdc10146beb5919319d0683e44e3c30d537",
+  "archive": "https://codeload.github.com/TsudaKageyu/minhook/tar.gz/c3fcafdc10146beb5919319d0683e44e3c30d537",
+  "archiveBytes": 29668,
+  "archiveSha256": "31757833475BE039C16359D4E276E718DB6BA2BA61A6B870053A112106015822",
+  "license": "minhook/LICENSE.txt",
+  "sourceModifications": [],
+  "note": "The upstream tag is v1.3.4 although its CMakeLists.txt retains a 1.3.3 version variable. The pinned commit and archive digest identify the actual source."
+}

@@ -1,0 +1,2 @@
+#pragma code_page(65001)
+210 RCDATA "@CMAKE_CURRENT_SOURCE_DIR@/tools/cache-manager.ps1"

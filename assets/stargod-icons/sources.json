@@ -1,0 +1,1630 @@
+{
+  "schema": 1,
+  "source": "Official Aoqi StarGod SWF sprite resources",
+  "versiondata": {
+    "file": "1_mmo.versiondata.DocClass_cls.bin",
+    "sha256": "506946d1a374654fc26e8c556b42c86716683c6c3b11b053a8dd633efe699319",
+    "releaseDate": "20260910"
+  },
+  "extractor": {
+    "tool": "JPEXS FFDec",
+    "jarSha256": "090ab695053ad94cba6408574c7d7eea20ec60b6ae789ee6056a23f45106762f",
+    "script": "tools/generate_stargod_icons.py",
+    "selection": "SymbolClass sprite character ID; frame 1",
+    "ignoreBackground": true,
+    "imageEdits": false
+  },
+  "count": 89,
+  "icons": [
+    {
+      "id": 1,
+      "file": "1.png",
+      "url": "https://aoqi.100bt.com/play/stargodres/stargod1~2016040112130204.swf",
+      "version": "2016040112130204",
+      "versionSource": "versiondata",
+      "swfSha256": "76ba39ec6149fc7f33b07d6e78f32e600357d43772c6f8e36e134eeda9c5b5ac",
+      "swfBytes": 27287,
+      "spriteClass": "mmo.stargodres.StarGod1",
+      "characterId": 25,
+      "frame": 1,
+      "png": {
+        "width": 60,
+        "height": 60,
+        "bytes": 9256,
+        "sha256": "71f026b3cb6a108664aff48ec0a844d565db418fc3039965cbe5e3ba643b043c"
+      }
+    },
+    {
+      "id": 2,
+      "file": "2.png",
+      "url": "https://aoqi.100bt.com/play/stargodres/stargod2~2016040112130204.swf",
+      "version": "2016040112130204",
+      "versionSource": "versiondata",
+      "swfSha256": "8ed0fc141854eda2d52a74e0ee4e13d4642eea54247d1a8035353c644b86a36c",
+      "swfBytes": 33671,
+      "spriteClass": "mmo.stargodres.StarGod2",
+      "characterId": 25,
+      "frame": 1,
+      "png": {
+        "width": 60,
+        "height": 60,
+        "bytes": 10780,
+        "sha256": "6237658322aaeb51daf5cc089041e123f02551b17489467936919420d3e378b0"
+      }
+    },
+    {
+      "id": 3,
+      "file": "3.png",
+      "url": "https://aoqi.100bt.com/play/stargodres/stargod3~2016040112130204.swf",
+      "version": "2016040112130204",
+      "versionSource": "versiondata",
+      "swfSha256": "1a39b718fbcc518df52109dd936875d968619f5e4c18d1b66011c5daffa41e00",
+      "swfBytes": 35721,
+      "spriteClass": "mmo.stargodres.StarGod3",
+      "characterId": 25,
+      "frame": 1,
+      "png": {
+        "width": 60,
+        "height": 60,
+        "bytes": 11499,
+        "sha256": "6b055d6b9fada29457b168107df755d193d80b69010bfcbf1b315bc6be6a08d2"
+      }
+    },
+    {
+      "id": 4,
+      "file": "4.png",
+      "url": "https://aoqi.100bt.com/play/stargodres/stargod4~2016040112130204.swf",
+      "version": "2016040112130204",
+      "versionSource": "versiondata",
+      "swfSha256": "b0211e0e56da634cf2d79ea30c4cbaaf3d8e78134f8a062be5cced393175c822",
+      "swfBytes": 22961,
+      "spriteClass": "mmo.stargodres.StarGod4",
+      "characterId": 23,
+      "frame": 1,
+      "png": {
+        "width": 50,
+        "height": 50,
+        "bytes": 6161,
+        "sha256": "20bd910100d4cce7d8a42c06c1241822c98621be59a8337c5d9d72e496063cf5"
+      }
+    },
+    {
+      "id": 5,
+      "file": "5.png",
+      "url": "https://aoqi.100bt.com/play/stargodres/stargod5~2016040112130204.swf",
+      "version": "2016040112130204",
+      "versionSource": "versiondata",
+      "swfSha256": "15e9891904f9a976aa7c0c9d1bcfe29fda1c487a59cd3f7cfd2aef334d90acd5",
+      "swfBytes": 22452,
+      "spriteClass": "mmo.stargodres.StarGod5",
+      "characterId": 23,
+      "frame": 1,
+      "png": {
+        "width": 50,
+        "height": 50,
+        "bytes": 6114,
+        "sha256": "c563a453526e2dabad8cb1e0b9772655cb6eadfb1f40ee81399e0eaf50190ebd"
+      }
+    },
+    {
+      "id": 6,
+      "file": "6.png",
+      "url": "https://aoqi.100bt.com/play/stargodres/stargod6~2016032554138647.swf",
+      "version": "2016032554138647",
+      "versionSource": "versiondata",
+      "swfSha256": "89ae525cc8e54e8a1406d628d4a79752ec6c91a7ec245d781039d17ea6e91c91",
+      "swfBytes": 22300,
+      "spriteClass": "mmo.stargodres.StarGod6",
+      "characterId": 23,
+      "frame": 1,
+      "png": {
+        "width": 50,
+        "height": 50,
+        "bytes": 5971,
+        "sha256": "87e3e46facc3337302fe23fad4235fefc40166fce99f1ecedbd4e894a1f889c3"
+      }
+    },
+    {
+      "id": 7,
+      "file": "7.png",
+      "url": "https://aoqi.100bt.com/play/stargodres/stargod7~2016040112130204.swf",
+      "version": "2016040112130204",
+      "versionSource": "versiondata",
+      "swfSha256": "22367a337532f0b648c43a7ff780f74eb38e28062b1c0a65c1b13b66c3472497",
+      "swfBytes": 31570,
+      "spriteClass": "mmo.stargodres.StarGod7",
+      "characterId": 29,
+      "frame": 1,
+      "png": {
+        "width": 52,
+        "height": 52,
+        "bytes": 3928,
+        "sha256": "0538e4846ff6213624e273e2ca2a3fb9928586c9651ff70b746fb1e15629967c"
+      }
+    },
+    {
+      "id": 8,
+      "file": "8.png",
+      "url": "https://aoqi.100bt.com/play/stargodres/stargod8~2016040112130204.swf",
+      "version": "2016040112130204",
+      "versionSource": "versiondata",
+      "swfSha256": "66570252b79aee462eedffdd5c55fa4e6d436bedd0c20c67fd2c8aeb581ee7c3",
+      "swfBytes": 33838,
+      "spriteClass": "mmo.stargodres.StarGod8",
+      "characterId": 29,
+      "frame": 1,
+      "png": {
+        "width": 52,
+        "height": 52,
+        "bytes": 6162,
+        "sha256": "2dbfb9a15158afa71942db50d021712b443e3ef29be490b6d7b1a3de8b54dfac"
+      }
+    },
+    {
+      "id": 9,
+      "file": "9.png",
+      "url": "https://aoqi.100bt.com/play/stargodres/stargod9~2016040112130204.swf",
+      "version": "2016040112130204",
+      "versionSource": "versiondata",
+      "swfSha256": "4b622194a3ea2f09f2bc3e1576bf2f76bf19be163a275530b9c53d52c54350b3",
+      "swfBytes": 32688,
+      "spriteClass": "mmo.stargodres.StarGod9",
+      "characterId": 29,
+      "frame": 1,
+      "png": {
+        "width": 52,
+        "height": 52,
+        "bytes": 6748,
+        "sha256": "deecc595a03817e139a82429dc6873dbd46aabfe13351c012a8eb255d6d076e8"
+      }
+    },
+    {
+      "id": 10,
+      "file": "10.png",
+      "url": "https://aoqi.100bt.com/play/stargodres/stargod10~2016040112130204.swf",
+      "version": "2016040112130204",
+      "versionSource": "versiondata",
+      "swfSha256": "4b4df72ddae7733b97047e8499be11cd0c98a1ff9b28c720eda0f732fa025453",
+      "swfBytes": 33634,
+      "spriteClass": "mmo.stargodres.StarGod10",
+      "characterId": 29,
+      "frame": 1,
+      "png": {
+        "width": 52,
+        "height": 52,
+        "bytes": 6533,
+        "sha256": "7c9c76c1ccee2d281df3aea48a18ee360dac3b231c72ab72973b8c0cbc5eaf95"
+      }
+    },
+    {
+      "id": 11,
+      "file": "11.png",
+      "url": "https://aoqi.100bt.com/play/stargodres/stargod11~2016040112130204.swf",
+      "version": "2016040112130204",
+      "versionSource": "versiondata",
+      "swfSha256": "5fa1e265b7242bb20c1544e760925190411be479b7ab876a2ead4e90c9568a94",
+      "swfBytes": 32396,
+      "spriteClass": "mmo.stargodres.StarGod11",
+      "characterId": 29,
+      "frame": 1,
+      "png": {
+        "width": 52,
+        "height": 52,
+        "bytes": 6120,
+        "sha256": "b6a154f7cbadedf80fd211bf6aa43326092ac8a85d80ac1a6e494f422e398bde"
+      }
+    },
+    {
+      "id": 12,
+      "file": "12.png",
+      "url": "https://aoqi.100bt.com/play/stargodres/stargod12~2016040112130204.swf",
+      "version": "2016040112130204",
+      "versionSource": "versiondata",
+      "swfSha256": "5e6f95e98d131f6092bdca900d503c875e3723aaacc663a7ecbdf0777bbb842d",
+      "swfBytes": 34074,
+      "spriteClass": "mmo.stargodres.StarGod12",
+      "characterId": 29,
+      "frame": 1,
+      "png": {
+        "width": 52,
+        "height": 52,
+        "bytes": 6620,
+        "sha256": "532f940db8b2e4c443bc96121c4ddc0d3c22d2ed34625724a0f12d9b4f716549"
+      }
+    },
+    {
+      "id": 13,
+      "file": "13.png",
+      "url": "https://aoqi.100bt.com/play/stargodres/stargod13~2016040112130204.swf",
+      "version": "2016040112130204",
+      "versionSource": "versiondata",
+      "swfSha256": "05b31d9fcf047c0310fa2b935211c6d9f8aaaa5a0768de3bed5f007a2b4a6e9b",
+      "swfBytes": 34468,
+      "spriteClass": "mmo.stargodres.StarGod13",
+      "characterId": 29,
+      "frame": 1,
+      "png": {
+        "width": 52,
+        "height": 52,
+        "bytes": 6752,
+        "sha256": "523cec8b3c0bd873832ffcccb6642a4ca0502e53d0858428abb2066ac9a03a96"
+      }
+    },
+    {
+      "id": 14,
+      "file": "14.png",
+      "url": "https://aoqi.100bt.com/play/stargodres/stargod14~2016040112130204.swf",
+      "version": "2016040112130204",
+      "versionSource": "versiondata",
+      "swfSha256": "c09364a587c41723a8cfef1c82e3c3fae016b8e9d01df7851d46a479628005ee",
+      "swfBytes": 33801,
+      "spriteClass": "mmo.stargodres.StarGod14",
+      "characterId": 29,
+      "frame": 1,
+      "png": {
+        "width": 52,
+        "height": 52,
+        "bytes": 6471,
+        "sha256": "1fca6e5a5b2529d9dce054d96dac5af9e32d781d230eb66b394b9a0bc272c59d"
+      }
+    },
+    {
+      "id": 15,
+      "file": "15.png",
+      "url": "https://aoqi.100bt.com/play/stargodres/stargod15~2016040112130204.swf",
+      "version": "2016040112130204",
+      "versionSource": "versiondata",
+      "swfSha256": "9d38133af4159eee0e009e4e1d8a95e6d125fefae041df1596999d87de1386c1",
+      "swfBytes": 33239,
+      "spriteClass": "mmo.stargodres.StarGod15",
+      "characterId": 29,
+      "frame": 1,
+      "png": {
+        "width": 52,
+        "height": 52,
+        "bytes": 6075,
+        "sha256": "fcfbd273d74ea577e9e31182336983ee2b9a0a7876994515d972fefc322b1e6a"
+      }
+    },
+    {
+      "id": 16,
+      "file": "16.png",
+      "url": "https://aoqi.100bt.com/play/stargodres/stargod16~2016040112130204.swf",
+      "version": "2016040112130204",
+      "versionSource": "versiondata",
+      "swfSha256": "0b6e8f874b1fe6ceeeae2c6bd8da84066a019597228ca2ca4a8f9f935f4c85cb",
+      "swfBytes": 32885,
+      "spriteClass": "mmo.stargodres.StarGod16",
+      "characterId": 29,
+      "frame": 1,
+      "png": {
+        "width": 52,
+        "height": 52,
+        "bytes": 6274,
+        "sha256": "31bfc4dc19b959b5f08e69142eec4c7eb65565bb66cf7e2cf2aa27522dfea8d8"
+      }
+    },
+    {
+      "id": 17,
+      "file": "17.png",
+      "url": "https://aoqi.100bt.com/play/stargodres/stargod17~2016040112130204.swf",
+      "version": "2016040112130204",
+      "versionSource": "versiondata",
+      "swfSha256": "b686a7b9f4acf92b8f1eefc71f62c7325cc8f0479dc1d2bbe24ffb28c122f33b",
+      "swfBytes": 32299,
+      "spriteClass": "mmo.stargodres.StarGod17",
+      "characterId": 29,
+      "frame": 1,
+      "png": {
+        "width": 52,
+        "height": 52,
+        "bytes": 6105,
+        "sha256": "f0cd8094a372e8dbafd119e0e687699dac087519405a6702ff42f527ee6f45f1"
+      }
+    },
+    {
+      "id": 18,
+      "file": "18.png",
+      "url": "https://aoqi.100bt.com/play/stargodres/stargod18~2016040112130204.swf",
+      "version": "2016040112130204",
+      "versionSource": "versiondata",
+      "swfSha256": "771ea8b929b6e69ec19662c13af411035ffb20b58c64c0a96bdb723668620b75",
+      "swfBytes": 37241,
+      "spriteClass": "mmo.stargodres.StarGod18",
+      "characterId": 23,
+      "frame": 1,
+      "png": {
+        "width": 64,
+        "height": 64,
+        "bytes": 9611,
+        "sha256": "64edd3769083380e2f2a69784a0afbd06ef4c557aad9ba6cdd1113a99eb27821"
+      }
+    },
+    {
+      "id": 19,
+      "file": "19.png",
+      "url": "https://aoqi.100bt.com/play/stargodres/stargod19~2016040112130204.swf",
+      "version": "2016040112130204",
+      "versionSource": "versiondata",
+      "swfSha256": "eea530f3a7dd6cc906882f8522926ce1b572fd602a3706f2d029ae3febc7ee5a",
+      "swfBytes": 37414,
+      "spriteClass": "mmo.stargodres.StarGod19",
+      "characterId": 23,
+      "frame": 1,
+      "png": {
+        "width": 64,
+        "height": 64,
+        "bytes": 9551,
+        "sha256": "4feda14a38c5f2b0dba1ef4b2493dfd938b24f6865940560013c44d8f056c8cb"
+      }
+    },
+    {
+      "id": 20,
+      "file": "20.png",
+      "url": "https://aoqi.100bt.com/play/stargodres/stargod20~2016040112130204.swf",
+      "version": "2016040112130204",
+      "versionSource": "versiondata",
+      "swfSha256": "fc079de7852bd80ac6abf6148baa02e98db1e834fc65e9adcb1acad9abcf655c",
+      "swfBytes": 36621,
+      "spriteClass": "mmo.stargodres.StarGod20",
+      "characterId": 23,
+      "frame": 1,
+      "png": {
+        "width": 64,
+        "height": 64,
+        "bytes": 9240,
+        "sha256": "3aad5ebc0b4bf529075635e5ff6c4f13a3536ed04732df50c3d8178adc167e64"
+      }
+    },
+    {
+      "id": 21,
+      "file": "21.png",
+      "url": "https://aoqi.100bt.com/play/stargodres/stargod21~2016040112130204.swf",
+      "version": "2016040112130204",
+      "versionSource": "versiondata",
+      "swfSha256": "3317abdf220d2ba5396ae3b3316783c7d286e6a4e474f77427e4014d82d701c7",
+      "swfBytes": 36749,
+      "spriteClass": "mmo.stargodres.StarGod21",
+      "characterId": 23,
+      "frame": 1,
+      "png": {
+        "width": 64,
+        "height": 64,
+        "bytes": 9075,
+        "sha256": "b5886044ad962b221eba9d32835ee8697f671e7dfc296c666f4734efbcd64517"
+      }
+    },
+    {
+      "id": 22,
+      "file": "22.png",
+      "url": "https://aoqi.100bt.com/play/stargodres/stargod22~2016040112130204.swf",
+      "version": "2016040112130204",
+      "versionSource": "versiondata",
+      "swfSha256": "281ca58abfd91304e8bce9cf3da140a7bb2e9a0781543a36a994bead0e1ea8c9",
+      "swfBytes": 36867,
+      "spriteClass": "mmo.stargodres.StarGod22",
+      "characterId": 23,
+      "frame": 1,
+      "png": {
+        "width": 64,
+        "height": 64,
+        "bytes": 9767,
+        "sha256": "9cc634e1d0b351f44db81fca3c4eddb446e72acdf0f63942cd30b95ace8179df"
+      }
+    },
+    {
+      "id": 23,
+      "file": "23.png",
+      "url": "https://aoqi.100bt.com/play/stargodres/stargod23~2016040112130204.swf",
+      "version": "2016040112130204",
+      "versionSource": "versiondata",
+      "swfSha256": "0d9b613b6503acacb189795f2254ee9d2d452dc41c01d20c71e0059d74a228c3",
+      "swfBytes": 53375,
+      "spriteClass": "mmo.stargodres.StarGod23",
+      "characterId": 31,
+      "frame": 1,
+      "png": {
+        "width": 64,
+        "height": 64,
+        "bytes": 10031,
+        "sha256": "e7b0e86854121c821c6efdb9ed32a12a1fce7f95f59c13afdce9ef4a3b3e1e82"
+      }
+    },
+    {
+      "id": 24,
+      "file": "24.png",
+      "url": "https://aoqi.100bt.com/play/stargodres/stargod24~2016040112130204.swf",
+      "version": "2016040112130204",
+      "versionSource": "versiondata",
+      "swfSha256": "5153888dd0b3f1bb5591a1e3d705b36b4ec23d3f2079664dfaf715e81f5bb6bb",
+      "swfBytes": 54310,
+      "spriteClass": "mmo.stargodres.StarGod24",
+      "characterId": 31,
+      "frame": 1,
+      "png": {
+        "width": 64,
+        "height": 64,
+        "bytes": 10380,
+        "sha256": "d0ae7f8780aa2733822142bb7d13a1c518f742a4493ee622c05b26eabeebbd62"
+      }
+    },
+    {
+      "id": 25,
+      "file": "25.png",
+      "url": "https://aoqi.100bt.com/play/stargodres/stargod25~2016040112130204.swf",
+      "version": "2016040112130204",
+      "versionSource": "versiondata",
+      "swfSha256": "3dfc28752c76c53feaedbdf5230a674554cf2bc2ce549e9a4d2e3da53dc605c3",
+      "swfBytes": 51458,
+      "spriteClass": "mmo.stargodres.StarGod25",
+      "characterId": 31,
+      "frame": 1,
+      "png": {
+        "width": 64,
+        "height": 64,
+        "bytes": 11266,
+        "sha256": "7ac0224777f53e3c832064ac37dfe48e8f8576f01160976134d3497ace6794d4"
+      }
+    },
+    {
+      "id": 26,
+      "file": "26.png",
+      "url": "https://aoqi.100bt.com/play/stargodres/stargod26~2000.swf",
+      "version": "2000",
+      "versionSource": "loader-default",
+      "swfSha256": "5af84863c9aaa4f67a0bc474256fae0e64395fba07b45bb17b32f471d4f97dab",
+      "swfBytes": 34800,
+      "spriteClass": "mmo.stargodres.StarGod26",
+      "characterId": 23,
+      "frame": 1,
+      "png": {
+        "width": 64,
+        "height": 64,
+        "bytes": 5845,
+        "sha256": "999923c2d5566188926a491cb66b023ad957fd29288fe64a1ddd00b4403005ee"
+      }
+    },
+    {
+      "id": 27,
+      "file": "27.png",
+      "url": "https://aoqi.100bt.com/play/stargodres/stargod27~2016040112130204.swf",
+      "version": "2016040112130204",
+      "versionSource": "versiondata",
+      "swfSha256": "03d3c2cb9c4bb959a59c1352ce0bd3fa0146e1ae336a7c9bf55753e5c3b627a0",
+      "swfBytes": 35997,
+      "spriteClass": "mmo.stargodres.StarGod27",
+      "characterId": 23,
+      "frame": 1,
+      "png": {
+        "width": 64,
+        "height": 64,
+        "bytes": 9280,
+        "sha256": "64911fae7cc6d80f816f51d5b1e587275aa19dd1c701c64813aa2fc39ff72a07"
+      }
+    },
+    {
+      "id": 29,
+      "file": "29.png",
+      "url": "https://aoqi.100bt.com/play/stargodres/stargod29~2016040112130204.swf",
+      "version": "2016040112130204",
+      "versionSource": "versiondata",
+      "swfSha256": "29eb1146930539f227f7a1db24a83c7b08ad770a7de452e34a6291e38408cf90",
+      "swfBytes": 42243,
+      "spriteClass": "mmo.stargodres.StarGod29",
+      "characterId": 23,
+      "frame": 1,
+      "png": {
+        "width": 60,
+        "height": 60,
+        "bytes": 9516,
+        "sha256": "1084ee713f9c1c43c97747f88496acd898b45ff5362eeb2b15255fad9560ef57"
+      }
+    },
+    {
+      "id": 30,
+      "file": "30.png",
+      "url": "https://aoqi.100bt.com/play/stargodres/stargod30~2016040112130204.swf",
+      "version": "2016040112130204",
+      "versionSource": "versiondata",
+      "swfSha256": "7def820e21b3a72260da961cdd5b666cc26145aaaeceea4818cae590565c2977",
+      "swfBytes": 45917,
+      "spriteClass": "mmo.stargodres.StarGod30",
+      "characterId": 23,
+      "frame": 1,
+      "png": {
+        "width": 60,
+        "height": 60,
+        "bytes": 8464,
+        "sha256": "0afc7a1674a8f8b5fe44b1db18b5ac546048600a28a56186bfc336c085030aef"
+      }
+    },
+    {
+      "id": 31,
+      "file": "31.png",
+      "url": "https://aoqi.100bt.com/play/stargodres/stargod31~2016040112130204.swf",
+      "version": "2016040112130204",
+      "versionSource": "versiondata",
+      "swfSha256": "bc4ab309f170c66d62c585432cc50daffdd167ab004c97aa45ead1f1b4384ce2",
+      "swfBytes": 41688,
+      "spriteClass": "mmo.stargodres.StarGod31",
+      "characterId": 23,
+      "frame": 1,
+      "png": {
+        "width": 60,
+        "height": 60,
+        "bytes": 9990,
+        "sha256": "00ba5aaf1343688084e0b4d86b0c369690a162b79d7ff239b051597c0af53723"
+      }
+    },
+    {
+      "id": 32,
+      "file": "32.png",
+      "url": "https://aoqi.100bt.com/play/stargodres/stargod32~2016040112130204.swf",
+      "version": "2016040112130204",
+      "versionSource": "versiondata",
+      "swfSha256": "b56cdd15084acb0288f504301bef81425ea134b9e79a15afd1f9d425eedb7ca4",
+      "swfBytes": 39546,
+      "spriteClass": "mmo.stargodres.StarGod32",
+      "characterId": 23,
+      "frame": 1,
+      "png": {
+        "width": 60,
+        "height": 60,
+        "bytes": 9671,
+        "sha256": "7b568139aefa3b78a5de9ae55433a317e82edb350b6458431fc6238f464ce329"
+      }
+    },
+    {
+      "id": 33,
+      "file": "33.png",
+      "url": "https://aoqi.100bt.com/play/stargodres/stargod33~2016040112130204.swf",
+      "version": "2016040112130204",
+      "versionSource": "versiondata",
+      "swfSha256": "527f82c751cb8232ddf4d69af2a74b0ff0be203994258775f79c3f126d451bf9",
+      "swfBytes": 39953,
+      "spriteClass": "mmo.stargodres.StarGod33",
+      "characterId": 23,
+      "frame": 1,
+      "png": {
+        "width": 60,
+        "height": 60,
+        "bytes": 9855,
+        "sha256": "a42334b78d387b895401237fa2eb2d075da4f7a81207d2aa0ca504079da3baaa"
+      }
+    },
+    {
+      "id": 34,
+      "file": "34.png",
+      "url": "https://aoqi.100bt.com/play/stargodres/stargod34~2016040112130204.swf",
+      "version": "2016040112130204",
+      "versionSource": "versiondata",
+      "swfSha256": "5e27b3caf76e49279cd917c147b2ad1274d032ba4d8a57eeecd6baa929be6a27",
+      "swfBytes": 42925,
+      "spriteClass": "mmo.stargodres.StarGod34",
+      "characterId": 23,
+      "frame": 1,
+      "png": {
+        "width": 60,
+        "height": 60,
+        "bytes": 9364,
+        "sha256": "de79aa7e599f66d1895e11a9c7be4df98ddce19817749d246c7bbda55580a6a5"
+      }
+    },
+    {
+      "id": 35,
+      "file": "35.png",
+      "url": "https://aoqi.100bt.com/play/stargodres/stargod35~2017122212817312.swf",
+      "version": "2017122212817312",
+      "versionSource": "versiondata",
+      "swfSha256": "dfa4a121f8d162be414d10f73298ea77df242679f618b7a46163d45fcde35bc5",
+      "swfBytes": 46107,
+      "spriteClass": "mmo.stargodres.StarGod35",
+      "characterId": 23,
+      "frame": 1,
+      "png": {
+        "width": 60,
+        "height": 60,
+        "bytes": 9928,
+        "sha256": "c44278d4dc9c545a79073f0f94d2b1030f0755fa57757ce1cb0d9c38e7ddd285"
+      }
+    },
+    {
+      "id": 37,
+      "file": "37.png",
+      "url": "https://aoqi.100bt.com/play/stargodres/stargod37~2016040112130204.swf",
+      "version": "2016040112130204",
+      "versionSource": "versiondata",
+      "swfSha256": "a8e986cbb2d51caf61d9b87cc9f2da114a9d5f07f6804aca784d303daabde62f",
+      "swfBytes": 55321,
+      "spriteClass": "mmo.stargodres.StarGod37",
+      "characterId": 31,
+      "frame": 1,
+      "png": {
+        "width": 64,
+        "height": 64,
+        "bytes": 10212,
+        "sha256": "0f79e28f63d24aeb77c77fd790fb27ca90adb76d5113781e470b16b10ea6a574"
+      }
+    },
+    {
+      "id": 38,
+      "file": "38.png",
+      "url": "https://aoqi.100bt.com/play/stargodres/stargod38~2016040112130204.swf",
+      "version": "2016040112130204",
+      "versionSource": "versiondata",
+      "swfSha256": "e19beeaccc5ae07919c51f042dd34fc554e200743c2696a0fc17ab5572ae3bc1",
+      "swfBytes": 55187,
+      "spriteClass": "mmo.stargodres.StarGod38",
+      "characterId": 31,
+      "frame": 1,
+      "png": {
+        "width": 64,
+        "height": 64,
+        "bytes": 10508,
+        "sha256": "604497d1d5ab1fbbbb528b18ad350dec0e377f90ee1688afc9dfacd86af03784"
+      }
+    },
+    {
+      "id": 39,
+      "file": "39.png",
+      "url": "https://aoqi.100bt.com/play/stargodres/stargod39~2016040112130204.swf",
+      "version": "2016040112130204",
+      "versionSource": "versiondata",
+      "swfSha256": "c86711c1d661a307ff9d9e0eaa8dbb35847089ddc66cfe1fd13538deb394fc69",
+      "swfBytes": 52012,
+      "spriteClass": "mmo.stargodres.StarGod39",
+      "characterId": 31,
+      "frame": 1,
+      "png": {
+        "width": 64,
+        "height": 64,
+        "bytes": 11323,
+        "sha256": "0f4cdce4403676ac59dc0ff347ae324bc90d1836340bf2dce19911b5a448d68a"
+      }
+    },
+    {
+      "id": 40,
+      "file": "40.png",
+      "url": "https://aoqi.100bt.com/play/stargodres/stargod40~2016040112130204.swf",
+      "version": "2016040112130204",
+      "versionSource": "versiondata",
+      "swfSha256": "629baa39a7c0c295ad14c10ecb22877f8f5778ddd18417544a2d2e17304b02ad",
+      "swfBytes": 40230,
+      "spriteClass": "mmo.stargodres.StarGod40",
+      "characterId": 23,
+      "frame": 1,
+      "png": {
+        "width": 64,
+        "height": 64,
+        "bytes": 9618,
+        "sha256": "c91b17dd659b7e0b159858138329686441bbea6387f1c7adf0b827b26812d60f"
+      }
+    },
+    {
+      "id": 41,
+      "file": "41.png",
+      "url": "https://aoqi.100bt.com/play/stargodres/stargod41~2016040112130204.swf",
+      "version": "2016040112130204",
+      "versionSource": "versiondata",
+      "swfSha256": "a45fc1b95829fff07d09829b5f5fa65ae34222efe2630c93fa2304e7286b16ff",
+      "swfBytes": 19235,
+      "spriteClass": "mmo.stargodres.StarGod41",
+      "characterId": 23,
+      "frame": 1,
+      "png": {
+        "width": 64,
+        "height": 64,
+        "bytes": 4700,
+        "sha256": "7eeec148109ece3557272d9fafc7a5cf6614f7ae3bf54cd4805e6c245578dc2c"
+      }
+    },
+    {
+      "id": 42,
+      "file": "42.png",
+      "url": "https://aoqi.100bt.com/play/stargodres/stargod42~2016040112130204.swf",
+      "version": "2016040112130204",
+      "versionSource": "versiondata",
+      "swfSha256": "0439fff730e59f1ec1f105949f1e4b3ac85ffa1abaebbf1aa07c31fbe528060e",
+      "swfBytes": 41585,
+      "spriteClass": "mmo.stargodres.StarGod42",
+      "characterId": 31,
+      "frame": 1,
+      "png": {
+        "width": 64,
+        "height": 64,
+        "bytes": 6549,
+        "sha256": "04857a198cdc5a9729b6f6814cbb725dff65fe93e4c140a274c669c33dce1a4e"
+      }
+    },
+    {
+      "id": 43,
+      "file": "43.png",
+      "url": "https://aoqi.100bt.com/play/stargodres/stargod43~2016040112130204.swf",
+      "version": "2016040112130204",
+      "versionSource": "versiondata",
+      "swfSha256": "3a9db38230cdd37b4097cd4d40090952e0e3d3224b563edb153068b758311a14",
+      "swfBytes": 60319,
+      "spriteClass": "mmo.stargodres.StarGod43",
+      "characterId": 31,
+      "frame": 1,
+      "png": {
+        "width": 64,
+        "height": 64,
+        "bytes": 10937,
+        "sha256": "772a3313841b484334215ecd7847b55278a3dda93972bc8907f43375ae85e953"
+      }
+    },
+    {
+      "id": 44,
+      "file": "44.png",
+      "url": "https://aoqi.100bt.com/play/stargodres/stargod44~2016040112130204.swf",
+      "version": "2016040112130204",
+      "versionSource": "versiondata",
+      "swfSha256": "9d374a2cc1628153f6c5a44d81e11bb99aeb83befcb066261a93f37a91677399",
+      "swfBytes": 39926,
+      "spriteClass": "mmo.stargodres.StarGod44",
+      "characterId": 23,
+      "frame": 1,
+      "png": {
+        "width": 64,
+        "height": 64,
+        "bytes": 9385,
+        "sha256": "67f7307af401e1f97be0c58abdd66ec70c5bd46907e3a8b20c01734d5077da83"
+      }
+    },
+    {
+      "id": 45,
+      "file": "45.png",
+      "url": "https://aoqi.100bt.com/play/stargodres/stargod45~2016040112130204.swf",
+      "version": "2016040112130204",
+      "versionSource": "versiondata",
+      "swfSha256": "78bde79d4b888a8dedcd1cd0673572cc1650187f3e16afda8e7ca7115062a140",
+      "swfBytes": 45120,
+      "spriteClass": "mmo.stargodres.StarGod45",
+      "characterId": 23,
+      "frame": 1,
+      "png": {
+        "width": 60,
+        "height": 60,
+        "bytes": 9404,
+        "sha256": "17b10fbf6e398f0c27d4786676bc5dc8e9aaa291705c09d1d0b54e90b85eca06"
+      }
+    },
+    {
+      "id": 46,
+      "file": "46.png",
+      "url": "https://aoqi.100bt.com/play/stargodres/stargod46~2016040112130204.swf",
+      "version": "2016040112130204",
+      "versionSource": "versiondata",
+      "swfSha256": "cc672d13570756a858c71a41f7fd43609bb7974a1405f10d53dc3867f105b5d2",
+      "swfBytes": 47198,
+      "spriteClass": "mmo.stargodres.StarGod46",
+      "characterId": 25,
+      "frame": 1,
+      "png": {
+        "width": 60,
+        "height": 60,
+        "bytes": 8209,
+        "sha256": "2baeead47b55509cd6453e1169af5a6f816534afbb5a2dfd7d68058b80d86af9"
+      }
+    },
+    {
+      "id": 47,
+      "file": "47.png",
+      "url": "https://aoqi.100bt.com/play/stargodres/stargod47~2016040112130204.swf",
+      "version": "2016040112130204",
+      "versionSource": "versiondata",
+      "swfSha256": "f98f43cf81720dbe8c083b50ade7684c99171f148c3c88cc7862aefa2e1b8d80",
+      "swfBytes": 42927,
+      "spriteClass": "mmo.stargodres.StarGod47",
+      "characterId": 25,
+      "frame": 1,
+      "png": {
+        "width": 60,
+        "height": 60,
+        "bytes": 10050,
+        "sha256": "27ef1c2c8bc0676b79c424674dba1f76ef46fe4f5ba298663723dacd6e319ad9"
+      }
+    },
+    {
+      "id": 48,
+      "file": "48.png",
+      "url": "https://aoqi.100bt.com/play/stargodres/stargod48~2016040112130204.swf",
+      "version": "2016040112130204",
+      "versionSource": "versiondata",
+      "swfSha256": "133fdefc5c36aa3a22d4fdbdf13400c3fbb438fdfc73cdb30a7fb79d365cc3e6",
+      "swfBytes": 40980,
+      "spriteClass": "mmo.stargodres.StarGod48",
+      "characterId": 25,
+      "frame": 1,
+      "png": {
+        "width": 60,
+        "height": 60,
+        "bytes": 8911,
+        "sha256": "e41c3d946a0bcbde205102db0c2f5d20f56fab734fa1b0b4387f6e876c73f5ae"
+      }
+    },
+    {
+      "id": 49,
+      "file": "49.png",
+      "url": "https://aoqi.100bt.com/play/stargodres/stargod49~2016040112130204.swf",
+      "version": "2016040112130204",
+      "versionSource": "versiondata",
+      "swfSha256": "6d675ed8dea82caf612bd6b133b41db52e9f9eea1f3ac46e3d1923790f933593",
+      "swfBytes": 41735,
+      "spriteClass": "mmo.stargodres.StarGod49",
+      "characterId": 23,
+      "frame": 1,
+      "png": {
+        "width": 60,
+        "height": 60,
+        "bytes": 9204,
+        "sha256": "79bc9136431c8fea1e70fe48289da01aa96f139d35e5bf4dd59d370b9874a394"
+      }
+    },
+    {
+      "id": 50,
+      "file": "50.png",
+      "url": "https://aoqi.100bt.com/play/stargodres/stargod50~2016040112130204.swf",
+      "version": "2016040112130204",
+      "versionSource": "versiondata",
+      "swfSha256": "ef1afc0e9a82a20e9bed57145c93cf4db75031d2944268c469c1466166a2f4eb",
+      "swfBytes": 39127,
+      "spriteClass": "mmo.stargodres.StarGod50",
+      "characterId": 23,
+      "frame": 1,
+      "png": {
+        "width": 64,
+        "height": 64,
+        "bytes": 10857,
+        "sha256": "2fde3a0245e3b1c795d847703b2ab858c5c68078ec7df6ab5937e393f51d8394"
+      }
+    },
+    {
+      "id": 51,
+      "file": "51.png",
+      "url": "https://aoqi.100bt.com/play/stargodres/stargod51~2000.swf",
+      "version": "2000",
+      "versionSource": "loader-default",
+      "swfSha256": "a467dadcb755ce3c814e9b9adb36aa881dcba81ca3ca2c0fd150d06b49c06219",
+      "swfBytes": 40742,
+      "spriteClass": "mmo.stargodres.StarGod51",
+      "characterId": 23,
+      "frame": 1,
+      "png": {
+        "width": 60,
+        "height": 60,
+        "bytes": 6351,
+        "sha256": "b1ba66c9c2d11c30863321b4278eb6fd8b2ed77d4fb7ec86cea33992718b38b8"
+      }
+    },
+    {
+      "id": 52,
+      "file": "52.png",
+      "url": "https://aoqi.100bt.com/play/stargodres/stargod52~2000.swf",
+      "version": "2000",
+      "versionSource": "loader-default",
+      "swfSha256": "18afd74e94a9862bf3f269335bd7094581f70353eea4880751165fc8ae280e77",
+      "swfBytes": 40057,
+      "spriteClass": "mmo.stargodres.StarGod52",
+      "characterId": 23,
+      "frame": 1,
+      "png": {
+        "width": 60,
+        "height": 60,
+        "bytes": 8745,
+        "sha256": "5cd5c2ddd637346075bbbaca57e22b235f9846bd9c75b0fb987d4ea9720429ca"
+      }
+    },
+    {
+      "id": 53,
+      "file": "53.png",
+      "url": "https://aoqi.100bt.com/play/stargodres/stargod53~2000.swf",
+      "version": "2000",
+      "versionSource": "loader-default",
+      "swfSha256": "e142dbd9de473dad73733a21bdb107579ab55b1a1f1356ef353a321d525d4bc5",
+      "swfBytes": 42624,
+      "spriteClass": "mmo.stargodres.StarGod53",
+      "characterId": 25,
+      "frame": 1,
+      "png": {
+        "width": 60,
+        "height": 60,
+        "bytes": 9952,
+        "sha256": "a71de540449f58804cc1910d9c47ef51507b1e88aa956ee4d45744f96029cf7b"
+      }
+    },
+    {
+      "id": 54,
+      "file": "54.png",
+      "url": "https://aoqi.100bt.com/play/stargodres/stargod54~2000.swf",
+      "version": "2000",
+      "versionSource": "loader-default",
+      "swfSha256": "69beb72fd58f818e55bd763f207415e0b6fd810e856af551ef503adb5293f051",
+      "swfBytes": 43045,
+      "spriteClass": "mmo.stargodres.StarGod54",
+      "characterId": 25,
+      "frame": 1,
+      "png": {
+        "width": 60,
+        "height": 60,
+        "bytes": 9552,
+        "sha256": "217d0e5bcc95b4e370869fccea35a2dc221d539c09a91547677a5c38052cc0e7"
+      }
+    },
+    {
+      "id": 55,
+      "file": "55.png",
+      "url": "https://aoqi.100bt.com/play/stargodres/stargod55~2000.swf",
+      "version": "2000",
+      "versionSource": "loader-default",
+      "swfSha256": "26789578bea0d3e6b01f8fa4285ad23dec15c0d84229ca2d013344061582e6d0",
+      "swfBytes": 44021,
+      "spriteClass": "mmo.stargodres.StarGod55",
+      "characterId": 26,
+      "frame": 1,
+      "png": {
+        "width": 60,
+        "height": 60,
+        "bytes": 9776,
+        "sha256": "acf4a71d9b8e9128ae14f7bd13c74f72b554164a4f45352158ea756f111bafec"
+      }
+    },
+    {
+      "id": 56,
+      "file": "56.png",
+      "url": "https://aoqi.100bt.com/play/stargodres/stargod56~2000.swf",
+      "version": "2000",
+      "versionSource": "loader-default",
+      "swfSha256": "2a01803b2fe6db5419785b65da9c42a16d90118aae2a6766b3d13a9c07493906",
+      "swfBytes": 47644,
+      "spriteClass": "mmo.stargodres.StarGod56",
+      "characterId": 25,
+      "frame": 1,
+      "png": {
+        "width": 60,
+        "height": 60,
+        "bytes": 8911,
+        "sha256": "535b28b606d4427af40444535bfc333edc9c13fb37e7d2451bb45370fd824f74"
+      }
+    },
+    {
+      "id": 57,
+      "file": "57.png",
+      "url": "https://aoqi.100bt.com/play/stargodres/stargod57~2000.swf",
+      "version": "2000",
+      "versionSource": "loader-default",
+      "swfSha256": "c2f5b347df18e80245293ae430fff5d34c527253b3bd440a3ed277ac9bb90271",
+      "swfBytes": 48334,
+      "spriteClass": "mmo.stargodres.StarGod57",
+      "characterId": 26,
+      "frame": 1,
+      "png": {
+        "width": 60,
+        "height": 60,
+        "bytes": 8650,
+        "sha256": "ef7d31eb8394a2dc165365d136e0120d55a8df261974e3e819351a88d4dd239f"
+      }
+    },
+    {
+      "id": 58,
+      "file": "58.png",
+      "url": "https://aoqi.100bt.com/play/stargodres/stargod58~2000.swf",
+      "version": "2000",
+      "versionSource": "loader-default",
+      "swfSha256": "915de0367e8710d6ac4f025a577f814297be0cb8194dc9720bf6286c93e0edf5",
+      "swfBytes": 41786,
+      "spriteClass": "mmo.stargodres.StarGod58",
+      "characterId": 23,
+      "frame": 1,
+      "png": {
+        "width": 64,
+        "height": 64,
+        "bytes": 10264,
+        "sha256": "71625521aa2ec268d24110849909c1dd21f3b61eb7795546bde2e195b7fb8fb0"
+      }
+    },
+    {
+      "id": 59,
+      "file": "59.png",
+      "url": "https://aoqi.100bt.com/play/stargodres/stargod59~2000.swf",
+      "version": "2000",
+      "versionSource": "loader-default",
+      "swfSha256": "d1280aa70d58bf7ee7220a4dd421e93a1a5d736cee7b331445bd4e8d920c39f6",
+      "swfBytes": 40786,
+      "spriteClass": "mmo.stargodres.StarGod59",
+      "characterId": 26,
+      "frame": 1,
+      "png": {
+        "width": 64,
+        "height": 64,
+        "bytes": 9660,
+        "sha256": "f9a344a5a80c14a6e8de202b1bb3f14eecc85bec5a7de823132875506e3d72b1"
+      }
+    },
+    {
+      "id": 60,
+      "file": "60.png",
+      "url": "https://aoqi.100bt.com/play/stargodres/stargod60~2000.swf",
+      "version": "2000",
+      "versionSource": "loader-default",
+      "swfSha256": "98548ceff2063e8a837bfddfd568946a3c6ee84feff146afb4778d747d5bf3bc",
+      "swfBytes": 43070,
+      "spriteClass": "mmo.stargodres.StarGod60",
+      "characterId": 28,
+      "frame": 1,
+      "png": {
+        "width": 80,
+        "height": 80,
+        "bytes": 9616,
+        "sha256": "452bcd825767fa97eaf3641789c7e880a81f18a175aad11f445c96ac99fb8b65"
+      }
+    },
+    {
+      "id": 61,
+      "file": "61.png",
+      "url": "https://aoqi.100bt.com/play/stargodres/stargod61~2017111793765577.swf",
+      "version": "2017111793765577",
+      "versionSource": "versiondata",
+      "swfSha256": "0828174969efb7b956cb852a6f29db0b279a030a23411992c9d822be38242b94",
+      "swfBytes": 49471,
+      "spriteClass": "mmo.stargodres.StarGod61",
+      "characterId": 26,
+      "frame": 1,
+      "png": {
+        "width": 60,
+        "height": 66,
+        "bytes": 8857,
+        "sha256": "8d101058c80eadae2b659d29521c09a5b32a89965e3a201090688f6863cd68df"
+      }
+    },
+    {
+      "id": 62,
+      "file": "62.png",
+      "url": "https://aoqi.100bt.com/play/stargodres/stargod62~2017111793765577.swf",
+      "version": "2017111793765577",
+      "versionSource": "versiondata",
+      "swfSha256": "c66d30b2772ed6c443857f44976445f2a649ea56ca48f30a6c27e61cc08c7418",
+      "swfBytes": 45462,
+      "spriteClass": "mmo.stargodres.StarGod62",
+      "characterId": 26,
+      "frame": 1,
+      "png": {
+        "width": 60,
+        "height": 66,
+        "bytes": 10354,
+        "sha256": "f43982f016e3807e52cd94290582d9127dec92f93519d326c2a4565055d40230"
+      }
+    },
+    {
+      "id": 63,
+      "file": "63.png",
+      "url": "https://aoqi.100bt.com/play/stargodres/stargod63~2017111793765577.swf",
+      "version": "2017111793765577",
+      "versionSource": "versiondata",
+      "swfSha256": "a1f036da3fccf9a9964153dd8d4443f55dbefad77be6feda570638f721c24e2c",
+      "swfBytes": 50868,
+      "spriteClass": "mmo.stargodres.StarGod63",
+      "characterId": 28,
+      "frame": 1,
+      "png": {
+        "width": 60,
+        "height": 66,
+        "bytes": 8635,
+        "sha256": "5d22c64dc6b0269ec2c0020bcfdc58eba8a932e4b60fa5e9a6495b553fe14409"
+      }
+    },
+    {
+      "id": 64,
+      "file": "64.png",
+      "url": "https://aoqi.100bt.com/play/stargodres/stargod64~2017111793765577.swf",
+      "version": "2017111793765577",
+      "versionSource": "versiondata",
+      "swfSha256": "d2e8c7ffe642c431024d8c4a75859576de133d7143b046b6cb64ddd2feea5feb",
+      "swfBytes": 46701,
+      "spriteClass": "mmo.stargodres.StarGod64",
+      "characterId": 28,
+      "frame": 1,
+      "png": {
+        "width": 60,
+        "height": 66,
+        "bytes": 10419,
+        "sha256": "19fe899aac49171c96c3a2ca40b0300371932f4697a45d39cde91ccba8187f26"
+      }
+    },
+    {
+      "id": 65,
+      "file": "65.png",
+      "url": "https://aoqi.100bt.com/play/stargodres/stargod65~2018090750547863.swf",
+      "version": "2018090750547863",
+      "versionSource": "versiondata",
+      "swfSha256": "8cfbe46dd1f618055edc65093c49c3eaf4f5a052d5932547c7dc30a3bbaacd58",
+      "swfBytes": 46438,
+      "spriteClass": "mmo.stargodres.StarGod65",
+      "characterId": 30,
+      "frame": 1,
+      "png": {
+        "width": 60,
+        "height": 66,
+        "bytes": 10483,
+        "sha256": "322f9b69b818b8ba8da7cb38c2db394ce5d81bac360942f5c33c5b790994c636"
+      }
+    },
+    {
+      "id": 66,
+      "file": "66.png",
+      "url": "https://aoqi.100bt.com/play/stargodres/stargod66~2018081718365482.swf",
+      "version": "2018081718365482",
+      "versionSource": "versiondata",
+      "swfSha256": "131353aafd02278a51c2669e92d1530f6b50c5e329dd6ba98e9ae61966e26f35",
+      "swfBytes": 41728,
+      "spriteClass": "mmo.stargodres.StarGod66",
+      "characterId": 27,
+      "frame": 1,
+      "png": {
+        "width": 60,
+        "height": 60,
+        "bytes": 7008,
+        "sha256": "7fe0a8c8cbc257da200c644edba3b28f4dd360da122f1c8f69c1eebfd85afe39"
+      }
+    },
+    {
+      "id": 67,
+      "file": "67.png",
+      "url": "https://aoqi.100bt.com/play/stargodres/stargod67~2018081718365482.swf",
+      "version": "2018081718365482",
+      "versionSource": "versiondata",
+      "swfSha256": "c8537db401b92bbb602d6094e1d8d8656bb8cd1e180d17310dcf8043d5889445",
+      "swfBytes": 46865,
+      "spriteClass": "mmo.stargodres.StarGod67",
+      "characterId": 27,
+      "frame": 1,
+      "png": {
+        "width": 60,
+        "height": 60,
+        "bytes": 9383,
+        "sha256": "9683ae8152aaf039c9ac413b0a1f3e1b92b91a5d81e6df1ac3d47e04e11eac16"
+      }
+    },
+    {
+      "id": 68,
+      "file": "68.png",
+      "url": "https://aoqi.100bt.com/play/stargodres/stargod68~2018081718365482.swf",
+      "version": "2018081718365482",
+      "versionSource": "versiondata",
+      "swfSha256": "c9e224e41052c21c4e4fc27b06c26aae8e5afb10acca1e2294e22afea66b5743",
+      "swfBytes": 40961,
+      "spriteClass": "mmo.stargodres.StarGod68",
+      "characterId": 27,
+      "frame": 1,
+      "png": {
+        "width": 60,
+        "height": 60,
+        "bytes": 9986,
+        "sha256": "7bee9d79d61a847d061f6f166b86fbb182c732ecf38594454e3cdf4144bf5035"
+      }
+    },
+    {
+      "id": 69,
+      "file": "69.png",
+      "url": "https://aoqi.100bt.com/play/stargodres/stargod69~2000.swf",
+      "version": "2000",
+      "versionSource": "loader-default",
+      "swfSha256": "f98f770bf3081ecaeb6f98d4a0a7c9885de8f2404bc508ad3246e5a52cda8958",
+      "swfBytes": 43136,
+      "spriteClass": "mmo.stargodres.StarGod69",
+      "characterId": 23,
+      "frame": 1,
+      "png": {
+        "width": 60,
+        "height": 60,
+        "bytes": 10508,
+        "sha256": "6ed9fd14eed227daa21595067e72717763de55643b25a143857b57d0c11e6ed9"
+      }
+    },
+    {
+      "id": 70,
+      "file": "70.png",
+      "url": "https://aoqi.100bt.com/play/stargodres/stargod70~2000.swf",
+      "version": "2000",
+      "versionSource": "loader-default",
+      "swfSha256": "702b0bb57d2bee61eb674fa1b171af9bad27839347e5c45744026e45dae46445",
+      "swfBytes": 43127,
+      "spriteClass": "mmo.stargodres.StarGod70",
+      "characterId": 26,
+      "frame": 1,
+      "png": {
+        "width": 60,
+        "height": 60,
+        "bytes": 9737,
+        "sha256": "17dc0f6519f5017f936f90b19c73365abfb69eeed4c41e6c3f9d6623678cb5a6"
+      }
+    },
+    {
+      "id": 71,
+      "file": "71.png",
+      "url": "https://aoqi.100bt.com/play/stargodres/stargod71~2000.swf",
+      "version": "2000",
+      "versionSource": "loader-default",
+      "swfSha256": "32117ac20af1afb856003dd271a64682e19fa687245a747effe5ef9ab7c885c8",
+      "swfBytes": 50768,
+      "spriteClass": "mmo.stargodres.StarGod71",
+      "characterId": 31,
+      "frame": 1,
+      "png": {
+        "width": 60,
+        "height": 66,
+        "bytes": 9283,
+        "sha256": "4fa047528410d7ba7fd3ab501abd62922b9dc2d347a51660b41983a57c51f501"
+      }
+    },
+    {
+      "id": 72,
+      "file": "72.png",
+      "url": "https://aoqi.100bt.com/play/stargodres/stargod72~2000.swf",
+      "version": "2000",
+      "versionSource": "loader-default",
+      "swfSha256": "bff88e4f72afe441e5d7c5199d80ef92243e36a8dfbf76cbfdac88a61ccf7579",
+      "swfBytes": 47125,
+      "spriteClass": "mmo.stargodres.StarGod72",
+      "characterId": 27,
+      "frame": 1,
+      "png": {
+        "width": 60,
+        "height": 60,
+        "bytes": 10030,
+        "sha256": "e6d012ecfd300f3754f28857739183d1526263032a7a0f212c12245885f5657e"
+      }
+    },
+    {
+      "id": 73,
+      "file": "73.png",
+      "url": "https://aoqi.100bt.com/play/stargodres/stargod73~2020103015814960.swf",
+      "version": "2020103015814960",
+      "versionSource": "versiondata",
+      "swfSha256": "c94f24a95be2c0d952f164b714e75a82956cb6fe97b9a0b80e09a04e662ee027",
+      "swfBytes": 119606,
+      "spriteClass": "mmo.stargodres.StarGod73",
+      "characterId": 35,
+      "frame": 1,
+      "png": {
+        "width": 76,
+        "height": 76,
+        "bytes": 10196,
+        "sha256": "911e029a1d6cfecfeb246f249fa5b2e68b55fabc4b96dca8b7b4ff3e0e075a28"
+      }
+    },
+    {
+      "id": 74,
+      "file": "74.png",
+      "url": "https://aoqi.100bt.com/play/stargodres/stargod74~2000.swf",
+      "version": "2000",
+      "versionSource": "loader-default",
+      "swfSha256": "5b463a16df5004ce6da96f51fb8edaf50be31333051fd3a40ec19146d97138fb",
+      "swfBytes": 44033,
+      "spriteClass": "mmo.stargodres.StarGod74",
+      "characterId": 27,
+      "frame": 1,
+      "png": {
+        "width": 60,
+        "height": 60,
+        "bytes": 9110,
+        "sha256": "52db73b70fa21c3450ddb91f380d446afa11fb5e1809ed43aaef9c0edd62fc26"
+      }
+    },
+    {
+      "id": 75,
+      "file": "75.png",
+      "url": "https://aoqi.100bt.com/play/stargodres/stargod75~2000.swf",
+      "version": "2000",
+      "versionSource": "loader-default",
+      "swfSha256": "39f894c89521e61b6abf726ca12d93d70c34499e23dc8ef99687cce422bcad10",
+      "swfBytes": 41503,
+      "spriteClass": "mmo.stargodres.StarGod75",
+      "characterId": 27,
+      "frame": 1,
+      "png": {
+        "width": 60,
+        "height": 60,
+        "bytes": 8637,
+        "sha256": "a3e6af121f55d36a29149916b1218dd29e83cf06e29d4dfce02793114f4bb48a"
+      }
+    },
+    {
+      "id": 76,
+      "file": "76.png",
+      "url": "https://aoqi.100bt.com/play/stargodres/stargod76~2000.swf",
+      "version": "2000",
+      "versionSource": "loader-default",
+      "swfSha256": "0f101057308114b3674762f187fde4a59d119b1aaf1480623cea8ceae116483d",
+      "swfBytes": 43337,
+      "spriteClass": "mmo.stargodres.StarGod76",
+      "characterId": 34,
+      "frame": 1,
+      "png": {
+        "width": 60,
+        "height": 60,
+        "bytes": 8791,
+        "sha256": "ecbe0eeffa28ece668667b0693e6d089aa3330d8a8adccc35b80df2aa5f7ac31"
+      }
+    },
+    {
+      "id": 77,
+      "file": "77.png",
+      "url": "https://aoqi.100bt.com/play/stargodres/stargod77~2000.swf",
+      "version": "2000",
+      "versionSource": "loader-default",
+      "swfSha256": "b9d6fa1f21ffaab8eff795382c6b01a6f4e25091f281fae224ca658f42ccb3c9",
+      "swfBytes": 43339,
+      "spriteClass": "mmo.stargodres.StarGod77",
+      "characterId": 34,
+      "frame": 1,
+      "png": {
+        "width": 60,
+        "height": 60,
+        "bytes": 7488,
+        "sha256": "1c94a4a12ceca4b5c1e9c302d74a8aa3c445be9f55588c989cf73089138e2eb4"
+      }
+    },
+    {
+      "id": 78,
+      "file": "78.png",
+      "url": "https://aoqi.100bt.com/play/stargodres/stargod78~2000.swf",
+      "version": "2000",
+      "versionSource": "loader-default",
+      "swfSha256": "195580fdfc6e86e0262eeca432a6fdb6af00d3004641920f974a2e3714b2ba32",
+      "swfBytes": 47298,
+      "spriteClass": "mmo.stargodres.StarGod78",
+      "characterId": 27,
+      "frame": 1,
+      "png": {
+        "width": 60,
+        "height": 60,
+        "bytes": 10095,
+        "sha256": "9befe5c75aaf53f48df19f8b8b44ee6ec6395f56e5b4e7045bfa4a571ac35f96"
+      }
+    },
+    {
+      "id": 79,
+      "file": "79.png",
+      "url": "https://aoqi.100bt.com/play/stargodres/stargod79~2020103015814960.swf",
+      "version": "2020103015814960",
+      "versionSource": "versiondata",
+      "swfSha256": "e9d5a2070df26b94121191e6b3e67ced05f984d6e382a12ceba3dbbfd467efc9",
+      "swfBytes": 295709,
+      "spriteClass": "mmo.stargodres.StarGod79",
+      "characterId": 27,
+      "frame": 1,
+      "png": {
+        "width": 134,
+        "height": 126,
+        "bytes": 5422,
+        "sha256": "697ee616a542ebe6e5b60340608a126f8694cca9e0dfc77b2d2462bac57e6db0"
+      }
+    },
+    {
+      "id": 80,
+      "file": "80.png",
+      "url": "https://aoqi.100bt.com/play/stargodres/stargod80~2025052264669967.swf",
+      "version": "2025052264669967",
+      "versionSource": "versiondata",
+      "swfSha256": "1846d0ca31100e3e5f027d9526d3763591f060307cb3e4e2fa1d0a46e7e5f12b",
+      "swfBytes": 101941,
+      "spriteClass": "mmo.stargodres.StarGod80",
+      "characterId": 18,
+      "frame": 1,
+      "png": {
+        "width": 134,
+        "height": 125,
+        "bytes": 11492,
+        "sha256": "729f42752ef0b0f7d68877887448c091ba85e71f678d77bcb209cfafda69bad4"
+      }
+    },
+    {
+      "id": 81,
+      "file": "81.png",
+      "url": "https://aoqi.100bt.com/play/stargodres/stargod81~2025052264669967.swf",
+      "version": "2025052264669967",
+      "versionSource": "versiondata",
+      "swfSha256": "e20508cc5efec5fe41d77eabf5af6d14acf6c23b8bd82c484405148e7707b9f9",
+      "swfBytes": 293128,
+      "spriteClass": "mmo.stargodres.StarGod81",
+      "characterId": 44,
+      "frame": 1,
+      "png": {
+        "width": 136,
+        "height": 119,
+        "bytes": 9328,
+        "sha256": "ef8a63e97c2d5e4e5d8eca44a828f29050c3ea210bd1ffc2a8a4d3ee374c444d"
+      }
+    },
+    {
+      "id": 83,
+      "file": "83.png",
+      "url": "https://aoqi.100bt.com/play/stargodres/stargod83~2021101526878377.swf",
+      "version": "2021101526878377",
+      "versionSource": "versiondata",
+      "swfSha256": "522f327ee92d2080fb13a57d0beb255d2fe0db6470d5ea041542b29fb19480ba",
+      "swfBytes": 48054,
+      "spriteClass": "mmo.stargodres.StarGod83",
+      "characterId": 23,
+      "frame": 1,
+      "png": {
+        "width": 70,
+        "height": 71,
+        "bytes": 10477,
+        "sha256": "b02dfcf2fbe2293abe9aa1b21e08c682bca574081eef3e9303d58d7ec587b24c"
+      }
+    },
+    {
+      "id": 84,
+      "file": "84.png",
+      "url": "https://aoqi.100bt.com/play/stargodres/stargod84~2025052264669967.swf",
+      "version": "2025052264669967",
+      "versionSource": "versiondata",
+      "swfSha256": "fe72542c8bd9c65893072f60e40fb1378d30eb4985e96d11c83b0afb83db850b",
+      "swfBytes": 292959,
+      "spriteClass": "mmo.stargodres.StarGod84",
+      "characterId": 43,
+      "frame": 1,
+      "png": {
+        "width": 133,
+        "height": 115,
+        "bytes": 9306,
+        "sha256": "4404b39fdc6411ab2907789c9f5a6f163d79890bc92573b0ceb95d8b9f4eb083"
+      }
+    },
+    {
+      "id": 85,
+      "file": "85.png",
+      "url": "https://aoqi.100bt.com/play/stargodres/stargod85~2000.swf",
+      "version": "2000",
+      "versionSource": "loader-default",
+      "swfSha256": "1113d4b15b5697396771f60f571b547e019abe6cad552d6b56c617a13e388e3b",
+      "swfBytes": 292186,
+      "spriteClass": "mmo.stargodres.StarGod85",
+      "characterId": 37,
+      "frame": 1,
+      "png": {
+        "width": 90,
+        "height": 91,
+        "bytes": 9536,
+        "sha256": "904dd5bce570ea62413477ab55b7ef0e202fdbf2ba3f5e23d7a81136067fe52d"
+      }
+    },
+    {
+      "id": 86,
+      "file": "86.png",
+      "url": "https://aoqi.100bt.com/play/stargodres/stargod86~2025052264669967.swf",
+      "version": "2025052264669967",
+      "versionSource": "versiondata",
+      "swfSha256": "3aa0544c670367b5f9b57c880f778ed81488688d8580ab05c1469882bd56f553",
+      "swfBytes": 200210,
+      "spriteClass": "mmo.stargodres.StarGod86",
+      "characterId": 40,
+      "frame": 1,
+      "png": {
+        "width": 110,
+        "height": 111,
+        "bytes": 9890,
+        "sha256": "86da5d1f572c5a62770dc3a1c8c9f4f5d7a002c295c569a91168f847df8755ef"
+      }
+    },
+    {
+      "id": 87,
+      "file": "87.png",
+      "url": "https://aoqi.100bt.com/play/stargodres/stargod87~2000.swf",
+      "version": "2000",
+      "versionSource": "loader-default",
+      "swfSha256": "e22b07df1fea7525d6bb6e5a5da5736f75d8a52338cd6920edfb538c7faedd8a",
+      "swfBytes": 46760,
+      "spriteClass": "mmo.stargodres.StarGod87",
+      "characterId": 23,
+      "frame": 1,
+      "png": {
+        "width": 60,
+        "height": 60,
+        "bytes": 9916,
+        "sha256": "aa92d7bbd36dfd530e2d01f24b4c06ae3b68c28a3319b5bb4704d9f42e4bfa3b"
+      }
+    },
+    {
+      "id": 88,
+      "file": "88.png",
+      "url": "https://aoqi.100bt.com/play/stargodres/stargod88~2000.swf",
+      "version": "2000",
+      "versionSource": "loader-default",
+      "swfSha256": "bbfe4d7cdb50921a43093b14d29ef298f8546c21cb69e27abedd3f2a0c454999",
+      "swfBytes": 46028,
+      "spriteClass": "mmo.stargodres.StarGod88",
+      "characterId": 23,
+      "frame": 1,
+      "png": {
+        "width": 60,
+        "height": 60,
+        "bytes": 10227,
+        "sha256": "5b1ac5002162053251f34bf4fa312aa0f799a52ebbd12d58e558c8ee2e899bdc"
+      }
+    },
+    {
+      "id": 89,
+      "file": "89.png",
+      "url": "https://aoqi.100bt.com/play/stargodres/stargod89~2000.swf",
+      "version": "2000",
+      "versionSource": "loader-default",
+      "swfSha256": "7fed686b86f3117b43ceace46bbcb94335649fcbe58a508e9eb3a3f42553b2fa",
+      "swfBytes": 46009,
+      "spriteClass": "mmo.stargodres.StarGod89",
+      "characterId": 23,
+      "frame": 1,
+      "png": {
+        "width": 60,
+        "height": 60,
+        "bytes": 9601,
+        "sha256": "87ef791813b53592bae248a8848cd448ffc55531a43e83ef18dbb98c6dc3258b"
+      }
+    },
+    {
+      "id": 90,
+      "file": "90.png",
+      "url": "https://aoqi.100bt.com/play/stargodres/stargod90~2000.swf",
+      "version": "2000",
+      "versionSource": "loader-default",
+      "swfSha256": "7f86b53b5239035115c1c57e9da5b857d7e2ef8032da48066f19ec50e7b59c9f",
+      "swfBytes": 67735,
+      "spriteClass": "mmo.stargodres.StarGod90",
+      "characterId": 49,
+      "frame": 1,
+      "png": {
+        "width": 60,
+        "height": 60,
+        "bytes": 8268,
+        "sha256": "81bb998a7d2449bd258c3bccfb1a44d50d1e755c3fb2cbbc19eb137a82092ae4"
+      }
+    },
+    {
+      "id": 91,
+      "file": "91.png",
+      "url": "https://aoqi.100bt.com/play/stargodres/stargod91~2000.swf",
+      "version": "2000",
+      "versionSource": "loader-default",
+      "swfSha256": "ffbc2926d3614a0c96196b049b4c368cf1b3f022ac5f1ca4a4796cd55acfe042",
+      "swfBytes": 292439,
+      "spriteClass": "mmo.stargodres.StarGod91",
+      "characterId": 40,
+      "frame": 1,
+      "png": {
+        "width": 93,
+        "height": 93,
+        "bytes": 8571,
+        "sha256": "3daedc00a392c208e8549ed280322e06147dbca6ed5a2b05709c4292b2a306e3"
+      }
+    },
+    {
+      "id": 92,
+      "file": "92.png",
+      "url": "https://aoqi.100bt.com/play/stargodres/stargod92~2000.swf",
+      "version": "2000",
+      "versionSource": "loader-default",
+      "swfSha256": "31da3d40e76802e7758dfd897e6179c305599d4cdac265f901f3b8c02999e9fd",
+      "swfBytes": 292974,
+      "spriteClass": "mmo.stargodres.StarGod92",
+      "characterId": 43,
+      "frame": 1,
+      "png": {
+        "width": 113,
+        "height": 113,
+        "bytes": 8646,
+        "sha256": "de9d018e232922bab10957aa829859980d5e7c359b6aab06beabe17a673178f6"
+      }
+    }
+  ],
+  "loaderDefault": {
+    "file": "VersManager.as",
+    "sha256": "7a6fd5beceab3fb8eec99348146bb72402f9d36b6123679f5c04ea8a31c5a1f1",
+    "class": "mmo.loader.scheduler.VersManager",
+    "method": "getVersion",
+    "defaultVersion": "2000",
+    "rule": "Unlisted SWF resource uses ~DEFAULT_VERSION suffix"
+  }
+}

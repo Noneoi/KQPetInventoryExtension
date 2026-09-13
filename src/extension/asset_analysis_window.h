@@ -1,6 +1,7 @@
 #pragma once
 
-#include "asset_analysis_controller.h"
+#include "analysis_read_view.h"
+#include "../contracts/local_stargod_statistics.h"
 
 #include <QDialog>
 
@@ -22,17 +23,24 @@ class AssetAnalysisWindow final : public QDialog {
   Q_OBJECT
 
 public:
-  explicit AssetAnalysisWindow(AssetAnalysisController* controller,
+  explicit AssetAnalysisWindow(AnalysisReadView* controller,
                                QWidget* parent = nullptr);
+
+public slots:
+  void resetSessionContext();
+  void setLocalStargodStatistics(const LocalStargodStatistics& result);
 
 signals:
   void petRequested(qint64 instanceId);
   void shopRequested();
   void shopGoodRequested(const QString& stableKey);
   void routineRequested();
+  void localStargodStatisticsRequested();
+  void localStargodStatisticsCancelled();
 
 private slots:
   void refreshAnalysis();
+  void applyAnalysis();
   void refreshInventory();
   void markInventoryMembershipChanged();
   void markPetDetailChanged(qint64 instanceId);
@@ -48,6 +56,9 @@ private slots:
   void activatePetIndex(const QModelIndex& index);
   void selectPetIndex(const QModelIndex& index);
   void showInstanceHistory();
+  void rebuildInstanceHistory();
+  void refreshHistoryState();
+  void loadRecentComparison();
 
 private:
   void rebuildOverview();
@@ -59,12 +70,13 @@ private:
   void updateDiagnosticSummary();
   void rebuildRecommendations();
 
-  AssetAnalysisController* controller_ = nullptr;
+  AnalysisReadView* controller_ = nullptr;
   AccountInventorySummary inventory_;
   AccountAssetOverview overview_;
   AccountAssetOverview routineSummary_;
   QList<AccountAssetSnapshot> snapshots_;
   bool analysisReady_ = false;
+  bool sessionResetPending_ = false;
   bool analysisStatusUpdatePending_ = false;
   QTabWidget* tabs_ = nullptr;
   QTabWidget* recommendationTabs_ = nullptr;
@@ -73,6 +85,10 @@ private:
   QLabel* analysisStatus_ = nullptr;
   QLabel* status_ = nullptr;
   QPushButton* refreshAnalysis_ = nullptr;
+  QPushButton* cancelAnalysis_ = nullptr;
+  QPushButton* localStargodStatistics_ = nullptr;
+  QPushButton* cancelLocalStargodStatistics_ = nullptr;
+  QLabel* localStargodSummary_ = nullptr;
   QTableWidget* overviewTable_ = nullptr;
   QComboBox* filter_ = nullptr;
   QLineEdit* search_ = nullptr;
@@ -88,6 +104,10 @@ private:
   RecommendationModel* nearFullRecommendationModel_ = nullptr;
   QCheckBox* autoSnapshot_ = nullptr;
   QPushButton* recordSnapshot_ = nullptr;
+  QPushButton* olderHistory_ = nullptr;
+  QPushButton* compareHistory_ = nullptr;
+  QLabel* historyState_ = nullptr;
+  QLabel* instanceHistoryState_ = nullptr;
   QLabel* changeSummary_ = nullptr;
   QTableView* snapshotTable_ = nullptr;
   SnapshotHistoryModel* snapshotModel_ = nullptr;

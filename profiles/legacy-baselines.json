@@ -1,0 +1,18 @@
+{
+  "schema": 1,
+  "baselines": [
+    {
+      "id": "v1.4.1-v114-20260909",
+      "version": "1.4.1",
+      "evidence": "docs/v2.0-implementation-log.md",
+      "launcher": {
+        "size": 51712,
+        "sha256": "dfbdf1e160ef1f5d7cd3be8e98feb0c3aca53fbc39ec44d59cc2a5bbc42599b3"
+      },
+      "extension": {
+        "size": 1618432,
+        "sha256": "e641e13d0f395a77d692e07a70832c62322b1ac95fd6d27f4c995037191d98fa"
+      }
+    }
+  ]
+}

@@ -1,161 +1,50 @@
 #include "pet_detail_renderer.h"
 
+
 #include <QHash>
-#include <QSet>
+#include <QJsonArray>
+
 #include <QUrl>
+
 
 namespace {
 
+QString powerNumber(bool known, int value) {
+  return known ? QString::number(value) : QStringLiteral("—");
+}
+
 QString battlePowerAnalysisHtml(const PetDetailViewModel& model) {
-  const PetBattlePowerState& state = model.battlePower;
-  if (!state.hasCurrent || !state.hasExtreme) {
-    return PetDetailRenderer::section(
-        QStringLiteral("战斗力分析"),
-        PetDetailRenderer::row(
-            QStringLiteral("状态"),
-            QStringLiteral("当前数据没有战斗力分项；仓库精灵请点击该行或使用“刷新仓库详情”。")));
+  const auto& state = model.battlePower;
+  QString rows = PetDetailRenderer::row(QStringLiteral("官方返回当前"), powerNumber(state.hasServerCurrent, state.serverCurrent));
+  rows += PetDetailRenderer::row(QStringLiteral("官方极限"), powerNumber(state.hasExtreme, state.extreme));
+  rows += PetDetailRenderer::row(QStringLiteral("已装备本地战力"), powerNumber(state.equippedCurrentKnown, state.equippedCurrent));
+  rows += PetDetailRenderer::row(QStringLiteral("本地持有可达"),
+      powerNumber(state.hasCurrent && state.currentLocallyCalculated, state.current) +
+      QStringLiteral("<br><span class='muted'>按实际槽位等级，计入本精灵已持有且可合法搭配的星神，包含背包中未装备的红星。</span>"));
+  rows += PetDetailRenderer::row(QStringLiteral("至高战斗力"), powerNumber(state.hasHighest, state.highest));
+  rows += PetDetailRenderer::row(QStringLiteral("距至高尚缺"), powerNumber(state.highestGapKnown, state.highestGap));
+  const bool sacredKnown = !model.sacred.equipped || (model.sacred.maxStar > 0 && model.sacred.maxStage > 0);
+  const bool sacredFull = !model.sacred.equipped || (model.sacred.fullStar && model.sacred.fullStage);
+  rows += PetDetailRenderer::row(QStringLiteral("培养状态"), state.completionKnown && sacredKnown
+      ? (state.isHighest && sacredFull ? QStringLiteral("已具备至高培养条件") : QStringLiteral("仍有可提升项目"))
+      : QStringLiteral("数据未齐，暂不能判定升无可升"));
+  for (const auto& component : state.components) {
+    QString text = component.applicable
+        ? QStringLiteral("当前 %1 / 官方极限分项 %2 / 至高分项 %3 / 尚缺 %4")
+              .arg(powerNumber(component.currentKnown, component.current), powerNumber(component.extremeKnown, component.extreme),
+                   powerNumber(component.highestKnown, component.highest), powerNumber(component.gapKnown, component.gap))
+        : QStringLiteral("不适用");
+    if (!component.explanation.isEmpty()) text += QStringLiteral("<br><span class='muted'>%1</span>").arg(PetDetailRenderer::text(component.explanation));
+    rows += PetDetailRenderer::row(component.label, text);
   }
-
-  QHash<QString, PetBattlePowerGap> gaps;
-  for (const PetBattlePowerGap& component : state.componentGaps)
-    gaps.insert(component.key, component);
-
-  QStringList missing;
-  QSet<QString> seenMissing;
-  auto appendMissing = [&](const QString& value) {
-    if (value.isEmpty() || seenMissing.contains(value)) return;
-    seenMissing.insert(value);
-    missing.append(PetDetailRenderer::text(value));
-  };
-
-  if (state.stargodSlotsKnown) {
-    if (state.missingStars > 0)
-      appendMissing(QStringLiteral("星神数量差 %1 个").arg(state.missingStars));
-    const int goldOrRedStars = state.goldStars + state.redStars;
-    const int missingGoldStars = qMax(0, state.stargodSlots - goldOrRedStars);
-    if (missingGoldStars > 0)
-      appendMissing(QStringLiteral("金色及以上星神差 %1 个").arg(missingGoldStars));
-    if (state.hasChangeableSlot && state.changeableQuality < 5)
-      appendMissing(QStringLiteral("万变星神未达到金色品质"));
-  }
-  if (!state.stargodLevelsFull && state.stargodLevelMissingSlots > 0) {
-    appendMissing(QStringLiteral("星神等级还有 %1 个栏位未满")
-                      .arg(state.stargodLevelMissingSlots));
-  }
-
-  static const QSet<QString> semanticComponents = {
-      QStringLiteral("bsv"), QStringLiteral("asv"), QStringLiteral("sjv")};
-  for (const PetBattlePowerGap& component : state.componentGaps) {
-    if (semanticComponents.contains(component.key)) continue;
-    appendMissing(QStringLiteral("%1差 %2 战力").arg(component.label).arg(component.gap));
-  }
-
-  if (gaps.contains(QStringLiteral("bsv"))) {
-    if (model.badges.isEmpty()) appendMissing(QStringLiteral("元魂未装备"));
-    QStringList exclusiveBadges;
-    for (const PetBadgeSlot& badge : model.badges) {
-      if (!badge.exclusiveName.isEmpty() && !badge.exclusiveAwakened)
-        exclusiveBadges.append(badge.exclusiveName);
-    }
-    exclusiveBadges.removeDuplicates();
-    if (!exclusiveBadges.isEmpty()) {
-      appendMissing(QStringLiteral("专属元魂未觉醒：%1")
-                        .arg(exclusiveBadges.join(QStringLiteral("、"))));
-    }
-    appendMissing(QStringLiteral("元魂差 %1 战力")
-                      .arg(gaps.value(QStringLiteral("bsv")).gap));
-  }
-
-  bool sacredGapDescribed = false;
-  if (model.sacred.equipped) {
-    if (model.sacred.maxStar > 0 && model.sacred.star < model.sacred.maxStar) {
-      appendMissing(QStringLiteral("神源兽星级差 %1 星")
-                        .arg(model.sacred.maxStar - model.sacred.star));
-      sacredGapDescribed = true;
-    }
-    if (model.sacred.maxStage > 0 && model.sacred.stage < model.sacred.maxStage) {
-      appendMissing(QStringLiteral("神源兽阶级差 %1 阶")
-                        .arg(model.sacred.maxStage - model.sacred.stage));
-      sacredGapDescribed = true;
-    }
-  } else if (gaps.contains(QStringLiteral("sjv"))) {
-    appendMissing(QStringLiteral("神源兽未装备"));
-    sacredGapDescribed = true;
-  }
-  if (gaps.contains(QStringLiteral("sjv")) && !sacredGapDescribed) {
-    appendMissing(QStringLiteral("神源兽差 %1 战力")
-                      .arg(gaps.value(QStringLiteral("sjv")).gap));
-  }
-
-  int ordinaryAstrolabeUnlit = 0;
-  QStringList exclusiveAstrolabeUnlit;
-  for (const PetAstrolabeStar& star : model.astrolabe.stars) {
-    if (star.activated) continue;
-    if (star.exclusive)
-      exclusiveAstrolabeUnlit.append(star.name);
-    else
-      ++ordinaryAstrolabeUnlit;
-  }
-  if (ordinaryAstrolabeUnlit > 0) {
-    appendMissing(QStringLiteral("天迹星轮还有 %1 个未点亮")
-                      .arg(ordinaryAstrolabeUnlit));
-  }
-  exclusiveAstrolabeUnlit.removeDuplicates();
-  if (!exclusiveAstrolabeUnlit.isEmpty()) {
-    appendMissing(QStringLiteral("专属星轮未点亮：%1")
-                      .arg(exclusiveAstrolabeUnlit.join(QStringLiteral("、"))));
-  }
-  if (gaps.contains(QStringLiteral("asv")) && model.astrolabe.stars.isEmpty()) {
-    appendMissing(QStringLiteral("天迹星轮差 %1 战力")
-                      .arg(gaps.value(QStringLiteral("asv")).gap));
-  }
-
-  QString extremeAnalysis;
-  if (missing.isEmpty()) {
-    extremeAnalysis = QStringLiteral("<span class='ok'>已达到普通极限。</span>");
-  } else {
-    extremeAnalysis = QStringLiteral("<div class='warning'><b>未满：</b></div>"
-                                     "<div>• %1</div>")
-                          .arg(missing.join(QStringLiteral("</div><div>• ")));
-  }
-  if (state.currentLocallyCalculated && state.current < state.extreme) {
-    extremeAnalysis += QStringLiteral(" 距离普通极限 <b>%1</b>。")
-                           .arg(state.extreme - state.current);
-  }
-
-  QString highestAnalysis =
-      QStringLiteral("<div>当前精灵装备及背包的红色星神为 <b>%1</b>，"
-                     "距离满红色星神差 <b>%2</b>。</div>")
-          .arg(state.redStars)
-          .arg(state.missingRedStars);
-  if (!state.stargodSlotsKnown) {
-    highestAnalysis = QStringLiteral("<div class='warning'>星神栏位待确认。</div>");
-  }
-  if (state.hasChangeableSlot && !state.changeableRed)
-    highestAnalysis += QStringLiteral("<div class='warning'>不是红色万变。</div>");
-  if (!state.breakthrough)
-    highestAnalysis += QStringLiteral("<div class='warning'>天迹星轮未突破。</div>");
-  if (!state.hasHighest) {
-    highestAnalysis += QStringLiteral("<div class='warning'>最高战力待确认。</div>");
-  } else {
-    highestAnalysis += state.isHighest
-                           ? QStringLiteral("<div class='highest'>已达到最高战斗力。</div>")
-                           : QStringLiteral("<div class='warning'>距离最高战斗力差 <b>%1</b>。</div>")
-                                 .arg(state.highestGap);
-  }
-
-  QString rows = PetDetailRenderer::row(
-      QStringLiteral("战力基准"),
-      QStringLiteral("当前（服务器显示）<b>%1</b>　实际（星神重算后）<b>%2</b>　"
-                     "普通极限 <b>%3</b>　最高 <b>%4</b>")
-          .arg(state.serverCurrent)
-          .arg(state.currentLocallyCalculated ? QString::number(state.current)
-                                              : QStringLiteral("待确认"))
-          .arg(state.extreme)
-          .arg(state.hasHighest ? QString::number(state.highest)
-                                : QStringLiteral("待确认")));
-  rows += PetDetailRenderer::row(QStringLiteral("普通极限差距"), extremeAnalysis);
-  rows += PetDetailRenderer::row(QStringLiteral("最高战力差距"), highestAnalysis);
+  rows += PetDetailRenderer::row(QStringLiteral("已有星神调整可提升"), powerNumber(state.stargodPowerKnown, state.adjustmentGain));
+  rows += PetDetailRenderer::row(QStringLiteral("已有星神升满可提升"),
+      powerNumber(state.ownedMaxStargodPowerKnown && state.stargodPowerKnown, state.stargodUpgradeGap));
+  rows += PetDetailRenderer::row(QStringLiteral("需获取星神的战力缺口"), powerNumber(state.stargodAcquisitionKnown, state.stargodAcquisitionGap));
+  if (state.breakthroughApplicable && state.astrolabeApplicabilityKnown && state.astrolabeApplicable && state.breakthroughKnown && !state.breakthrough)
+    rows += PetDetailRenderer::row(QStringLiteral("星轮培养"), QStringLiteral("尚未突破"));
+  if (!state.unknownReasons.isEmpty())
+    rows += PetDetailRenderer::row(QStringLiteral("尚缺分析数据"), PetDetailRenderer::text(state.unknownReasons.join(QLatin1Char('\n'))));
   return PetDetailRenderer::section(QStringLiteral("战斗力分析"), rows);
 }
 
@@ -263,7 +152,9 @@ QString sacredHtml(const PetSacredState& sacred) {
   return PetDetailRenderer::section(QStringLiteral("神源兽"), rows);
 }
 
-QString astrolabeHtml(const PetAstrolabeState& astrolabe) {
+QString astrolabeHtml(const PetAstrolabeState& astrolabe, const PetBattlePowerState& power) {
+  if (power.astrolabeApplicabilityKnown && !power.astrolabeApplicable)
+    return PetDetailRenderer::section(QStringLiteral("天迹星轮"), PetDetailRenderer::row(QStringLiteral("状态"), QStringLiteral("不适用")));
   QStringList allStars;
   for (const PetAstrolabeStar& star : astrolabe.stars) {
     QString name = PetDetailRenderer::text(star.name);
@@ -286,10 +177,12 @@ QString astrolabeHtml(const PetAstrolabeState& astrolabe) {
       QStringLiteral("全部星灵"),
       allStars.isEmpty() ? QStringLiteral("没有星轮数据")
                          : allStars.join(QStringLiteral("　")));
-  rows += PetDetailRenderer::row(
+  if (power.breakthroughApplicable) rows += PetDetailRenderer::row(
       QStringLiteral("突破"),
-      astrolabe.breakthrough ? QStringLiteral("<span class='ok'>已突破</span>")
-                             : QStringLiteral("<span class='muted'>未突破</span>"));
+      !power.astrolabeApplicabilityKnown || !power.breakthroughKnown
+          ? QStringLiteral("<span class='muted'>未确认</span>")
+          : power.breakthrough ? QStringLiteral("<span class='ok'>已突破</span>")
+                               : QStringLiteral("<span class='muted'>未突破</span>"));
   return PetDetailRenderer::section(QStringLiteral("天迹星轮"), rows);
 }
 
@@ -316,7 +209,11 @@ QString stargodHtml(const QList<PetStargodEntry>& stargods,
   };
   QString rows = PetDetailRenderer::row(
       QStringLiteral("固定万变"),
-      changeable.isEmpty()
+      !power.stargodSlotsKnown
+          ? QStringLiteral("槽位状态未确认")
+          : !power.hasChangeableSlot
+          ? QStringLiteral("不适用")
+          : changeable.isEmpty()
           ? QStringLiteral("<span class='muted'><u>固定万变栏位</u>：未装备</span>")
           : [&]() {
               QStringList values;
@@ -343,7 +240,7 @@ QString stargodHtml(const QList<PetStargodEntry>& stargods,
     backpackValues.append(
         QStringLiteral("<span class='star' style='color:%1'>%2%3</span>")
             .arg(color, PetDetailRenderer::text(entry.name),
-                 entry.changeable ? QStringLiteral("（万变，不计入）")
+                 entry.changeable ? QStringLiteral("（万变格专用）")
                                   : QString()));
   }
   rows += PetDetailRenderer::row(
@@ -356,15 +253,15 @@ QString stargodHtml(const QList<PetStargodEntry>& stargods,
 
   rows += PetDetailRenderer::row(
       QStringLiteral("普通栏位"),
-      !power.stargodSlotsKnown
-          ? QStringLiteral("<span class='muted'>无法从详情确定栏位数量</span>")
-          : QStringLiteral("已装备 %1 / %2；背包可用 %3；合计 %4 / %2（%5）")
+      !power.stargodSlotsKnown || !power.stargodBackpackKnown || !power.stargodQualitiesKnown
+          ? QStringLiteral("<span class='muted'>槽位或持有星神的搭配规则尚未齐全</span>")
+          : QStringLiteral("已装备 %1 / %2；背包持有 %3；可合法搭配 %4 类（%5）")
                 .arg(power.equippedStars)
                 .arg(power.stargodSlots)
                 .arg(power.backpackStars)
                 .arg(power.availableStars)
-                .arg(power.stargodFull ? QStringLiteral("数量已满足满战力")
-                                       : QStringLiteral("还缺 %1 个").arg(
+                .arg(power.stargodFull ? QStringLiteral("可填满普通槽位")
+                                       : QStringLiteral("还缺 %1 类").arg(
                                              power.missingStars)));
   return PetDetailRenderer::section(QStringLiteral("星神"), rows);
 }
@@ -376,11 +273,10 @@ QString PetDetailRenderer::render(const PetDetailViewModel& model,
   if (!model.available)
     return QStringLiteral("<p style='color:#6b7280'>该实例没有可用的本地详情。</p>");
 
-  const QString imageHtml = model.imagePath.isEmpty()
-                                ? QStringLiteral("<div class='image-placeholder'>图片首次显示后<br>自动缓存到本地</div>")
+  const QString imageHtml = !model.imagePath.startsWith(QStringLiteral("kqimage://cache/"))
+                                ? QStringLiteral("<div class='image-placeholder'>图片暂不可用</div>")
                                 : QStringLiteral("<img class='pet-picture' src='%1' width='150'>")
-                                      .arg(QUrl::fromLocalFile(model.imagePath)
-                                               .toString(QUrl::FullyEncoded));
+                                      .arg(text(model.imagePath));
   QString identityRows = row(QStringLiteral("名称"),
                              QStringLiteral("<b>%1</b>").arg(valueOrDash(model.name)));
   identityRows += row(QStringLiteral("原名"), valueOrDash(model.originalName));
@@ -390,25 +286,11 @@ QString PetDetailRenderer::render(const PetDetailViewModel& model,
   identityRows += row(QStringLiteral("职业"), text(model.jobs));
   identityRows += row(QStringLiteral("时代"), text(model.era));
   const PetBattlePowerState& power = model.battlePower;
-  identityRows += row(
-      QStringLiteral("战斗力"),
-      power.hasCurrent
-          ? QStringLiteral("<b>%1</b>（%2；%3）")
-                .arg(power.current)
-                .arg(power.isHighest ? QStringLiteral("已达最高战斗力")
-                                     : QStringLiteral("未达最高战斗力"))
-                .arg(power.currentLocallyCalculated
-                         ? QStringLiteral("星神战力已本地重算")
-                         : QStringLiteral("服务器战力"))
-          : QStringLiteral("—"));
-  identityRows += row(
-      QStringLiteral("极限战斗力"),
-      power.hasExtreme
-          ? QStringLiteral("<b>%1</b>（最高战斗力 %2）")
-                .arg(power.extreme)
-                .arg(power.hasHighest ? QString::number(power.highest)
-                                      : QStringLiteral("待确认"))
-          : QStringLiteral("—"));
+  identityRows += row(QStringLiteral("官方返回当前战斗力"), powerNumber(power.hasServerCurrent, power.serverCurrent));
+  identityRows += row(QStringLiteral("官方极限战斗力"), powerNumber(power.hasExtreme, power.extreme));
+  identityRows += row(QStringLiteral("本地持有可达战斗力"),
+      powerNumber(power.hasCurrent && power.currentLocallyCalculated, power.current));
+  identityRows += row(QStringLiteral("至高战斗力"), powerNumber(power.hasHighest, power.highest));
 
   QString warning;
   if (model.fetchingLatest) {
@@ -426,9 +308,9 @@ QString PetDetailRenderer::render(const PetDetailViewModel& model,
           .arg(model.raceId)
           .arg(model.level)
           .arg(warning);
-  const QString body = identitySection(identityRows, imageHtml) + talentHtml(model.talent) +
+  const QString body = identitySection(identityRows, imageHtml, options.compactIdentity) + talentHtml(model.talent) +
                        relationshipHtml(model.relationships) + badgeHtml(model.badges) +
-                       sacredHtml(model.sacred) + astrolabeHtml(model.astrolabe) +
+                       sacredHtml(model.sacred) + astrolabeHtml(model.astrolabe, model.battlePower) +
                        stargodHtml(model.stargods, model.stargodBackpack,
                                    model.battlePower) +
                        battlePowerAnalysisHtml(model);
@@ -455,7 +337,11 @@ QString PetDetailRenderer::section(const QString& title, const QString& rows) {
 }
 
 QString PetDetailRenderer::identitySection(const QString& rows,
-                                           const QString& imageHtml) {
+                                           const QString& imageHtml, bool compact) {
+  if (compact)
+    return QStringLiteral("<div class='section'><div class='section-title'>基础信息</div>"
+        "<div align='center'>%2</div><table cellspacing='0' cellpadding='0'>%1</table></div>")
+        .arg(rows, imageHtml);
   return QStringLiteral(
              "<div class='section'><div class='section-title'>基础信息</div>"
              "<table class='identity-layout' cellspacing='0' cellpadding='0'><tr>"

@@ -3,21 +3,33 @@
 #include "pet_repository.h"
 #include "pet_settings_dialog.h"
 #include "pet_window.h"
+#include "preview_inventory_support.h"
 
 #include <QApplication>
 #include <QTableView>
 #include <QTableWidget>
 #include <QTemporaryDir>
 #include <QTimer>
+#include <QTextBrowser>
 
 int main(int argc, char* argv[]) {
   QApplication application(argc, argv);
   application.setApplicationName(QStringLiteral("KQPetUiPreview"));
   QTemporaryDir dataRoot;
   qputenv("KQPET_DATA_ROOT", dataRoot.path().toUtf8());
-  auto* repository = new PetRepository();
+  PreviewInventory::Fixture fixture(dataRoot.path(),QStringLiteral("synthetic-pet-preview"));
+  if (!fixture.initialized) return 1;
+  const auto backpackPet = PreviewInventory::pagedPet(10001,7115,QStringLiteral("离线分页样例 A"),100,22000);
+  const auto warehousePet = PreviewInventory::pagedPet(10002,7185,QStringLiteral("离线分页样例 B"),100,20000);
+  const auto elitePet = PreviewInventory::pagedPet(10003,7115,QStringLiteral("离线分页样例 C"),80,18000);
+  if (!fixture.publishLists({backpackPet},{PreviewInventory::brief(warehousePet)},
+      {PreviewInventory::brief(elitePet)},{warehousePet,elitePet}) || !fixture.factsReady()) return 1;
+  auto* repository = &fixture.repository;
   auto* refreshController = new PetRefreshController(repository);
-  auto* window = new PetWindow(repository);
+  auto* window = new PetWindow(&fixture.inventory);
+  int gameRequests = 0;
+  QObject::connect(window,&PetWindow::detailRequested,window,[&](qint64) { ++gameRequests; });
+  QObject::connect(window,&PetWindow::listRefreshRequested,window,[&] { ++gameRequests; });
   QObject::connect(window, &PetWindow::settingsRequested, window, [=]() {
     PetSettingsDialog dialog(refreshController->timings(), window);
     if (dialog.exec() == QDialog::Accepted)
@@ -33,7 +45,7 @@ int main(int argc, char* argv[]) {
           QStringLiteral("KQPetWarehouseTable"));
       auto* elite = window->findChild<QTableView*>(
           QStringLiteral("KQPetEliteWarehouseTable"));
-      const bool valid = backpack && warehouse && elite &&
+      bool valid = backpack && warehouse && elite &&
                          qobject_cast<PetFilterProxyModel*>(warehouse->model()) &&
                          qobject_cast<PetFilterProxyModel*>(elite->model()) &&
                          backpack->selectionBehavior() == QAbstractItemView::SelectRows &&
@@ -42,6 +54,14 @@ int main(int argc, char* argv[]) {
                          backpack->styleSheet().contains(QStringLiteral("#2563eb")) &&
                          warehouse->styleSheet().contains(QStringLiteral("#2563eb")) &&
                          elite->styleSheet().contains(QStringLiteral("#2563eb"));
+      window->focusPet(10001);
+      auto* detail = window->findChild<QTextBrowser*>(QStringLiteral("KQPetPreparedDetail"));
+      valid &= fixture.preparedVisible(detail,0,10001);
+      const int requestsBeforePages = gameRequests;
+      const auto computations = fixture.derivations.stats().computations;
+      valid &= fixture.followPage(detail,0,10001,DetailSection::StargodBackpack,1) &&
+          fixture.followPage(detail,0,10001,DetailSection::Overview,0) &&
+          gameRequests==requestsBeforePages && fixture.derivations.stats().computations==computations;
       application.exit(valid ? 0 : 2);
     });
   }
@@ -53,6 +73,5 @@ int main(int argc, char* argv[]) {
   const int result = application.exec();
   delete window;
   delete refreshController;
-  delete repository;
-  return result;
+  return fixture.close() ? result : 3;
 }

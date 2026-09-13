@@ -3,6 +3,7 @@
 #include "pet_detail_catalog.h"
 #include "pet_detail_renderer.h"
 #include "pet_repository.h"
+#include "protocol_test_support.h"
 #include "routine_overview_controller.h"
 #include "shop_exchange_controller.h"
 #include "target_compatibility_guard.h"
@@ -44,22 +45,15 @@ QJsonObject loadFixture(const QString& relativePath, bool* ok) {
   return document.object();
 }
 
-QString compact(const QJsonObject& packet) {
-  return QString::fromUtf8(QJsonDocument(packet).toJson(QJsonDocument::Compact));
-}
-
 void deliver(PetRepository* repository, const QJsonObject& packet) {
-  repository->handlePacket(QStringLiteral("recivedata"), compact(packet));
+  deliverVerifiedFixture(repository, packet);
+  if (!waitForRepositoryIdle(repository))
+    qFatal("repository storage did not complete within the test budget");
 }
 
-template <typename Controller>
-void deliver(Controller* controller, const QJsonObject& packet) {
-  controller->handlePacket(QStringLiteral("recivedata"), compact(packet));
-}
-
-void deliverPackets(RoutineOverviewController* controller, const QJsonObject& fixture) {
+void deliverPackets(PetRepository* repository, const QJsonObject& fixture) {
   for (const QJsonValue& value : fixture.value(QStringLiteral("packets")).toArray())
-    deliver(controller, value.toObject());
+    deliver(repository, value.toObject());
 }
 
 }  // namespace
@@ -82,7 +76,8 @@ int main(int argc, char* argv[]) {
   ok &= require(knownProfile && knownProfile->id == L"kqpro-1.1.3-x64" &&
                     knownProfile->dispatch.trampolinePolicy ==
                         TrampolinePolicy::ExactRelocationFreePrologue &&
-                    !TargetProfileRegistry::find(L"KQProV1.1.4.exe", L"1.1.4"),
+                    TargetProfileRegistry::find(L"KQProV1.1.4.exe", L"1.1.4") &&
+                    !TargetProfileRegistry::find(L"KQProV1.1.5.exe", L"1.1.5"),
                 "target profile registry did not match known version or fail closed");
 
   PetRepository repository;
@@ -416,18 +411,26 @@ int main(int argc, char* argv[]) {
                 "real formation alias fixture was not resolved");
 
   ShopExchangeController shop(&repository);
+  QObject::connect(&repository, &PetRepository::packetObserved, &shop,
+                   [&shop](const QJsonObject& packet, const InboundEnvelope& envelope) {
+                     shop.handleDecodedEnvelope(envelope, packet);
+                   });
   shop.setSender([](const QString&, const QString&, const QString&) { return true; });
   ok &= require(shop.requestInfo(), "fixture shop refresh did not start");
-  deliver(&shop, loadFixture(QStringLiteral("shop/material_real_v1_sanitized.json"), &ok));
-  deliver(&shop, loadFixture(QStringLiteral("shop/real_v1_sanitized.json"), &ok));
+  deliver(&repository, loadFixture(QStringLiteral("shop/material_real_v1_sanitized.json"), &ok));
+  deliver(&repository, loadFixture(QStringLiteral("shop/real_v1_sanitized.json"), &ok));
   ok &= require(shop.hasPacket() && shop.hasMaterialCounts() &&
                     shop.materialCounts().value(QStringLiteral("4:3237")) == 42,
                 "real shop and material fixtures were not combined");
 
   RoutineOverviewController routine(&repository);
+  QObject::connect(&repository, &PetRepository::packetObserved, &routine,
+                   [&routine](const QJsonObject& packet, const InboundEnvelope& envelope) {
+                     routine.handleDecodedEnvelope(envelope, packet);
+                   });
   routine.setSender([](const QString&, const QString&, const QString&) { return true; });
   ok &= require(routine.requestRefresh(), "fixture routine refresh did not start");
-  deliverPackets(&routine,
+  deliverPackets(&repository,
                  loadFixture(QStringLiteral("routine/real_v1_sanitized.json"), &ok));
   ok &= require(routine.hasDailyPacket() && routine.hasRedPointPacket() &&
                     routine.activeRedPoints().contains(10026) &&
@@ -439,15 +442,16 @@ int main(int argc, char* argv[]) {
                 "real routine fixtures were not aggregated");
 
   ok &= require(routine.requestRefresh(), "partial-failure routine refresh did not start");
-  deliverPackets(&routine,
+  deliverPackets(&repository,
                  loadFixture(QStringLiteral("routine/partial_failure_synthetic.json"), &ok));
   ok &= require(routine.dailyPacket().value(QStringLiteral("av")).toInt() == 16 &&
                     routine.activeRedPoints().contains(10026) &&
-                    routine.opportunityPackets()
+                    routine.cachedOpportunityPackets()
                             .value(QStringLiteral("1008_20220603_swa_0_0"))
                             .toObject()
                             .value(QStringLiteral("ti"))
                             .toInt() == 2 &&
+                    !routine.opportunityPackets().contains(QStringLiteral("1008_20220603_swa_0_0")) &&
                     routine.opportunityPackets().contains(QStringLiteral("16_24_A")) &&
                     !routine.opportunityPackets().contains(QStringLiteral("100_13_0")) &&
                     !routine.opportunityPackets().contains(QStringLiteral("100_2_0")),

@@ -7,17 +7,20 @@ namespace {
 
 QString statusText(RecommendationType type) {
   switch (type) {
-    case RecommendationType::ReadyNow: return QStringLiteral("当前可以处理");
+    case RecommendationType::ReadyNow: return QStringLiteral("按已知数据可处理");
     case RecommendationType::ResourceMissing: return QStringLiteral("还缺资源");
-    case RecommendationType::ResourceUnknown: return QStringLiteral("资源状态未知");
+    case RecommendationType::ConditionUnknown: return QStringLiteral("条件待确认");
     case RecommendationType::NearFullCultivation: return QStringLiteral("接近满培养");
+    case RecommendationType::LocalCultivation: return QStringLiteral("本地培养建议");
   }
   return {};
 }
 
 QString resourcesText(const ActionRecommendation& recommendation) {
+  if (recommendation.type == RecommendationType::LocalCultivation)
+    return QStringLiteral("按已有精灵资源与栏位判断；升级消耗请在游戏中查看");
   if (recommendation.type == RecommendationType::NearFullCultivation) {
-    return QStringLiteral("当前战力 %1\n最高战力 %2\n潜在提升 +%3")
+    return QStringLiteral("本地战力 %1\n至高战力 %2\n潜在提升 +%3")
         .arg(recommendation.currentPower)
         .arg(recommendation.highestPower)
         .arg(qMax(0, recommendation.highestPower -
@@ -66,8 +69,20 @@ QString conclusionText(const ActionRecommendation& recommendation) {
                            .arg(requirement.missing()));
     text = QStringLiteral("还缺 %1").arg(missing.join(QStringLiteral("、")));
   }
-  else if (recommendation.type == RecommendationType::ResourceUnknown)
-    text = QStringLiteral("未知数量不按 0，也不按足够处理");
+  else if (recommendation.type == RecommendationType::ConditionUnknown) {
+    QStringList reasons;
+    for (const ShopCondition* condition : {&recommendation.eligibilityCondition,
+             &recommendation.costCondition, &recommendation.resourceCondition,
+             &recommendation.limitCondition, &recommendation.unlockCondition}) {
+      if (condition->effectiveState() != ShopConditionState::Satisfied && !condition->reason.isEmpty())
+        reasons.append(condition->reason);
+    }
+    reasons.removeDuplicates();
+    text = reasons.isEmpty() ? QStringLiteral("必要条件尚未确认") : reasons.join(QStringLiteral("；"));
+  }
+  else if (recommendation.type == RecommendationType::LocalCultivation)
+    text = recommendation.gaps.isEmpty() ? QStringLiteral("先补齐详情，再确认剩余培养项")
+        : QStringLiteral("按列出的缺口在游戏中培养；已经具备的星神无需重复兑换");
   else
     text = QStringLiteral("当前兑换商店没有发现可立即处理的真实项目");
   if (recommendation.alternateGoodCount > 0)
@@ -109,14 +124,16 @@ QVariant RecommendationModel::data(const QModelIndex& index, int role) const {
   switch (index.column()) {
     case Status: return statusText(recommendation.type);
     case Pet:
-      return QStringLiteral("%1\n实例 %2 · 完成度 %3%")
+      return QStringLiteral("%1\n实例 %2 · 完成度 %3")
           .arg(recommendation.petName)
           .arg(recommendation.petInstanceId)
-          .arg(recommendation.completionPercent);
+          .arg(recommendation.completionKnown ? QStringLiteral("%1%").arg(recommendation.completionPercent)
+                                              : QStringLiteral("待补数据"));
     case Gap: return recommendation.gaps.join(QLatin1Char('\n'));
     case Project:
       return recommendation.shopGoodKey.isEmpty()
-                 ? QStringLiteral("未发现可立即处理的真实项目")
+                 ? (recommendation.type == RecommendationType::LocalCultivation
+                       ? QStringLiteral("本地培养，无兑换项目") : QStringLiteral("未发现可立即处理的真实项目"))
                  : QStringLiteral("%1\n%2")
                        .arg(recommendation.goodName,
                             recommendation.shopName);
@@ -124,8 +141,9 @@ QVariant RecommendationModel::data(const QModelIndex& index, int role) const {
     case Remaining:
       return recommendation.shopGoodKey.isEmpty()
                  ? QStringLiteral("—")
-                 : QStringLiteral("剩余 %1 次")
-                       .arg(recommendation.remainingExchangeCount);
+                 : recommendation.remainingExchangeCount < 0
+                     ? QStringLiteral("次数待确认")
+                     : QStringLiteral("剩余 %1 次").arg(recommendation.remainingExchangeCount);
     case Conclusion: return conclusionText(recommendation);
     case ViewPet: return QStringLiteral("查看精灵");
     case ViewShop:

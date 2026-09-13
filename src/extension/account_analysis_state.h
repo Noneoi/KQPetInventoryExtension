@@ -5,6 +5,8 @@
 
 #include <QSet>
 
+struct AnalysisWorkResult;
+
 struct AccountAnalysisState {
   AccountAssetOverview lastValidOverview;
   QList<ActionRecommendation> lastValidRecommendations;
@@ -14,4 +16,5 @@ struct AccountAnalysisState {
   bool hasAnalysis = false;
   bool inventoryStale = false;
   bool shopStale = false;
+  std::shared_ptr<const AnalysisWorkResult> retainedResult;
 };

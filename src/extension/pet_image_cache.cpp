@@ -1,140 +1,293 @@
 #include "pet_image_cache.h"
-
 #include "pet_identity.h"
+#include "stargod_ring_object.h"
 
-#include <QBuffer>
-#include <QDir>
-#include <QFile>
-#include <QFileInfo>
-#include <QHash>
-#include <QImage>
-#include <QJsonDocument>
-#include <QNetworkAccessManager>
-#include <QNetworkReply>
-#include <QNetworkRequest>
-#include <QSaveFile>
-#include <QPoint>
+#include <QHideEvent>
+#include <QContextMenuEvent>
+#include <QIconEngine>
+#include <QPainter>
+#include <QMenu>
+#include <QRegularExpression>
+#include <QShowEvent>
+#include <QTextDocument>
+#include <QThread>
 #include <QUrl>
+#include <utility>
+#include <cmath>
 
 namespace {
-
-QPoint attributePosition(int id) {
-  static const QHash<int, QPoint> positions = {
-      {0, QPoint(225, 90)},   {1, QPoint(225, 90)},   {2, QPoint(45, 45)},
-      {3, QPoint(225, 180)},  {4, QPoint(90, 135)},   {5, QPoint(90, 90)},
-      {6, QPoint(0, 90)},     {7, QPoint(180, 270)},  {8, QPoint(45, 0)},
-      {9, QPoint(0, 180)},    {10, QPoint(0, 45)},    {11, QPoint(45, 135)},
-      {12, QPoint(0, 135)},   {13, QPoint(180, 90)},  {14, QPoint(315, 45)},
-      {15, QPoint(225, 0)},   {16, QPoint(90, 45)},   {17, QPoint(135, 135)},
-      {18, QPoint(45, 90)},   {19, QPoint(135, 180)}, {20, QPoint(135, 315)},
-      {21, QPoint(45, 225)},  {22, QPoint(270, 225)}, {23, QPoint(225, 225)},
-      {24, QPoint(0, 0)},     {25, QPoint(135, 225)}, {26, QPoint(270, 135)},
-      {27, QPoint(45, 270)},  {28, QPoint(270, 0)},
-  };
-  return positions.value(id, QPoint(225, 90));
-}
-
-}  // namespace
-
-PetImageCache::PetImageCache(const QString& dataRoot, QObject* parent)
-    : QObject(parent), dataRoot_(dataRoot) {
-  attributeSpritePath_ =
-      QDir(dataRoot_).filePath(QStringLiteral("images/attributes/attribute-icons.png"));
-  petImageDirectory_ = QDir(dataRoot_).filePath(QStringLiteral("images/pets"));
-  QDir().mkpath(petImageDirectory_);
-  ensureAttributeSprite();
-
-  QFile catalog(QStringLiteral(":/kqpet/pet-image-urls.json"));
-  if (catalog.open(QIODevice::ReadOnly)) {
-    const QJsonDocument document = QJsonDocument::fromJson(catalog.readAll());
-    if (document.isObject())
-      imageUrls_ = document.object();
+class LeasedIconEngine final : public QIconEngine {
+public:
+  LeasedIconEngine(QPixmap pixmap, ImageHandle image, std::shared_ptr<void> lease)
+      : lease_(std::move(lease)), image_(std::move(image)), pixmap_(std::move(pixmap)) {}
+  QIconEngine* clone() const override { return new LeasedIconEngine(pixmap_, image_, lease_); }
+  void paint(QPainter* painter, const QRect& rect, QIcon::Mode, QIcon::State) override {
+    painter->drawPixmap(rect, pixmap_);
   }
-  network_ = new QNetworkAccessManager(this);
+  QPixmap pixmap(const QSize&, QIcon::Mode, QIcon::State) override { return pixmap_; }
+private:
+  std::shared_ptr<void> lease_;
+  ImageHandle image_;
+  QPixmap pixmap_;
+};
 }
 
-void PetImageCache::ensureAttributeSprite() {
-  if (QFile::exists(attributeSpritePath_))
-    return;
-  QFile resource(QStringLiteral(":/kqpet/attribute-icons.png"));
-  if (!resource.open(QIODevice::ReadOnly))
-    return;
-  QDir().mkpath(QFileInfo(attributeSpritePath_).absolutePath());
-  QSaveFile output(attributeSpritePath_);
-  if (!output.open(QIODevice::WriteOnly))
-    return;
-  output.write(resource.readAll());
-  output.commit();
+PetImageBrowser::PetImageBrowser(QWidget* parent) : QTextBrowser(parent) {
+  ring_ = new StargodRingObject([this](const QString& url) {
+    const auto found = resources_.constFind(url);
+    return found != resources_.cend() && found->displayed ? found->displayed->image : QImage{};
+  }, this);
+}
+PetImageBrowser::~PetImageBrowser() { releaseImage(); }
+void PetImageBrowser::setHtml(const QString& html) {
+  releaseImage(); resources_.clear(); QTextBrowser::setHtml(html);
+}
+QVariant PetImageBrowser::loadResource(int, const QUrl&) { return {}; }
+void PetImageBrowser::releaseImage() {
+  for (auto it = resources_.begin(); it != resources_.end(); ++it) {
+    document()->addResource(QTextDocument::ImageResource, QUrl(it.key()), QVariant{});
+    it->displayed.reset();
+    it->lease.reset();
+  }
+}
+void PetImageBrowser::acquireImage() {
+  for (auto it = resources_.begin(); it != resources_.end(); ++it) {
+    if (it->displayed) continue;
+    auto image = it->available.lock();
+    auto lease = ImageService::retainDisplay(image);
+    if (!lease) continue;
+    it->displayed = std::move(image);
+    it->lease = std::move(lease);
+    document()->addResource(QTextDocument::ImageResource, QUrl(it.key()), it->displayed->image);
+  }
+  document()->markContentsDirty(0, document()->characterCount());
+}
+void PetImageBrowser::setImageHtml(const QString& html, const QString& resourceUrl, const ImageHandle& image) {
+  setImagesHtml(html,resourceUrl.isEmpty() ? QHash<QString,ImageHandle>{} : QHash<QString,ImageHandle>{{resourceUrl,image}});
+}
+void PetImageBrowser::setImagesHtml(const QString& html, const QHash<QString,ImageHandle>& images) {
+  releaseImage();
+  resources_.clear();
+  for (auto it = images.begin(); it != images.end(); ++it) {
+    Resource resource; resource.available = it.value(); resources_.insert(it.key(),std::move(resource));
+  }
+  QTextBrowser::setHtml(html);
+  StargodRingObject::install(document(), ring_);
+  if (isVisible()) acquireImage();
+}
+void PetImageBrowser::updateImageResource(const QString& resourceUrl, const ImageHandle& image) {
+  const auto found = resources_.find(resourceUrl);
+  if (found == resources_.end() || !image || found->displayed == image) return;
+  document()->addResource(QTextDocument::ImageResource,QUrl(resourceUrl),QVariant{});
+  found->displayed.reset(); found->lease.reset(); found->available = image;
+  if (isVisible()) acquireImage();
+}
+void PetImageBrowser::hideEvent(QHideEvent* event) { releaseImage(); QTextBrowser::hideEvent(event); }
+void PetImageBrowser::showEvent(QShowEvent* event) { acquireImage(); QTextBrowser::showEvent(event); emit imageResourcesNeeded(); }
+void PetImageBrowser::resizeEvent(QResizeEvent* event) {
+  QTextBrowser::resizeEvent(event);
+  document()->markContentsDirty(0, document()->characterCount());
+}
+void PetImageBrowser::contextMenuEvent(QContextMenuEvent* event) {
+  auto* menu = createStandardContextMenu();
+  menu->setAttribute(Qt::WA_DeleteOnClose);
+  menu->addSeparator();
+  QAction* retry = menu->addAction(QStringLiteral("重新加载精灵图片"));
+  connect(retry, &QAction::triggered, this, &PetImageBrowser::imageRetryRequested);
+  menu->popup(event->globalPos());
 }
 
+PetImageCache::PetImageCache(const QString&, QObject* parent) : QObject(parent) {}
+void PetImageCache::setDevicePixelRatio(qreal ratio) {
+  if (!std::isfinite(ratio)) return;
+  ratio = qBound<qreal>(1, ratio, 4);
+  if (qFuzzyCompare(devicePixelRatio_, ratio)) return;
+  devicePixelRatio_ = ratio;
+  emit attributeIconsReady();
+}
+void PetImageCache::setService(ImageService* service, const QString& resourceVersion) {
+  Q_ASSERT(thread() == QThread::currentThread());
+  if (service_ == service && version_ == resourceVersion) return;
+  if (service_) disconnect(service_, nullptr, this, nullptr);
+  service_ = service;
+  version_ = resourceVersion;
+  ++bindingGeneration_;
+  images_.clear(); petKeys_.clear(); icons_.clear(); pending_.clear(); imageStatuses_.clear();
+  if (!service) return;
+  const quint64 generation = bindingGeneration_;
+  connect(service, &ImageService::completed, this, [this, generation](const ImageResult& result) {
+    if (bindingGeneration_ == generation) accept(result);
+  }, Qt::QueuedConnection);
+  connect(service, &ImageService::imageIndexReloaded, this, [this, generation] {
+    if (bindingGeneration_ != generation) return;
+    images_.clear(); icons_.clear(); imageStatuses_.clear(); pending_.clear();
+    const auto browserList = browsers_.keys();
+    for (auto* browser : browserList) refreshBrowserResources(browser);
+    emit attributeIconsReady();
+  }, Qt::QueuedConnection);
+  const auto deferred = std::exchange(deferred_, {});
+  for (const auto& request : deferred) enqueue(request);
+  const auto browserList = browsers_.keys();
+  for (auto* browser : browserList) refreshBrowserResources(browser);
+  emit attributeIconsReady();
+}
+QString PetImageCache::resourceUrl(const QString& key) const {
+  return QStringLiteral("kqimage://cache/%1").arg(QString::fromLatin1(QUrl::toPercentEncoding(key)));
+}
+void PetImageCache::enqueue(const ImageRequest& request) const {
+  const QString key = ImageService::requestKey(request, version_);
+  if (pending_.contains(key)) return;
+  if (!service_) {
+    if (deferred_.size() < 64) deferred_.insert(key, request);
+    return;
+  }
+  if (pending_.size() >= 64) return;
+  pending_.insert(key);
+  const QPointer<ImageService> service = service_;
+  QMetaObject::invokeMethod(service_, [service, request] { if (service) service->request(request); }, Qt::QueuedConnection);
+}
 QIcon PetImageCache::attributeIcon(const QString& sequence) const {
-  if (attributeSprite_.isNull())
-    attributeSprite_.load(attributeSpritePath_);
-  if (attributeSprite_.isNull())
-    return {};
-  const int id = sequence.split(QLatin1Char(','), Qt::SkipEmptyParts).value(0).trimmed().toInt();
-  const QPoint position = attributePosition(id);
-  const QPixmap icon = attributeSprite_.copy(position.x(), position.y(), 40, 40)
-                           .scaled(24, 24, Qt::KeepAspectRatio, Qt::SmoothTransformation);
-  return QIcon(icon);
-}
-
-QString PetImageCache::cachedPetImage(const QString& visualKey) const {
-  if (visualKey.isEmpty())
-    return {};
-  const QString path =
-      QDir(petImageDirectory_).filePath(QStringLiteral("%1.png").arg(visualKey));
-  return QFile::exists(path) ? path : QString();
-}
-
-QString PetImageCache::imageUrlFor(const QStringList& candidateNames) const {
-  for (const QString& name : candidateNames) {
-    const QString trimmed = name.trimmed();
-    const QString url = imageUrls_.value(trimmed).toString();
-    if (!url.isEmpty())
-      return url;
+  bool valid = false;
+  const int parsed = sequence.section(QLatin1Char(','), 0, 0).trimmed().toInt(&valid);
+  const int id = valid && parsed >= 0 && parsed <= 100000 ? parsed : 0;
+  ImageRequest request;
+  request.attributeId = id;
+  request.visualKey = QStringLiteral("attribute-%1").arg(id);
+  request.outputLogicalSize = {24,24};
+  request.devicePixelRatio = devicePixelRatio_;
+  request.selected = false;
+  const QString key = ImageService::requestKey(request, version_);
+  if (auto icon = icons_.constFind(key); icon != icons_.cend()) return icon->icon;
+  if (auto image = images_.value(key).lock()) {
+    auto lease = ImageService::retainDisplay(image);
+    if (lease) {
+      IconEntry entry{QIcon(new LeasedIconEngine(QPixmap::fromImage(image->image), image, lease)), image, lease};
+      if (icons_.size() >= 64) icons_.erase(icons_.begin());
+      const QIcon icon = entry.icon;
+      icons_.insert(key, std::move(entry));
+      return icon;
+    }
   }
+  enqueue(request);
   return {};
 }
-
-QString PetImageCache::ensurePetImage(const QJsonObject& pet,
-                                      const QStringList& candidateNames) {
-  const QString visualKey = petVisualKey(pet);
-  const QString cached = cachedPetImage(visualKey);
-  if (!cached.isEmpty() || petRaceId(pet) <= 0 ||
-      pendingVisualKeys_.contains(visualKey))
-    return cached;
-
-  const QString url = imageUrlFor(candidateNames);
-  if (url.isEmpty())
-    return {};
-
-  pendingVisualKeys_.insert(visualKey);
-  QNetworkRequest request{QUrl(url)};
-  request.setAttribute(QNetworkRequest::RedirectPolicyAttribute,
-                       QNetworkRequest::NoLessSafeRedirectPolicy);
-  request.setRawHeader("User-Agent", "KQPetInventory/1.1");
-  QNetworkReply* reply = network_->get(request);
-  connect(reply, &QNetworkReply::finished, this, [this, reply, visualKey]() {
-    pendingVisualKeys_.remove(visualKey);
-    const QByteArray bytes = reply->readAll();
-    reply->deleteLater();
-    QImage image;
-    if (!image.loadFromData(bytes))
-      return;
-
-    QByteArray png;
-    QBuffer buffer(&png);
-    if (!buffer.open(QIODevice::WriteOnly) || !image.save(&buffer, "PNG"))
-      return;
-    const QString path = QDir(petImageDirectory_)
-                             .filePath(QStringLiteral("%1.png").arg(visualKey));
-    QSaveFile output(path);
-    if (!output.open(QIODevice::WriteOnly))
-      return;
-    output.write(png);
-    if (output.commit())
-      emit petImageReady(visualKey, path);
-  });
-  return {};
+QString PetImageCache::cachedPetImage(const QString& visualKey) const {
+  const QString key = petKeys_.value(visualKey);
+  return !key.isEmpty() && !images_.value(key).expired() ? resourceUrl(key) : QString();
+}
+QString PetImageCache::ensurePetImage(const QJsonObject& pet, const QStringList& candidateNames,
+                                     qreal devicePixelRatio, bool retry) {
+  if (petRaceId(pet) <= 0) return {};
+  ImageRequest request;
+  request.visualKey = petVisualKey(pet);
+  request.candidateNames = candidateNames;
+  request.outputLogicalSize = {300, 300};
+  request.devicePixelRatio = devicePixelRatio;
+  request.retry = retry;
+  const QString key = ImageService::requestKey(request, version_);
+  if (petRequests_.size() >= 128 && !petRequests_.contains(key)) petRequests_.erase(petRequests_.begin());
+  petRequests_.insert(key, request);
+  if (petKeys_.size() >= 128 && !petKeys_.contains(request.visualKey)) petKeys_.erase(petKeys_.begin());
+  petKeys_.insert(request.visualKey, key);
+  if (!images_.value(key).expired()) return resourceUrl(key);
+  enqueue(request);
+  return resourceUrl(key);
+}
+void PetImageCache::accept(const ImageResult& result) {
+  pending_.remove(result.key);
+  if (result.outcome != ImageOutcome::Ready || !result.handle) {
+    const QString message = result.message.isEmpty() ? QStringLiteral("图片暂不可用；可右键重试") : result.message;
+    if (imageStatuses_.size() >= 128) imageStatuses_.erase(imageStatuses_.begin());
+    imageStatuses_.insert(result.key, message);
+    for (auto it = browsers_.begin(); it != browsers_.end(); ++it)
+      if (it->keys.values().contains(result.key)) it.key()->setToolTip(message);
+    emit petImageStatusChanged(result.visualKey, message);
+    return;
+  }
+  const bool wasUnavailable = imageStatuses_.remove(result.key) > 0;
+  for (auto it = browsers_.begin(); it != browsers_.end(); ++it)
+    if (it->keys.values().contains(result.key)) it.key()->setToolTip({});
+  if (wasUnavailable) emit petImageStatusChanged(result.visualKey, {});
+  if (images_.size() >= 128 && !images_.contains(result.key)) {
+    for (auto it = images_.begin(); it != images_.end();)
+      if (it->expired()) it = images_.erase(it); else ++it;
+    if (images_.size() >= 128) images_.erase(images_.begin());
+  }
+  images_.insert(result.key, result.handle);
+  if (result.key.startsWith(QStringLiteral("attribute:"))) emit attributeIconsReady();
+  else if (result.key.startsWith(QStringLiteral("stargod:"))) {
+    for (auto it = browsers_.begin(); it != browsers_.end(); ++it)
+      for (auto resource = it->keys.begin(); resource != it->keys.end(); ++resource)
+        if (resource.value() == result.key) it.key()->updateImageResource(resource.key(),result.handle);
+    const auto browserList = browsers_.keys();
+    for (auto* browser : browserList) refreshBrowserResources(browser);
+  }
+  else emit petImageReady(result.visualKey, resourceUrl(result.key));
+}
+void PetImageCache::refreshBrowserResources(PetImageBrowser* browser) {
+  const auto found = browsers_.constFind(browser);
+  if (found == browsers_.cend() || !browser->isVisible()) return;
+  for (auto it = found->requests.begin(); it != found->requests.end(); ++it) {
+    const QString key = ImageService::requestKey(it.value(),version_);
+    if (const auto image = images_.value(key).lock()) browser->updateImageResource(it.key(),image);
+    else enqueue(it.value());
+  }
+}
+void PetImageCache::setDocumentImage(QTextBrowser* browser, const QString& html, const QString& url) {
+  if (auto* imageBrowser = dynamic_cast<PetImageBrowser*>(browser)) {
+    const QString prefix = QStringLiteral("kqimage://cache/");
+    const QString key = url.startsWith(prefix) ? QUrl::fromPercentEncoding(url.mid(prefix.size()).toLatin1()) : QString();
+    if (!browsers_.contains(imageBrowser)) {
+      connect(imageBrowser,&QObject::destroyed,this,[this,imageBrowser] { browsers_.remove(imageBrowser); });
+      connect(imageBrowser,&PetImageBrowser::imageResourcesNeeded,this,[this,imageBrowser] { refreshBrowserResources(imageBrowser); });
+    }
+    BrowserResources bindings;
+    QHash<QString,ImageHandle> images;
+    if (!url.isEmpty()) {
+      images.insert(url,images_.value(key).lock()); bindings.keys.insert(url,key);
+      if (petRequests_.contains(key)) {
+        ImageRequest request = petRequests_.value(key); request.retry = false;
+        bindings.requests.insert(url,request);
+      }
+      imageBrowser->setToolTip(imageStatuses_.value(key));
+    }
+    static const QRegularExpression icons(QStringLiteral("<img\\b[^>]*\\bsrc\\s*=\\s*['\"](kqstargod://icon/([1-9][0-9]{0,5}))['\"]"),QRegularExpression::CaseInsensitiveOption);
+    auto match = icons.globalMatch(html);
+    while (match.hasNext() && bindings.requests.size() < 96) {
+      const auto icon = match.next();
+      ImageRequest request;
+      request.stargodId = icon.captured(2).toInt();
+      if (request.stargodId > 100000) continue;
+      request.visualKey = QStringLiteral("stargod-%1").arg(request.stargodId);
+      request.outputLogicalSize = {48,48}; request.devicePixelRatio = devicePixelRatio_;
+      const QString imageKey = ImageService::requestKey(request,version_);
+      bindings.requests.insert(icon.captured(1),request);
+      bindings.keys.insert(icon.captured(1),imageKey);
+      images.insert(icon.captured(1),images_.value(imageKey).lock());
+    }
+    static const QRegularExpression rings(QStringLiteral("src=['\"](kqstargodring://ring/[A-Za-z0-9_-]+)['\"]"));
+    auto ringMatch = rings.globalMatch(html);
+    while (ringMatch.hasNext()) {
+      for (const auto& cell : stargodRingSlots(QUrl(ringMatch.next().captured(1)))) {
+        if (cell.empty || cell.imageId <= 0 || bindings.requests.size() >= 96) continue;
+        ImageRequest request; request.stargodId = cell.imageId;
+        request.visualKey = QStringLiteral("stargod-%1").arg(cell.imageId);
+        request.outputLogicalSize = {96,96}; request.devicePixelRatio = devicePixelRatio_;
+        const QString url = QStringLiteral("kqstargod://icon/%1").arg(cell.imageId);
+        const QString imageKey = ImageService::requestKey(request,version_);
+        bindings.requests.insert(url,request); bindings.keys.insert(url,imageKey);
+        images.insert(url,images_.value(imageKey).lock());
+      }
+    }
+    browsers_.insert(imageBrowser,std::move(bindings));
+    imageBrowser->setImagesHtml(html,images);
+    refreshBrowserResources(imageBrowser);
+  } else if (browser) browser->setHtml(html);
+}
+void PetImageCache::updateDocumentImage(QTextBrowser* browser, const QString& url) {
+  auto* target = dynamic_cast<PetImageBrowser*>(browser);
+  const QString prefix = QStringLiteral("kqimage://cache/");
+  if (!target || !url.startsWith(prefix)) return;
+  const auto key = QUrl::fromPercentEncoding(url.mid(prefix.size()).toLatin1());
+  target->updateImageResource(url, images_.value(key).lock());
 }

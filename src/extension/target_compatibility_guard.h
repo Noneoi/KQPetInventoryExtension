@@ -6,13 +6,9 @@
 #include <string>
 
 #include "target_profile.h"
+#include "pe_view.h"
 
-enum class CompatibilityMatchMethod {
-  None,
-  KnownRva,
-  UniqueSignature,
-  AmbiguousSignature,
-};
+using CompatibilityMatchMethod = kqpet::compatibility::MatchMethod;
 
 struct CompatibilityEndpoint {
   std::wstring name;
@@ -49,6 +45,8 @@ struct TargetCompatibilityReport {
   CompatibilityEndpoint serviceGetter;
   CompatibilityEndpoint commandSender;
   bool supported = false;
+  std::wstring failureReason;
+  std::wstring profileDigest;
 
   std::wstring format() const;
 };
@@ -58,6 +56,11 @@ public:
   // Uses only Win32 and the generated build constants. This must run before
   // the extension calls into Qt or constructs any extension business object.
   static TargetCompatibilityReport evaluate();
+  // Read-only resolution in a mapped PE image. Supplying its extent also
+  // permits offline regression tests without loading or running a client.
+  static CompatibilityEndpoint resolveEndpoint(const void* image,
+                                                std::size_t mappedSize,
+                                                const TargetEndpointProfile& profile);
   static bool requiredRuntimeModulesLoaded();
   static void setLastReport(TargetCompatibilityReport report);
   static const TargetCompatibilityReport& lastReport();

@@ -42,6 +42,19 @@ int main(int argc, char* argv[]) {
   const QPair<int, int> dan = petQueryHighlightRange(QStringLiteral("dan"), diana);
   ok &= require(dan.first >= 0 && diana.mid(dan.first, dan.second) == QStringLiteral("黛安娜"),
                 "dan highlight did not select Diana's Chinese name");
+  const PetSearchIndex cached = preparePetSearchIndex({skin, original, skin}, {QStringLiteral("12345")});
+  ok &= require(cached.names.size() == 2 &&
+      petQueryMatches(preparePetSearchQuery(QStringLiteral("SYY")), cached) &&
+      petQueryMatches(preparePetSearchQuery(QStringLiteral("234")), cached) &&
+      !petQueryMatches(preparePetSearchQuery(QStringLiteral("yzb")), cached),
+      "prepared search changed aliases, identifiers or contiguous-initial semantics");
+  const PetSearchText supplementary = preparePetSearchText(QStringLiteral("🙂·黛安娜"));
+  const auto supplementaryHighlight = petQueryHighlightRange(preparePetSearchQuery(QStringLiteral("dan")),
+                                                             supplementary);
+  ok &= require(supplementaryHighlight.first == 3 && supplementaryHighlight.second == 3 &&
+      supplementary.text.mid(supplementaryHighlight.first, supplementaryHighlight.second) ==
+          QStringLiteral("黛安娜"),
+      "cached highlights lost UTF-16 positions across supplementary symbols");
   if (!ok) return 1;
   std::fprintf(stdout, "PASS: Chinese substring and pinyin-initial search\n");
   return 0;

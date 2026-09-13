@@ -1,25 +1,19 @@
-param(
-    [string]$OriginalDir = ''
-)
-
+param([Parameter(Mandatory = $true)][string]$OriginalDir)
 $ErrorActionPreference = 'Stop'
-if ([string]::IsNullOrWhiteSpace($OriginalDir)) {
-    $projectRoot = Split-Path -Parent $PSScriptRoot
-    $workspaceRoot = Split-Path -Parent $projectRoot
-    $candidate = Get-ChildItem -LiteralPath $workspaceRoot -Directory | Where-Object {
-        Get-ChildItem -LiteralPath $_.FullName -Filter 'KQPro*.exe' -File -ErrorAction SilentlyContinue
-    } | Sort-Object LastWriteTime -Descending | Select-Object -First 1
-    if (-not $candidate) { throw "No directory containing KQPro*.exe was found under $workspaceRoot" }
-    $OriginalDir = $candidate.FullName
-}
-$launcher = Join-Path $OriginalDir 'KQPetLauncher.exe'
-$extension = Join-Path $OriginalDir 'KQPetInventory.dll'
-
-foreach ($path in @($launcher, $extension)) {
-    if (Test-Path -LiteralPath $path) {
-        Remove-Item -LiteralPath $path -Force
-        Write-Host "Removed extension file: $path"
+. (Join-Path $PSScriptRoot 'release-tools.ps1')
+$root = Assert-KqPlainPath ([IO.Path]::GetFullPath($OriginalDir))
+if (-not (Test-Path -LiteralPath $root -PathType Container)) { throw 'Client directory is missing.' }
+if (Test-KqClientRunning $root) { throw 'Close this client before uninstalling its extension entry.' }
+$runtime = Get-KqChildPath $root 'KQPetRuntime'
+$lock = Enter-KqDeploymentLock $runtime
+try {
+    if (Test-KqClientRunning $root) { throw 'The client started; uninstall was not performed.' }
+    foreach ($name in @('KQPetLauncher.exe', 'KQPetInventory.dll', 'KQPetInventory.pending.dll')) {
+        $path = Get-KqChildPath $root $name
+        if (Test-Path -LiteralPath $path -PathType Leaf) {
+            Remove-Item -LiteralPath $path -Force
+            Write-Host "Removed extension entry: $name"
+        }
     }
-}
-
-Write-Host 'Uninstall complete. Original files were not modified.'
+} finally { $lock.Dispose() }
+Write-Host 'Extension entry removed. Original executables, personal data, immutable releases and rollback backups were retained.'

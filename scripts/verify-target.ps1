@@ -1,30 +1,22 @@
 param(
-    [string]$OriginalDir = ''
+    [string]$OriginalDir = '',
+    [string]$OriginalExe = '',
+    [string]$ExtensionPath = '',
+    [string]$CompatibilityCheck = '',
+    [switch]$PassThru
 )
 
 $ErrorActionPreference = 'Stop'
-if ([string]::IsNullOrWhiteSpace($OriginalDir)) {
-    $projectRoot = Split-Path -Parent $PSScriptRoot
-    $workspaceRoot = Split-Path -Parent $projectRoot
-    $candidate = Get-ChildItem -LiteralPath $workspaceRoot -Directory | Where-Object {
-        Get-ChildItem -LiteralPath $_.FullName -Filter 'KQPro*.exe' -File -ErrorAction SilentlyContinue
-    } | Sort-Object LastWriteTime -Descending | Select-Object -First 1
-    if (-not $candidate) { throw "No directory containing KQPro*.exe was found under $workspaceRoot" }
-    $OriginalDir = $candidate.FullName
-}
-$targets = Get-ChildItem -LiteralPath $OriginalDir -Filter 'KQPro*.exe' -File
-$ranked = foreach ($target in $targets) {
-    $version = [version]'0.0'
-    if ($target.BaseName -match 'V(\d+(?:\.\d+)*)') { $version = [version]$Matches[1] }
-    [pscustomobject]@{ Path = $target.FullName; Version = $version }
-}
-$targetExePath = ($ranked | Sort-Object Version -Descending | Select-Object -First 1).Path
+. (Join-Path $PSScriptRoot 'target-tools.ps1')
+$target = Get-KqTarget -OriginalDir $OriginalDir -OriginalExe $OriginalExe -CompatibilityCheck $CompatibilityCheck
+$report = Test-KqTarget -Target $target -CompatibilityCheck $CompatibilityCheck -ExtensionPath $ExtensionPath
 
-if (-not $targetExePath) {
-    throw "No KQPro*.exe was found in: $OriginalDir"
+Write-Host 'Offline target verification passed using the shared Win32 Compatibility core: bounded x64 PE, unique interface family signatures, Qt ABI, required exports and observed file identity.'
+Write-Host "Path: $($report.Path)"
+Write-Host "Profile: $($report.Profile); Qt: $($report.QtVersion)"
+foreach ($endpoint in $report.Endpoints) {
+    Write-Host ('{0}: 0x{1:X} ({2})' -f $endpoint.Name, $endpoint.Rva, $endpoint.Method)
 }
-
-$actual = (Get-FileHash -LiteralPath $targetExePath -Algorithm SHA256).Hash
-Write-Host 'Original target discovery passed. Runtime signatures will be checked before hooking.'
-Write-Host "Path: $targetExePath"
-Write-Host "SHA-256: $actual"
+Write-Host "SHA-256: $($report.SHA256)"
+Write-Host 'The extension also checks compatibility in the running process before hooking. This offline check does not test server login.'
+if ($PassThru) { $report }

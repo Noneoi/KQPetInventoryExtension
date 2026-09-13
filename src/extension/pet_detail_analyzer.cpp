@@ -1,8 +1,9 @@
+#include "pet_power_calculator.h"
 #include "pet_detail_analyzer.h"
 
 #include "pet_detail_catalog.h"
 #include "pet_identity.h"
-#include "pet_repository.h"
+#include "inventory_read_view.h"
 
 #include <QJsonArray>
 #include <QSet>
@@ -15,58 +16,10 @@ QStringList splitSequence(const QString& value, QChar separator) {
   return value.split(separator, Qt::SkipEmptyParts);
 }
 
-QStringList stargodSlots(const QJsonObject& pet) {
-  const QString sequence = pet.value(QStringLiteral("sgs")).toString();
-  return sequence.isEmpty() ? QStringList{}
-                            : sequence.split(QLatin1Char('#'), Qt::KeepEmptyParts);
-}
-
 int stargodId(const QJsonValue& value) {
   if (value.isDouble()) return value.toInt();
   if (value.isString()) return value.toString().toInt();
   return 0;
-}
-
-bool changeableDefinition(const PetDetailCatalog& catalog, int defineId) {
-  return defineId > 0 &&
-         catalog.stargod(defineId).value(QStringLiteral("changeable")).toBool();
-}
-
-bool changeableSlot(const QStringList& fields,
-                    const PetDetailCatalog& catalog) {
-  const int defineId = fields.value(0).toInt();
-  if (defineId == -2 || changeableDefinition(catalog, defineId)) return true;
-  const int sourceId = fields.size() >= 3 ? fields.value(2).toInt() : 0;
-  return changeableDefinition(catalog, sourceId);
-}
-
-int stargodBattlePower(const PetDetailCatalog& catalog, int defineId,
-                       int level) {
-  if (defineId <= 0 || level <= 0) return 0;
-  const QJsonObject levels =
-      catalog.stargod(defineId).value(QStringLiteral("battlePower")).toObject();
-  return levels.value(QString::number(level)).toInt();
-}
-
-int stargodMaxLevel(const PetDetailCatalog& catalog, const QJsonObject& pet,
-                    const QStringList& slotSequences) {
-  int level = pet.value(QStringLiteral("stargodSlotMaxLevel")).toInt();
-  if (level <= 0)
-    level = catalog.metadataFor(pet)
-                .value(QStringLiteral("stargodSlotMaxLevel"))
-                .toInt();
-  for (const QString& slotSequence : slotSequences)
-    level = qMax(level, slotSequence.split(QLatin1Char(':')).value(1).toInt());
-  return level > 0 ? level : 6;
-}
-
-int battlePowerWithoutStargods(const QJsonObject& components) {
-  int power = 0;
-  for (auto iterator = components.begin(); iterator != components.end(); ++iterator) {
-    if (iterator.key() == QStringLiteral("sgv")) continue;
-    if (iterator.value().isDouble()) power += iterator.value().toInt();
-  }
-  return power;
 }
 
 QString stargodCategory(const PetStargodEntry& entry) {
@@ -113,7 +66,7 @@ qint64 relationId(const QJsonValue& value) {
 
 PetRelatedDisplay relatedDisplay(const QJsonObject& embedded, qint64 fallbackId,
                                  int fallbackRaceId,
-                                 const PetRepository* repository) {
+                                 const InventoryReadView* repository) {
   QJsonObject related = embedded;
   qint64 id = petInstanceId(related);
   if (id <= 0) id = fallbackId;
@@ -150,7 +103,7 @@ PetRelatedDisplay relatedDisplay(const QJsonObject& embedded, qint64 fallbackId,
 }
 
 QList<PetRelatedDisplay> relatedList(const QJsonArray& values,
-                                     const PetRepository* repository) {
+                                     const InventoryReadView* repository) {
   QList<PetRelatedDisplay> result;
   QSet<qint64> seenIds;
   for (const QJsonValue& value : values) {
@@ -167,170 +120,13 @@ QList<PetRelatedDisplay> relatedList(const QJsonArray& values,
 }  // namespace
 
 PetBattlePowerState PetDetailAnalyzer::analyzeBattlePower(const QJsonObject& pet) {
-  const PetDetailCatalog& catalog = PetDetailCatalog::instance();
-  PetBattlePowerState result;
-  result.hasCurrent = pet.contains(QStringLiteral("zdl"));
-  result.hasExtreme = pet.contains(QStringLiteral("xzdl"));
-  result.serverCurrent = pet.value(QStringLiteral("zdl")).toInt();
-  result.current = result.serverCurrent;
-  result.extreme = pet.value(QStringLiteral("xzdl")).toInt();
-  result.breakthrough = pet.value(QStringLiteral("astrolabebr")).toBool();
-
-  const QJsonObject currentParts = pet.value(QStringLiteral("czdlv")).toObject();
-  const QJsonObject extremeParts = pet.value(QStringLiteral("mzdlv")).toObject();
-
-  const QStringList slotSequences = stargodSlots(pet);
-  result.stargodSlotsKnown = !slotSequences.isEmpty();
-  result.stargodMaxLevel = stargodMaxLevel(catalog, pet, slotSequences);
-  result.stargodLevelsFull = result.stargodSlotsKnown;
-  QList<int> candidateTargetPowers;
-  bool allPowersKnown = true;
-  bool changeableTargetKnown = true;
-  for (const QString& slot : slotSequences) {
-    const QStringList fields = slot.split(QLatin1Char(':'));
-    const int defineId = fields.value(0).toInt();
-    const int level = qMax(1, fields.value(1).toInt());
-    if (level < result.stargodMaxLevel) {
-      result.stargodLevelsFull = false;
-      ++result.stargodLevelMissingSlots;
-    }
-    const int sourceId = fields.size() >= 3 ? fields.value(2).toInt() : 0;
-    if (changeableSlot(fields, catalog)) {
-      result.hasChangeableSlot = true;
-      const int currentId = defineId > 0 ? defineId : sourceId;
-      if (currentId > 0) {
-        const int power = stargodBattlePower(catalog, currentId, level);
-        result.equippedStargodPower += power;
-        allPowersKnown = allPowersKnown && power > 0;
-      }
-      const int targetId = changeableDefinition(catalog, sourceId)
-                               ? sourceId
-                               : (changeableDefinition(catalog, defineId) ? defineId : 0);
-      result.changeableQuality =
-          catalog.stargod(targetId).value(QStringLiteral("quality")).toInt();
-      result.changeableRed = result.changeableQuality == 6;
-      result.changeableStargodPower =
-          stargodBattlePower(catalog, targetId, result.stargodMaxLevel);
-      changeableTargetKnown = targetId > 0 && result.changeableStargodPower > 0;
-      continue;
-    }
-    ++result.stargodSlots;
-    if (defineId <= 0) continue;
-    const QJsonObject item = catalog.stargod(defineId);
-    const QJsonObject source = sourceId > 0 ? catalog.stargod(sourceId) : QJsonObject();
-    int quality = item.value(QStringLiteral("quality")).toInt();
-    if (source.value(QStringLiteral("changeable")).toBool())
-      quality = source.value(QStringLiteral("quality")).toInt(quality);
-    ++result.equippedStars;
-    if (quality == 6)
-      ++result.redStars;
-    else if (quality == 5)
-      ++result.goldStars;
-    const int currentPower = stargodBattlePower(catalog, defineId, level);
-    const int targetPower =
-        stargodBattlePower(catalog, defineId, result.stargodMaxLevel);
-    result.equippedStargodPower += currentPower;
-    candidateTargetPowers.append(targetPower);
-    allPowersKnown = allPowersKnown && currentPower > 0 && targetPower > 0;
-  }
-
-  result.stargodBackpackKnown = pet.value(QStringLiteral("sgsp")).isArray();
-  for (const QJsonValue& value : pet.value(QStringLiteral("sgsp")).toArray()) {
-    const int defineId = stargodId(value);
-    if (defineId <= 0 || changeableDefinition(catalog, defineId)) continue;
-    ++result.backpackStars;
-    const int quality =
-        catalog.stargod(defineId).value(QStringLiteral("quality")).toInt();
-    if (quality == 6)
-      ++result.redStars;
-    else if (quality == 5)
-      ++result.goldStars;
-    const int targetPower =
-        stargodBattlePower(catalog, defineId, result.stargodMaxLevel);
-    candidateTargetPowers.append(targetPower);
-    allPowersKnown = allPowersKnown && targetPower > 0;
-  }
-  result.availableStars = result.equippedStars + result.backpackStars;
-  result.missingStars =
-      qMax(0, result.stargodSlots - result.availableStars);
-  result.stargodFull = result.stargodSlotsKnown && result.stargodSlots > 0 &&
-                       result.availableStars >= result.stargodSlots;
-  result.missingRedStars = qMax(0, result.stargodSlots - result.redStars);
-  result.redStargodFull = result.stargodSlotsKnown && result.stargodSlots > 0 &&
-                          result.missingRedStars == 0;
-  std::sort(candidateTargetPowers.begin(), candidateTargetPowers.end(),
-            std::greater<int>());
-  for (int index = 0;
-       index < qMin(result.stargodSlots, candidateTargetPowers.size()); ++index)
-    result.bestOrdinaryStargodPower += candidateTargetPowers.at(index);
-  result.currentStargodPower =
-      result.stargodFull
-          ? result.bestOrdinaryStargodPower + result.changeableStargodPower
-          : result.equippedStargodPower;
-  result.targetStargodPower = result.currentStargodPower;
-  const int redPower =
-      stargodBattlePower(catalog, 80, result.stargodMaxLevel);
-  result.highestStargodPower =
-      redPower * (result.stargodSlots + (result.hasChangeableSlot ? 1 : 0));
-  result.stargodPowerKnown = allPowersKnown && changeableTargetKnown;
-
-  if (result.hasCurrent && currentParts.contains(QStringLiteral("sgv")) &&
-      allPowersKnown) {
-    result.current = battlePowerWithoutStargods(currentParts) +
-                     result.currentStargodPower;
-    result.currentLocallyCalculated = true;
-  }
-  result.hasHighest = result.hasExtreme && result.stargodSlotsKnown &&
-                      result.stargodSlots > 0 && redPower > 0 &&
-                      extremeParts.contains(QStringLiteral("sgv"));
-  if (result.hasHighest) {
-    result.highest = battlePowerWithoutStargods(extremeParts) +
-                     result.highestStargodPower + 150;
-  }
-
-  static const QList<QPair<QString, QString>> components = {
-      {QStringLiteral("lv"), QStringLiteral("等级与基础成长")},
-      {QStringLiteral("iv"), QStringLiteral("天赋")},
-      {QStringLiteral("pl"), QStringLiteral("职业熟练度")},
-      {QStringLiteral("ep"), QStringLiteral("精灵装备")},
-      {QStringLiteral("gsv"), QStringLiteral("守护石")},
-      {QStringLiteral("lav"), QStringLiteral("学习力")},
-      {QStringLiteral("lsv"), QStringLiteral("传说石")},
-      {QStringLiteral("bsv"), QStringLiteral("元魂")},
-      {QStringLiteral("asv"), QStringLiteral("天迹星轮")},
-      {QStringLiteral("sjv"), QStringLiteral("神源兽")}};
-  for (const auto& component : components) {
-    if (!extremeParts.contains(component.first)) continue;
-    const int current = currentParts.value(component.first).toInt();
-    const int extreme = extremeParts.value(component.first).toInt();
-    if (current >= extreme) continue;
-    PetBattlePowerGap gap;
-    gap.key = component.first;
-    gap.label = component.second;
-    gap.current = current;
-    gap.extreme = extreme;
-    gap.gap = extreme - current;
-    result.knownExtremeGap += gap.gap;
-    result.componentGaps.append(gap);
-  }
-
-  result.astrolabeBonus =
-      qMax(0, currentParts.value(QStringLiteral("asv")).toInt() -
-                  extremeParts.value(QStringLiteral("asv")).toInt());
-  result.isHighest = result.hasCurrent && result.hasHighest &&
-                     result.currentLocallyCalculated &&
-                     result.redStargodFull &&
-                     (!result.hasChangeableSlot || result.changeableRed) &&
-                     result.breakthrough &&
-                     result.current >= result.highest;
-  result.highestGap = result.hasHighest
-                          ? qMax(0, result.highest - result.current)
-                          : 0;
-  return result;
+  const auto& catalog = PetDetailCatalog::instance();
+  return calculatePetBattlePower(pet, petPowerMetadataFromCatalog(pet,
+      catalog.metadataFor(pet).value(QStringLiteral("stargodSlotMaxLevel")).toInt(),
+      catalog.stargodDefinitions(), catalog.astrolabeDefinitions(), catalog.petDefinitions()));
 }
-
 PetDetailViewModel PetDetailAnalyzer::analyze(const QJsonObject& pet,
-                                              const PetRepository* repository,
+                                              const InventoryReadView* repository,
                                               const QString& imagePath,
                                               bool fetchingLatest) {
   PetDetailViewModel result;
@@ -421,18 +217,15 @@ PetDetailViewModel PetDetailAnalyzer::analyze(const QJsonObject& pet,
     const QStringList levels = parts.value(1).split(QLatin1Char(':'));
     result.sacred.equipped = true;
     result.sacred.name = catalog.sacredEquipmentName(define.value(0).toInt());
-    result.sacred.maxStar = PetDetailCatalog::sacredMaxStar(define.value(1).toInt());
-    result.sacred.maxStage = PetDetailCatalog::sacredMaxStage(define.value(2).toInt());
+    const PetMetadataView sacredMetadata(catalog.snapshot());
+    result.sacred.maxStar = sacredMetadata.sacredMaxStar(define.value(1).toInt());
+    result.sacred.maxStage = sacredMetadata.sacredMaxStage(define.value(2).toInt());
     result.sacred.star = levels.value(0).toInt();
     result.sacred.stage = levels.value(1).toInt();
-    if (result.sacred.star <= 0 && result.sacred.maxStar > 0)
-      result.sacred.star = result.sacred.maxStar;
-    if (result.sacred.stage <= 0 && result.sacred.maxStage > 0)
-      result.sacred.stage = result.sacred.maxStage;
     result.sacred.fullStar = result.sacred.maxStar > 0 &&
-                             result.sacred.star >= result.sacred.maxStar;
+                             result.sacred.star == result.sacred.maxStar;
     result.sacred.fullStage = result.sacred.maxStage > 0 &&
-                              result.sacred.stage >= result.sacred.maxStage;
+                              result.sacred.stage == result.sacred.maxStage;
   }
 
   for (const QString& chain : splitSequence(pet.value(QStringLiteral("astrolabe")).toString(),

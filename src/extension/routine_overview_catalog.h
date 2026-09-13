@@ -1,52 +1,39 @@
 #pragma once
 
+#include "../domain/catalog_types.h"
+
 #include <QDate>
 #include <QDateTime>
 #include <QList>
+#include <QJsonObject>
 #include <QString>
 #include <QVector>
+#include <atomic>
+#include <memory>
 
-struct RoutineTaskDefinition {
-  int id = 0;
-  QString name;
-  int dayFinish = 0;
-  int dayActive = 0;
-  int weekFinish = 0;
-  int weekDailyMax = 0;
-  int weekActive = 0;
-};
-
-struct ActivityOverviewDefinition {
-  QString key;
-  QString name;
-  QDate startDate;
-  int redPointId = 0;
-  QVector<int> redPointIds;
-};
 
 class RoutineOverviewCatalog final {
 public:
   static RoutineOverviewCatalog& instance();
 
-  const QList<RoutineTaskDefinition>& tasks() const { return tasks_; }
-  const QList<ActivityOverviewDefinition>& activities() const { return activities_; }
-  const QVector<int>& dayPrizeThresholds() const { return dayPrizeThresholds_; }
-  const QVector<int>& weekPrizeThresholds() const { return weekPrizeThresholds_; }
-  QDateTime sourceUpdatedAt() const { return sourceUpdatedAt_; }
-  QString sourceLabel() const { return sourceLabel_; }
+  std::shared_ptr<const RoutineCatalogSnapshot> snapshot() const { return std::atomic_load(&snapshot_); }
+  QList<RoutineTaskDefinition> tasks() const { return snapshot()->tasks; }
+  QList<ActivityOverviewDefinition> activities() const { return snapshot()->activities; }
+  QVector<int> dayPrizeThresholds() const { return snapshot()->dayPrizeThresholds; }
+  QVector<int> weekPrizeThresholds() const { return snapshot()->weekPrizeThresholds; }
+  QDateTime sourceUpdatedAt() const { return snapshot()->sourceUpdatedAt; }
+  QString sourceLabel() const { return snapshot()->sourceLabel; }
 
-  bool reloadFromDataRoot(const QString& dataRoot, QString* error = nullptr);
-  bool updateFromOfficialData(const QString& dataRoot, QString* error = nullptr);
+  static std::shared_ptr<const RoutineCatalogSnapshot> prepare(
+      const QJsonObject& root, const QString& source, const QDateTime& updatedAt,
+      QString* error = nullptr);
+  static QJsonObject parseOfficialTexts(QString taskText, const QString& hudText,
+                                       const QString& redText, QString* error = nullptr);
 
 private:
   RoutineOverviewCatalog();
-  bool loadObject(const class QJsonObject& root, const QString& source,
-                  const QDateTime& updatedAt, QString* error);
+  friend class CatalogIoService;
+  void publish(std::shared_ptr<const RoutineCatalogSnapshot> value) { std::atomic_store(&snapshot_, std::move(value)); }
 
-  QList<RoutineTaskDefinition> tasks_;
-  QList<ActivityOverviewDefinition> activities_;
-  QVector<int> dayPrizeThresholds_;
-  QVector<int> weekPrizeThresholds_;
-  QDateTime sourceUpdatedAt_;
-  QString sourceLabel_;
+  std::shared_ptr<const RoutineCatalogSnapshot> snapshot_ = std::make_shared<RoutineCatalogSnapshot>();
 };

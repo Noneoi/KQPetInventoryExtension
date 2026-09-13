@@ -3,9 +3,12 @@
 #include "pet_detail_view_model.h"
 
 #include <QString>
+#include <QJsonObject>
+
 
 struct PetDetailRenderOptions {
   bool visualMismatchRefreshPending = false;
+  bool compactIdentity = false;
 };
 
 class PetDetailRenderer final {
@@ -16,6 +19,6 @@ public:
   static QString valueOrDash(const QString& value);
   static QString row(const QString& label, const QString& richValue);
   static QString section(const QString& title, const QString& rows);
-  static QString identitySection(const QString& rows, const QString& imageHtml);
+  static QString identitySection(const QString& rows, const QString& imageHtml, bool compact = false);
   static QString document(const QString& header, const QString& body);
 };

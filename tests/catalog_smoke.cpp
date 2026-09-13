@@ -21,6 +21,14 @@ int main(int argc, char* argv[]) {
   const PetDetailCatalog& catalog = PetDetailCatalog::instance();
   bool ok = true;
   ok &= require(catalog.isLoaded(), "embedded catalog did not load");
+  const QJsonObject fateWheel{{QStringLiteral("r"),7529},
+      {QStringLiteral("n"),QStringLiteral("[灵初]轮转·命运之轮")},{QStringLiteral("rt"),26},
+      {QStringLiteral("_metaAttributes"),QStringLiteral("24")},{QStringLiteral("_metaJobs"),QStringLiteral("26")}};
+  ok &= require(catalog.resolvedOriginalName(fateWheel) == QStringLiteral("[灵初]轮转·命运之轮") &&
+      catalog.resolvedAttributes(fateWheel) == QStringLiteral("神灵") &&
+      catalog.resolvedJobs(fateWheel) == QStringLiteral("神攻") &&
+      catalog.pet(7529).value(QStringLiteral("stargodSlotMaxLevel")).toInt() == 8,
+      "current official 7529 identity was missing or stale observation metadata overrode it");
   ok &= require(catalog.petName(7135) == QStringLiteral("逆时空·湮灭神女"),
                 "skin name lookup failed");
   ok &= require(catalog.originalName(7135) == QStringLiteral("[灵初]湮灭守望·龙尊"),
@@ -49,8 +57,8 @@ int main(int argc, char* argv[]) {
                 "red stargod quality failed");
   ok &= require(catalog.stargod(79).value(QStringLiteral("changeable")).toBool(),
                 "changeable stargod lookup failed");
-  ok &= require(PetDetailCatalog::sacredMaxStar(1) == 8 &&
-                    PetDetailCatalog::sacredMaxStage(6) == 7,
+  ok &= require(catalog.sacredMaxStar(1) == 8 &&
+                    catalog.sacredMaxStage(6) == 7,
                 "sacred equipment max-level lookup failed");
   const QJsonObject qiankun{
       {QStringLiteral("r"), 7516},
@@ -58,13 +66,20 @@ int main(int argc, char* argv[]) {
       {QStringLiteral("rt"), 26}};
   ok &= require(catalog.resolvedEra(qiankun) == QStringLiteral("灵初"),
                 "missing-dictionary era must come from live name prefix");
-  ok &= require(catalog.resolvedJobs(qiankun) == QStringLiteral("神召唤师"),
-                "missing-dictionary job must come from live rt");
+  ok &= require(catalog.resolvedJobs(qiankun) == QStringLiteral("元素师 / 神速"),
+                "current official dual job was replaced by unrelated live rt");
   ok &= require(catalog.resolvedOriginalName(qiankun) ==
                     QStringLiteral("[灵初]五行御玄·乾坤"),
                 "missing-dictionary original name must use live name");
   ok &= require(catalog.resolvedAttributes(qiankun) == QStringLiteral("神灵"),
-                "missing-dictionary attribute must fall back to same-line family");
+                "current official attribute lookup failed");
+  const QJsonObject futureEvolution{{QStringLiteral("r"),990002},
+      {QStringLiteral("n"),QStringLiteral("[未来]轮转·命运之轮")},{QStringLiteral("rt"),26}};
+  const auto futureEnriched = catalog.enrichMetadata(futureEvolution);
+  ok &= require(catalog.resolvedJobs(futureEvolution) == QStringLiteral("—") &&
+      catalog.resolvedAttributes(futureEvolution) == QStringLiteral("—") &&
+      !futureEnriched.contains(QStringLiteral("_metaJobs")) && !futureEnriched.contains(QStringLiteral("_metaAttributes")),
+      "unlisted new evolution guessed its job from rt or borrowed an older same-name attribute");
   const QJsonObject futureSkin{
       {QStringLiteral("r"), 990001},
       {QStringLiteral("n"), QStringLiteral("未来皮肤名")},

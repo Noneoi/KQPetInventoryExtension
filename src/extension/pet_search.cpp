@@ -54,13 +54,9 @@ QChar pinyinInitial(QChar character) {
   return {};
 }
 
-struct InitialsWithPositions {
-  QString initials;
-  QList<int> positions;
-};
-
-InitialsWithPositions initialsWithPositions(const QString& text) {
-  InitialsWithPositions result;
+PetSearchText initialsWithPositions(const QString& text) {
+  PetSearchText result;
+  result.text = text;
   result.initials.reserve(text.size());
   result.positions.reserve(text.size());
   for (int index = 0; index < text.size(); ++index) {
@@ -81,40 +77,61 @@ InitialsWithPositions initialsWithPositions(const QString& text) {
 
 }  // namespace
 
-QString petPinyinInitials(const QString& text) {
-  return initialsWithPositions(text).initials;
+PetSearchText preparePetSearchText(const QString& text) { return initialsWithPositions(text); }
+
+PetSearchQuery preparePetSearchQuery(const QString& query) {
+  PetSearchQuery result;
+  result.needle = query.trimmed();
+  result.lowerNeedle = result.needle.toLower();
+  result.initialsAllowed = !result.needle.isEmpty();
+  for (const QChar letter : result.needle)
+    if (!((letter >= QLatin1Char('a') && letter <= QLatin1Char('z')) ||
+          (letter >= QLatin1Char('A') && letter <= QLatin1Char('Z'))))
+      result.initialsAllowed = false;
+  return result;
 }
 
-bool petQueryMatches(const QString& query, const QStringList& names,
-                     const QStringList& identifiers) {
-  const QString needle = query.trimmed();
-  if (needle.isEmpty()) return true;
-  for (const QString& name : names)
-    if (name.contains(needle, Qt::CaseInsensitive)) return true;
-  for (const QString& identifier : identifiers)
-    if (identifier.contains(needle, Qt::CaseInsensitive)) return true;
+PetSearchIndex preparePetSearchIndex(const QStringList& names, const QStringList& identifiers) {
+  PetSearchIndex result;
+  QStringList uniqueNames = names;
+  uniqueNames.removeDuplicates();
+  for (const QString& name : uniqueNames)
+    if (!name.isEmpty()) result.names.append(preparePetSearchText(name));
+  result.identifiers = identifiers;
+  return result;
+}
 
-  static const QRegularExpression lettersOnly(QStringLiteral("^[A-Za-z]+$"));
-  if (!lettersOnly.match(needle).hasMatch()) return false;
-  const QString lowerNeedle = needle.toLower();
-  for (const QString& name : names)
-    if (petPinyinInitials(name).contains(lowerNeedle)) return true;
+bool petQueryMatches(const PetSearchQuery& query, const PetSearchIndex& index) {
+  if (query.needle.isEmpty()) return true;
+  for (const PetSearchText& name : index.names)
+    if (name.text.contains(query.needle, Qt::CaseInsensitive)) return true;
+  for (const QString& identifier : index.identifiers)
+    if (identifier.contains(query.needle, Qt::CaseInsensitive)) return true;
+  if (!query.initialsAllowed) return false;
+  for (const PetSearchText& name : index.names)
+    if (name.initials.contains(query.lowerNeedle)) return true;
   return false;
 }
 
-QPair<int, int> petQueryHighlightRange(const QString& query, const QString& text) {
-  const QString needle = query.trimmed();
-  if (needle.isEmpty() || text.isEmpty()) return {-1, 0};
-  const int direct = text.indexOf(needle, 0, Qt::CaseInsensitive);
-  if (direct >= 0) return {direct, needle.size()};
-
-  static const QRegularExpression lettersOnly(QStringLiteral("^[A-Za-z]+$"));
-  if (!lettersOnly.match(needle).hasMatch()) return {-1, 0};
-  const InitialsWithPositions mapped = initialsWithPositions(text);
-  const int initialIndex = mapped.initials.indexOf(needle.toLower());
-  if (initialIndex < 0 || initialIndex + needle.size() > mapped.positions.size())
+QPair<int, int> petQueryHighlightRange(const PetSearchQuery& query, const PetSearchText& text) {
+  if (query.needle.isEmpty() || text.text.isEmpty()) return {-1, 0};
+  const int direct = text.text.indexOf(query.needle, 0, Qt::CaseInsensitive);
+  if (direct >= 0) return {direct, query.needle.size()};
+  if (!query.initialsAllowed) return {-1, 0};
+  const int initialIndex = text.initials.indexOf(query.lowerNeedle);
+  if (initialIndex < 0 || initialIndex + query.needle.size() > text.positions.size())
     return {-1, 0};
-  const int begin = mapped.positions.at(initialIndex);
-  const int end = mapped.positions.at(initialIndex + needle.size() - 1) + 1;
+  const int begin = text.positions.at(initialIndex);
+  const int end = text.positions.at(initialIndex + query.needle.size() - 1) + 1;
   return {begin, end - begin};
+}
+
+QString petPinyinInitials(const QString& text) { return preparePetSearchText(text).initials; }
+
+bool petQueryMatches(const QString& query, const QStringList& names, const QStringList& identifiers) {
+  return petQueryMatches(preparePetSearchQuery(query), preparePetSearchIndex(names, identifiers));
+}
+
+QPair<int, int> petQueryHighlightRange(const QString& query, const QString& text) {
+  return petQueryHighlightRange(preparePetSearchQuery(query), preparePetSearchText(text));
 }

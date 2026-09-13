@@ -2,6 +2,10 @@
 
 #include <QSortFilterProxyModel>
 #include <QString>
+#include <QPointer>
+#include "pet_search.h"
+
+class PetTableModel;
 
 class PetFilterProxyModel final : public QSortFilterProxyModel {
   Q_OBJECT
@@ -16,12 +20,15 @@ public:
   };
 
   explicit PetFilterProxyModel(QObject* parent = nullptr);
+  void setSourceModel(QAbstractItemModel* model) override;
 
   void setQuery(const QString& query);
   void setAttributeFilter(const QString& attribute);
   void setJobFilter(const QString& job);
   void setEraFilter(const QString& era);
   void setSortMode(SortMode mode, bool ascending);
+  void setFilters(const QString& query, const QString& attribute,
+                  const QString& job, const QString& era);
 
 protected:
   bool filterAcceptsRow(int sourceRow,
@@ -31,6 +38,8 @@ protected:
 
 private:
   QString query_;
+  PetSearchQuery preparedQuery_;
+  QPointer<PetTableModel> petModel_;
   QString attribute_;
   QString job_;
   QString era_;

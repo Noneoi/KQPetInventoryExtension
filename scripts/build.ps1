@@ -3,12 +3,13 @@ param(
     [ValidateSet('Debug', 'Release', 'RelWithDebInfo')]
     [string]$Configuration = 'Release',
     [string]$BuildDirectory = '',
+    [string[]]$Targets = @(),
     [switch]$Clean
 )
 
 $ErrorActionPreference = 'Stop'
 $projectRoot = Split-Path -Parent $PSScriptRoot
-$buildRoot = if ($BuildDirectory) { $BuildDirectory } else { Join-Path $projectRoot 'build-qt663' }
+$buildRoot = if ($BuildDirectory) { $BuildDirectory } else { Join-Path $projectRoot 'build-v2' }
 $cmakeCommand = $null
 $generator = 'Ninja'
 
@@ -55,15 +56,16 @@ if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
 
 $buildArguments = @('--build', $buildRoot)
 if ($Clean) { $buildArguments += '--clean-first' }
-$buildArguments += @('--target', 'KQPetLauncher', 'KQPetInventory', 'KQPetCatalogSmoke',
-                     'KQPetRepositorySmoke', 'KQPetRefreshSmoke', 'KQPetMoveSmoke',
-                     'KQPetSearchSmoke', 'KQPetTableModelSmoke', 'KQPetShopSmoke',
-                     'KQAssetAnalysisSmoke', 'KQAssetAnalysisPerformance',
-                     'KQRecommendationSmoke',
-                     'KQRoutineOverviewSmoke',
-                     'KQProtocolFixtureSmoke', 'KQInlineHookPolicySmoke',
-                     'KQPetUiPreview', 'KQShopUiPreview',
-                     'KQRoutineUiPreview', 'KQAssetAnalysisUiPreview')
+if ($Targets.Count -gt 0) {
+    foreach ($targetName in $Targets) {
+        if ($targetName -notmatch '^[A-Za-z][A-Za-z0-9_]*$') { throw 'Invalid CMake target name.' }
+    }
+    $buildArguments += @('--target') + $Targets
+} else {
+    # The complete CMake target graph includes every registered test. A new test
+    # must not be silently excluded by an independently maintained target list.
+    $buildArguments += @('--target', 'all')
+}
 & $cmakeCommand @buildArguments
 if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
 

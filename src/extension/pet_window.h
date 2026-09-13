@@ -1,12 +1,17 @@
 #pragma once
 
 #include <QDialog>
+#include <QDateTime>
 #include <QJsonObject>
 #include <QList>
+#include <QPointer>
+#include <memory>
+#include "../contracts/cultivation_material_inventory.h"
 
 class QLabel;
 class QLineEdit;
 class QComboBox;
+class QCheckBox;
 class QHBoxLayout;
 class QPushButton;
 class QModelIndex;
@@ -14,49 +19,54 @@ class QTableView;
 class QTableWidget;
 class QTabWidget;
 class QTimer;
+class QResizeEvent;
 class QTextBrowser;
 class QTreeWidget;
 class QTreeWidgetItem;
 class QJsonValue;
+class QGridLayout;
+class QSplitter;
 class PetImageCache;
+class PetImageBrowser;
+class PetRawDataTree;
 class PetFilterProxyModel;
-class PetRepository;
+class InventoryReadView;
 class PetTableModel;
+struct PreparedPetDetail;
 
 class PetWindow final : public QDialog {
   Q_OBJECT
 
 public:
-  explicit PetWindow(PetRepository* repository, QWidget* parent = nullptr);
+  explicit PetWindow(InventoryReadView* repository, QWidget* parent = nullptr,
+                     PetImageCache* sharedImages = nullptr);
   void setStatus(const QString& status);
-  static QString renderCachedDetailHtml(const QJsonObject& pet,
-                                        const PetRepository* repository,
-                                        const QString& imagePath = {},
-                                        bool fetchingLatest = false);
+  void setCultivationMaterials(const MaterialInventorySnapshot& materials);
 
 public slots:
+  void setWorkbenchMode(bool embedded, bool compact);
+  void resetSessionContext();
   void focusPet(qint64 instanceId);
   void setListRefreshRunning(bool running);
   void setDetailProgress(bool running, bool paused, int completed, int total,
                          int succeeded, int failed, qint64 currentInstanceId,
                          int estimatedSeconds);
   void setMoveRunning(bool running);
-  void requestReplacement(qint64 incomingInstanceId,
-                          const QList<qint64>& eligibleBackpackIds);
 
 signals:
+  void sidebarStatusChanged(const QString& text);
+  void sidebarDetailProgressChanged(const QString& text, bool running, int completed, int total);
   void listRefreshRequested();
-  void warehouseDetailRefreshRequested();
+  void warehouseDetailRefreshRequested(const QList<qint64>& instanceIds);
   void warehouseDetailPauseRequested();
   void warehouseDetailResumeRequested();
   void warehouseDetailCancelRequested();
   void detailRequested(qint64 instanceId);
+  void cultivationMaterialsRefreshRequested();
   void settingsRequested();
   void copyDiagnosticsRequested();
   void moveToWarehouseRequested(qint64 instanceId);
   void moveToBackpackRequested(qint64 instanceId);
-  void moveReplacementChosen(qint64 outgoingInstanceId);
-  void moveCancelRequested();
 
 private slots:
   void rebuild();
@@ -69,6 +79,10 @@ private slots:
   void moveCurrentToWarehouse();
   void moveCurrentToBackpack();
 
+protected:
+  bool event(QEvent* event) override;
+  void resizeEvent(QResizeEvent* event) override;
+
 private:
   void fillTable(QTableWidget* table, const QList<QJsonObject>& pets,
                  const QString& location);
@@ -77,19 +91,35 @@ private:
   void updateWarehouseRow(qint64 instanceId);
   void refreshViews(bool rebuildFilterChoices = false);
   void rebuildFilterChoices();
-  QList<QJsonObject> filteredAndSorted(const QList<QJsonObject>& pets,
-                                       bool backpack) const;
-  bool matchesCurrentQueryAndFilters(const QJsonObject& pet) const;
   void rebuildPageButtons(int pageCount);
   void updateSortDirectionState();
   void showDetail(const QJsonObject& pet);
-  void addJsonValue(const QString& key, const QJsonValue& value, QTreeWidgetItem* parent);
+  void showAnalysis(const std::shared_ptr<const PreparedPetDetail>& detail,
+                    qint64 instanceId, const QString& name);
   QString displayName(const QJsonObject& pet) const;
   static qint64 rowId(QTableWidget* table, int row);
   void updateMoveButtons();
+  void updateWorkbenchPanels();
+  void requestSelectedWarehouseDetails();
+  void fitInventoryGeometry();
 
-  PetRepository* repository_ = nullptr;
-  PetImageCache* imageCache_ = nullptr;
+  InventoryReadView* repository_ = nullptr;
+  QPointer<PetImageCache> imageCache_;
+  QGridLayout* toolbarLayout_ = nullptr;
+  QGridLayout* filterLayout_ = nullptr;
+  QWidget* filterPanel_ = nullptr;
+  QPushButton* filterToggle_ = nullptr;
+  QWidget* detailEraFilters_ = nullptr;
+  QList<QCheckBox*> detailEraChecks_;
+  QList<QWidget*> toolbarWidgets_;
+  QList<QWidget*> filterWidgets_;
+  QSplitter* contentSplitter_ = nullptr;
+  QSplitter* inventorySplitter_ = nullptr;
+  QPushButton* detailToggle_ = nullptr;
+  bool workbenchEmbedded_ = false;
+  bool workbenchCompact_ = false;
+  bool compactDetails_ = false;
+  QList<int> workbenchWideSizes_;
   QLineEdit* search_ = nullptr;
   QTimer* searchDebounce_ = nullptr;
   QComboBox* attributeFilter_ = nullptr;
@@ -115,15 +145,27 @@ private:
   QTableView* warehouseTable_ = nullptr;
   QTableView* eliteWarehouseTable_ = nullptr;
   PetTableModel* warehouseModel_ = nullptr;
+  PetTableModel* backpackModel_ = nullptr;
   PetTableModel* eliteWarehouseModel_ = nullptr;
   PetFilterProxyModel* warehouseProxy_ = nullptr;
+  PetFilterProxyModel* backpackProxy_ = nullptr;
   PetFilterProxyModel* eliteWarehouseProxy_ = nullptr;
   QTabWidget* detailTabs_ = nullptr;
-  QTextBrowser* detailView_ = nullptr;
-  QTreeWidget* rawTree_ = nullptr;
+  PetImageBrowser* detailView_ = nullptr;
+  PetRawDataTree* rawTree_ = nullptr;
+  QWidget* analysisPage_ = nullptr;
+  QTextBrowser* analysisView_ = nullptr;
+  QPushButton* refreshMaterials_ = nullptr;
+  QLabel* materialInventoryStatus_ = nullptr;
   QLabel* status_ = nullptr;
   qint64 currentId_ = 0;
+  qint64 pendingFocusId_ = 0;
   qint64 renderedDetailId_ = 0;
+  std::shared_ptr<const PreparedPetDetail> renderedPreparedDetail_;
+  std::shared_ptr<const PreparedPetDetail> renderedAnalysisDetail_;
+  QDateTime analysisObservedAt_;
+  MaterialInventorySnapshot cultivationMaterials_;
+  quint64 analysisRenderGeneration_ = 0;
   qint64 pendingDetailScrollId_ = 0;
   int pendingDetailScroll_ = 0;
   quint64 detailRenderGeneration_ = 0;
@@ -132,7 +174,10 @@ private:
   int backpackPage_ = 0;
   bool detailBatchPaused_ = false;
   bool detailBatchRunning_ = false;
+  int detailCompleted_ = 0;
+  int detailTotal_ = 0;
   bool listRefreshRunning_ = false;
   bool moveRunning_ = false;
+  bool backpackDisplayRefreshScheduled_ = false;
   QString currentLocation_;
 };

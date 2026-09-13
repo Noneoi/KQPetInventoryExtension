@@ -1,202 +1,131 @@
-# 原版氪奇 Pro 精灵扩展
+# 氪奇精灵工作台
 
-这个工程的目标程序是：
+氪奇 Pro 的非官方 Windows 扩展，提供精灵列表与详情、培养分析、指定精灵兑换查询、日常活动和账号资产汇总。通过外置启动器与进程内 Qt DLL 工作，原版客户端 EXE 保持原样。
 
-当前部署目录是 `D:\奥奇工程\氪奇Pro-V1.1.3`；启动器会选择同目录版本号最高的 `KQPro*.exe`，DLL 则只接受 `TargetProfileRegistry` 中明确登记且签名验证通过的版本。当前登记版本为 V1.1.3，未知版本会 fail closed。
+当前仓库为 **2.0.0 源码**。已有开发构建通过 14 项定向回归；真实客户端交互由用户手动验证。二进制的具体版本、源码摘要和测试结果以对应产物的 identity 与报告为准。
 
-它不是 `逆向\逆向` 下的复刻登录器功能。工程采用外置启动器加载 DLL 的方式，把按钮和精灵窗口加进正在运行的原版氪奇进程；不会覆盖、重打包或修改原版 EXE 文件。
+## 主要功能
 
-## 当前已实现
+- **精灵管理**：显示名称与精灵原名分列，支持搜索、筛选、排序、背包分页和仓库按时代刷新。详情刷新期间保留当前内容，避免列表更新后详情停在加载状态。
+- **精灵分析**：区分官方极限战斗力、已装备战力、本地持有可达战力与至高战力。未装备但已在本精灵星神背包中的红星参与合法配置计算，区分缺少、待装备及需要升级。
+- **培养缺口**：列出元魂等级与觉醒、源兽星级和阶级、星轮、普通红星及万变红星需求；对应元魂、源兽和精华显示“需要 / 已有 / 还差”。
+- **官方时代标记**：优先使用种族定义中的 `sign`，皮肤名称不会改变时代判断。只有灵初精灵计入星轮突破及突破后星灵配置。
+- **至高后缀**：列表仅在本地持有可达战力与至高目标均已知，且前者达到目标时显示“（至高）”。官方极限值不作为这条判定线；已有但未装的资源仍可能需要调整装备。
+- **资产与红星统计**：全账号养成分析手动计算；“统计本地红星”独立统计本地详情中的已装备及本宠背包，普通红星、万变红星分别计数，不联网。
+- **商店切换**：复用已准备的精灵事实与商品规则，后台分批匹配。切换商店或商品不再同步重算全仓库，也不自动查询次数或材料余额。
 
-- v1.4.0 增加资源驱动“行动建议”：只匹配当前真实兑换目录中、经现有精灵适用性逻辑确认可提升的项目，并结合当前账号可靠资源数量与剩余兑换次数区分“当前可以处理 / 还缺资源 / 资源状态未知 / 接近满培养”；三类结果使用独立子页，默认前 10 条并可切换显示全部，支持按实例 ID 和商品稳定键一键定位。
-- v1.3.1 修正资产分析刷新语义：列表签名未变化时保留“最新”状态，详情更新按实例 ID 去重记录，旧分析与诊断表在过期后继续可见，并拆分商店、日常和账号状态。
-- v1.3.0 增加账号资产总览、养成诊断中心和账号隔离的轻量历史快照；完整分析严格改为用户手动触发，后台刷新不会反复遍历全部详情或重建诊断表。
-- v1.2.0 在安装 Hook 前执行统一兼容性检查；KQPro 身份、x64 架构、Qt 6.6.3、QCefView 或协议入口不满足时安全停止扩展，原版程序继续运行。
-- 诊断日志写入 `KQPetData\logs\latest.log`，旧日志按启动时间归档；账号只记录不可逆摘要，不默认记录完整协议内容。精灵窗口提供“复制诊断”。
-- 增加统一“资产分析”窗口，完全复用当前账号本地缓存，不新增协议：账号资产总览可按背包、普通仓库、精英仓库、培养缺口、缺少详情和商店可提升等指标跳转到精灵列表。60 秒列表同步只更新轻量的精灵总数、三个位置数量和缺少详情缓存数量；完整培养分析仅在用户点击“重新计算养成分析（仅本地）”后执行。
-- 养成诊断中心汇总当前/最高战斗力、完成度以及红星、星轮、神源兽、元魂缺口；双击精灵会回到现有精灵仓库并定位对应实例，不复制详情逻辑。
-- 历史快照按账号、按日期保存轻量状态，可显示新增精灵、达到满培养、红星完成、星轮突破和总战力变化，并查看单个实例 ID 的历史；可选择在每次手动刷新资产分析后同步更新当日快照，后台列表与详情刷新不会隐式执行完整分析。
-- 行动建议页复用同一次手动分析结果、商店次数缓存和材料缓存，不新增服务器请求；任何未知资源均保持未知，当前真实目录没有匹配项目时绝不生成商店方案。同一精灵只显示排序后的最佳真实项目，并提示其他可用项目数量。
+## 刷新与本地缓存
 
-- 登录并识别账号后每 60 秒异步刷新一次背包与仓库；先发送 `PJXExtension / 2_1_10 / {}`，1 秒后发送 `PJXExtension / 2_1_S / null`，单项 10 秒超时且任务不重叠。
-- “刷新背包/仓库”可立即触发同一刷新批次；刷新期间按钮禁用，失败或超时保留旧缓存。
-- “刷新仓库详情”按无缓存优先、缓存最旧优先刷新当前账号全部仓库精灵：严格单并发、每批 12 只、每只间隔 1 秒、批间休息 2 秒、单只 8 秒超时并重试 1 次，支持暂停、继续和取消。
-- 手动启动仓库详情批量刷新后，60 秒自动背包/仓库刷新会在整个运行及暂停期间停止；详情任务完成或取消后才重新开始完整倒计时。
-- “设置”界面可调整自动刷新间隔、列表请求间隔与超时、详情请求间隔、批量大小、批间休息、详情超时和重试次数；默认值就是上述当前参数，并持久化到 `KQPetData\settings.json`。
-- 捕获原版 `recivedata` 返回并解析背包、普通仓库、告别仓库、精英仓库。
-- 在原版主窗口“资源”按钮正上方增加小尺寸“精灵仓库”按钮。
-- 增加独立“兑换商店”窗口，左侧上方显示六个商店及兑换项、左侧下方显示适用精灵，右侧完整显示当前精灵详情；分开提供“刷新兑换次数/货币”和“更新兑换项目/适用精灵”两个手动按钮，不在后台自动请求商店。商店页签只显示名称，当前账号持有的对应货币集中显示在页签上方资源栏；界面显示兑换项所需资源、限次和剩余次数。
-- 兑换项不按中文名称硬编码识别；第二个按钮会动态解析官方解包中的 `SEFConfig.as`，按商店 ID、服务器项目 ID、强化类型和允许种族列表建立稳定身份。项目改名或允许精灵变化时无需改代码；新配置验证成功后原子写入 `KQPetData\catalog\shop-exchange-data.json`，解析失败会继续使用旧配置。
-- 当前选中的兑换项目名称会使用粗体强调，切换商店或项目后同步更新，不依赖项目名称匹配。
-- 点击兑换项后，精灵表只显示“精灵、等级、时代、位置、实例 ID、战斗力、极限战斗力”，禁止文字省略并提供横向滚动；等级、战斗力、极限战斗力表头支持首次正序、再次倒序，刷新后保持当前项目、精灵和排序，不会把已打开的精灵列表清空。
-- 点击商店精灵会立即打开本地缓存的结构化详情（名称、原名、属性、职业及各培养项），同时按当前账号和实例 ID 发送一次 `2_1_R`；有效回包原子覆盖对应详情文件并增量更新当前行，失败时保留旧缓存。
-- 商店中的仓库精灵提供“进入背包”，复用精灵仓库页的单一移动控制器、背包满员替换确认和移动前后只读列表核对；背包精灵不提供“放入仓库”。移动成功后只刷新背包/仓库及本地个体状态，不额外刷新商店次数或官方兑换配置。
-- 适用个体先按官方允许种族筛选，再依据本地完整详情分析等级、天赋、星神、元魂、星轮以及神源兽星/阶。只有本地数据能明确证明该项目仍可提升时才绿色高亮；已满保持普通样式，缺少或无法确认的数据不会误标绿。最终能否兑换仍以服务器校验为准。
-- 商店次数使用 `TimelinessActExtension / 1008_20260313_es_0 / {}` 异步查询，结果按账号保存到 `accounts\<账号ID>\shops.json`；账号切换后会取消旧查询并拒绝旧响应。
-- 增加独立“日常活动”大窗口，只有手动刷新。日常/周常页显示“距任务完成”，不再把任务进度冒充玩法机会；“玩法剩余次数”页显示星轮探险、缤纷树、源兽之门、全民斗技、新版农场，以及经典/传奇竞技场的挑战次数。两个精灵公园项目已移除；竞技场 `16_24_A` 和排位赛 `16_6_0` 均不主动发送，经典/传奇挑战次数只在游戏自身打开竞技场时被动读取。灵骑破封当前只有执行协议，没有安全的只读次数接口，因此明确显示未读取。
-- 联盟商店的个人贡献币改为从游戏正常流程返回的联盟概要 `1015_2A / infos.UnionMemberInfo.lCToken` 被动更新；通用材料响应不再把缺失的 `134:1` 伪造为 0。
-- 针对偶发闪退，协议回包已强制排队回 Qt 主线程，退出时先停止捕获，避免跨线程直接更新 QWidget。
-- 精灵列表左侧采用上下分区：上方为背包，下方为普通/精英仓库切换；背包每页最多 12 只并提供独立数字页按钮，仓库保持滚动列表。
-- 查询同时作用于背包、普通仓库和精英仓库，但结果仍显示在各自区域；支持皮肤名、原名和 ID 的连续子串，并支持不区分大小写的连续拼音首字母查询，例如 `byz`、`yy` 可命中 `[灵初]不移之月·影月`，`dan` 可命中 `即刻永恒·黛安娜`。
-- 背包和仓库各自拥有排序控件（普通/精英仓库共用）：支持默认、战斗力、极限战斗力、图鉴序列和获得时间，除默认排序外均可切换正序/倒序；背包默认排序严格按游戏 `_position`。
-- 属性、职业和时代筛选在三个区域间共用；双职业会拆分匹配任意一项，“重置查询/筛选”可恢复全部显示。
-- 属性筛选优先排列神属性；职业筛选依次优先“神速、神平衡、神盾、神攻、元素师、神召唤师、通灵师、赋能师、幻元师”，其余项目中双职业涉及的职业优先。
-- 概要新增时代列；搜索结果会把命中的汉字或拼音首字母对应汉字加粗标红。
-- 排序刷新关闭逐格尺寸测量和中途绘制，千只仓库排序切换不再触发长时间假死。
-- 背包位置按原版布局换算：每页 12 只、两排、每排 6 只，只显示“第几页、第几排”；普通/精英仓库的位置栏只显示仓库类型。
-- 列表禁用横向滚动和文字省略号；名称列按最长名称紧凑自适应，属性栏带官方属性图标。
-- 点击背包精灵直接打开结构化详情；点击仓库精灵会先立即显示本地详情，再把 `2_1_R / {"pi":实例ID}` 插入最高优先级队列，返回验证成功后只原子覆盖该账号、该实例的详情缓存。
-- 详情页显示皮肤名和原名、属性、职业、完整天赋（双星能独立一行，并显示天赋战斗力/满天赋战斗力）、元魂等级/觉醒、神源兽星阶/距满阶差值、天迹星轮已选星灵/突破状态；基础信息右侧显示并缓存精灵图片。
-- 根据官方 `sppl/asps/sepi/srpi/srri/cppl/acps/cepi/crpis/sdpi` 字段按需显示召唤者、被召唤精灵、召唤列表、携带者、被携带精灵及“携带 / 神使”列表；没有关系数据时不显示空区块。
-- 关系精灵后显示“时代、LV、当前战斗力 / 极限战斗力”，并优先补充对应实例的本地详情缓存。
-- 星神区单独显示固定万变栏，普通栏按 7 个槽位统计缺口，并按加成分成进攻、防御、功能性；其中如有神助、顺应天命、天煞孤星、气贯星河归入功能性，乘胜追击归入进攻，福虎佑灵归入防御。
-- 天迹星轮显示全部星灵，已选星灵使用绿色粗体强调；专属星灵同时显示点亮所需的专属精华数量。
-- 精灵仓库使用独立普通顶层窗口，不再绑定为原版窗口的始终置顶子窗口；点击哪个窗口，哪个窗口就位于上层。
-- 星神按官方名称显示等级；红色星神使用红色，金色星神使用金色，万变格当前星神加下划线并标注万变底座。
-- 基础信息显示当前战斗力、普通极限战斗力和是否达到最高战斗力；最高战斗力按“普通极限 + 8 红星 1200 + 星轮突破 150”计算。
-- 详情底部使用服务器 `czdlv/mzdlv` 分项分析天赋、元魂、神源兽、星神、星轮等养成缺口，并用服务器实际加成校验红星和突破状态，避免仅凭颜色误报。
-- 保留“原始数据”页，用于新协议字段核对。
-- 以“账号 ID＋协议实例字段 `id`”为唯一身份，按账号分目录保存 schema 3 列表和逐只详情，使用 `QSaveFile` 原子更新；账号会话代数、请求代数和实例 ID 全部匹配才允许落盘。
-- 仓库概览的战斗力/极限战斗力只读取该账号已落盘的详情缓存，不使用仓库列表响应中的简略战力字段。
-- 仓库详情响应只增量更新对应实例 ID 的表格行；仅当该实例当前被选中时才重新生成详情 HTML、原始数据树并加载图片。
-- 换皮肤或形态但实例 ID 不变时继续使用同一个详情文件，并继承该实例已经确认的原名、属性、职业和时代元数据快照；即使新皮肤种族号尚未进入内置字典也不会丢失基础资料。元数据字典与代码解耦，可把新版 `pet-detail-data.json` 放入 `KQPetData\catalog` 覆盖更新，无需修改或重编译代码。图片仍按“种族 ID＋形象 ID＋名称哈希”缓存，旧详情和旧图片不自动清理。
-- 启动器自动发现最新 `KQPro*.exe`；DLL 先按可执行文件名和版本选择 `TargetProfile`，再使用该 Profile 的 RVA 或唯一签名解析入口。未登记版本、签名不唯一或签名不匹配时安全停止，不会按旧偏移强行挂钩。
+| 操作 | 行为 |
+| --- | --- |
+| 启动、切页、排序、筛选、翻页 | 使用已有本地数据 |
+| 点击精灵 | 先显示本地详情；游戏在线时查询这一只，成功后更新并保存 |
+| 刷新背包/仓库 | 更新精灵列表 |
+| 刷新仓库详情 | 查询勾选时代的精灵，支持暂停、继续、取消 |
+| 精灵分析 → 刷新材料背包 | 手动读取普通材料与空闲源兽仓库 |
+| 商店 → 刷新兑换次数 | 手动读取主商店和已支持活动的次数、货币与价格条件 |
+| 设置 → 检查数据更新 | 联网更新官方公共资料、兑换目录和图片资源定义 |
+| 查看图片 | 已有有效图片只读本地；缺图允许单独下载并保存 |
 
-- 选中背包精灵后可点“放入仓库”，选中仓库精灵后可点“进入背包”。背包已满时不会盲目覆盖或直接失败，而是弹出列表，必须手动选择一只可移动的背包精灵进行交换。
-- 移动前后都会强制刷新背包和仓库；成功回包中的新背包序列会立即更新扩展界面，仓库摘要随后异步刷新。写操作只发送一次 `PJXExtension / 2_1_11 / {"pps":"实例ID顺序","ppt":0}`，响应超时不会重复写入，而是通过只读列表核对服务器最终状态。账号切换会取消旧会话操作；召唤、携带和神使关系允许移动，租借及明确处于阵型、队伍或跟随状态的精灵仍会拦截，入库精灵的详情缓存会保留。
-- 背包概要新增“是否出阵”：读取官方 `2_2_10` 当前阵型和 `2_2_0` 阵位变化中的实例ID，收到真实阵型数据后显示“是/否”，尚未收到时显示“—”；阵型状态只保存在当前账号会话内，不写入详情缓存。仓库概要保持原列结构。
+详情和图片长期保存，同一实例或资源的最新有效数据覆盖原文件，不按每次刷新堆积版本。断网、超时或无效响应保留旧数据及时间。程序不定时查询仓库、检查公共更新或清理这些磁盘缓存。
 
-## 工程结构
+默认数据目录是客户端下的 `KQPetData`，独立于插件版本目录。设置可查看占用、打开目录、管理缓存、备份恢复和迁移；`KQPetDataRoot.json` 保存目录选择，迁移在下次启动生效。
 
 ```text
-原版氪奇精灵扩展/
-├─ CMakeLists.txt
-├─ assets/              从官方解包生成并嵌入 DLL 的精灵详情字典
-├─ src/
-│  ├─ loader/          KQPetLauncher.exe：启动原版并加载 DLL
-│  └─ extension/       KQPetInventory.dll：桥接、缓存、窗口与详情
-├─ scripts/
-│  ├─ build.ps1
-│  ├─ deploy.ps1
-│  ├─ uninstall.ps1
-│  └─ verify-target.ps1
-├─ tools/               官方图鉴/SWF 配置字典生成器
-├─ tests/               嵌入字典冒烟测试
-└─ docs/
-   ├─ 设计与逆向依据.md
-   └─ AI工程交接文档.md       后续 AI 的权威上手入口
+KQPetData/
+├─ accounts/<账号>/
+│  ├─ inventory.json
+│  ├─ details/<实例ID>.json
+│  ├─ derived/
+│  ├─ cultivation-materials.json
+│  ├─ activity-exchanges.json
+│  └─ shops.json / routines.json / asset-analysis.json
+├─ catalog/
+├─ images/pets/                     种族与外观 ID 对应的图片
+├─ images/stargods/                 星神图标
+├─ images/attributes/               属性图标
+└─ data-tools/                      手动更新使用的本地转换工具
 ```
 
-扩展仍然发布为单个 `KQPetInventory.dll`，内部构建按职责拆成三个静态模块：
+“刷新材料背包”合计空闲源兽各等级的堆叠数量，不把已装备源兽计作可消耗库存。只读观察也能保存到本地，保存成功不会授予游戏写操作权限。
 
-- `KQPetCore`：Repository、Catalog、Identity、搜索、分析、移动策略及可测试 Controller。
-- `KQPetBridge`：Hook 和原版 Qt/协议入口桥接。
-- `KQPetUi`：精灵、商店、日常窗口及图片缓存。
+## 官方资料与活动兑换
 
-最终 DLL 由 `Core + Bridge + UI` 组合；Smoke Tests 只链接 `Core`，UI Preview 链接 `Core + UI`。Qt Resource 由最终 DLL/EXE 注册，避免静态库资源对象被链接器裁掉。
+公共更新覆盖精灵字典、属性与职业名称、星神规则、元魂材料、动态源兽计划、星轮节点与精华、指定精灵兑换、日常活动及图片索引。新活动从官方注册表、HUD、近期发布记录及显式链接发现；相同结构可自动解析，未支持的新结构保留旧数据并报告原因。
 
-精灵列表正在渐进迁移到 Qt Model/View：普通仓库和精英仓库已经采用 `PetTableModel → PetFilterProxyModel → QTableView`，搜索、筛选、排序和详情增量更新不再重建 `QTableWidgetItem`；背包分页暂时保留原实现，待后续独立迁移。
+2026-09-13 的公开资源快照包含 **8 个活动目录、72 项指定精灵兑换**：
 
-## 编译环境
+- 72 项有静态限次额度，69 项费用固定，3 项按活动总购买次数选择价格档位。
+- 7 个目录的 68 项支持通过“刷新兑换次数”读取账号次数及活动币；同次刷新也读取标准货币与道具余额。
+- 圣冕秘阁 4 项已显示费用和总限 1 次，当前次数读取仍缺少宿主生成的 `ci` 参数接入。
 
-- Windows x64
-- Visual Studio 2022 或 2026，安装“使用 C++ 的桌面开发”和 CMake 组件
-- CMake 3.24 或更高
-- Qt **6.6.3 MSVC 2019 64-bit** 开发包
+活动币及观察按账号、活动来源和查询范围保存，不因同名或同编号而混用。界面区分“只读观察”和“上次”数据，读取成功不自动证明限次周期仍有效。上述数量是当前发现范围的快照，不代表全部历史活动或未来所有规则。
 
-必须使用 Qt 6.6.3，是因为 DLL 会和原版进程里已经加载的 `Qt6Core.dll/Qt6Widgets.dll` 直接交互；跨 Qt 小版本混用 C++ ABI 不安全。
+首次点击“检查数据更新”会准备便携 Python、Java 和 JPEXS 工具，可能需要几分钟；后续复用本地工具与同版本资源。公共资料更新不会代替账号查询。
 
-在 PowerShell 中执行：
+## 构建
+
+需要 Windows x64、MSVC C++ 工具链、CMake 3.24+，以及 **Qt 6.6.3 MSVC 2019 64-bit** 开发包。构建固定使用该 Qt 版本；扩展与宿主共享 Qt ABI，运行时必须通过架构、导出符号及客户端接口检查。
 
 ```powershell
-Set-Location 'D:\奥奇工程\原版氪奇精灵扩展'
-powershell.exe -NoProfile -ExecutionPolicy Bypass -File .\scripts\build.ps1 -QtRoot 'D:\Qt\6.6.3\msvc2019_64'
+git clone https://github.com/Noneoi/KQPetInventoryExtension.git
+Set-Location .\KQPetInventoryExtension
+
+# 将 QtRoot 改为自己的 Qt 安装目录。
+.\scripts\build.ps1 -QtRoot 'D:\Qt\6.6.3\msvc2019_64'
+ctest --test-dir .\build-v2 -C Release --output-on-failure
 ```
 
-产物位于：
+默认构建目录是 `build-v2`，配置为 `Release`；可指定 `-BuildDirectory`、`-Configuration` 和 `-Targets`。主要产物位于 `build-v2\bin\Release`：
 
-```text
-build-qt663\bin\Release\KQPetLauncher.exe
-build-qt663\bin\Release\KQPetInventory.dll
-build-qt663\bin\Release\KQPetCatalogSmoke.exe
-build-qt663\bin\Release\KQPetRepositorySmoke.exe
-build-qt663\bin\Release\KQPetRefreshSmoke.exe
-build-qt663\bin\Release\KQPetMoveSmoke.exe
-build-qt663\bin\Release\KQPetTableModelSmoke.exe
-build-qt663\bin\Release\KQPetShopSmoke.exe
-build-qt663\bin\Release\KQRoutineOverviewSmoke.exe
-build-qt663\bin\Release\KQAssetAnalysisSmoke.exe
-build-qt663\bin\Release\KQRecommendationSmoke.exe
-build-qt663\bin\Release\KQAssetAnalysisPerformance.exe
-build-qt663\bin\Release\KQInlineHookPolicySmoke.exe
-build-qt663\bin\Release\KQPetUiPreview.exe
-build-qt663\bin\Release\KQShopUiPreview.exe
-build-qt663\bin\Release\KQRoutineUiPreview.exe
-build-qt663\bin\Release\KQAssetAnalysisUiPreview.exe
-```
+| 产物 | 用途 |
+| --- | --- |
+| `KQPetInventory.dll` | 进程内扩展 |
+| `KQPetLauncher.exe` | 配对版本加载器，由稳定入口调用 |
+| `KQPetBootstrap.exe` | 打包后作为客户端根目录的 `KQPetLauncher.exe` |
+| `KQPetReleaseCheck.exe` | 读取构建身份、检查发行文件 |
+| `KQPetCompatibilityCheck.exe` | 离线兼容检查 |
+| `KQWorkbenchUiPreview.exe` | 使用模拟数据的独立工作台预览 |
 
-四个 `*UiPreview.exe` 只用于开发期预览；预览使用匿名模拟数据，不连接原版桥接，也不会发送游戏命令。
+客户端适配不限定氪奇 1.1.3/1.1.4，也不依赖固定文件名、整文件哈希或历史地址。启动器与 DLL 检查当前客户端接口；未识别或 ABI 不兼容时给出原因。通过检测不等于所有未来客户端都保证可用。详见 [客户端版本自适配](docs/compatibility-adaptive.md)。
 
-`build.ps1` 会同时编译字典、schema 3 账号/实例隔离缓存测试、异步刷新队列测试和安全移动状态机测试。需要更新官方数据时，可重新运行：
+## 打包、部署与回退
+
+预览包使用同一构建的加载器、DLL 和测试报告，避免混用旧产物。以下发行脚本使用 `build.ps1` 中的默认 Qt 路径，按本机环境配置后运行：
 
 ```powershell
-python .\tools\generate_pet_detail_data.py `
-  --unpack-root 'D:\奥奇工程\奥奇传说解包\奥奇传说解包' `
-  --output '.\assets\pet-detail-data.json'
+$reportDir = Join-Path (Get-Location) ('build-v2\validation\preview-' + (Get-Date -Format 'yyyyMMdd-HHmmss'))
+.\scripts\test-release.ps1 -BuildDirectory .\build-v2 -ReportDirectory $reportDir
+.\scripts\package-release.ps1 -TestReport (Join-Path $reportDir 'test-report.json') -Preview
 ```
 
-生成的 JSON 通过 Qt Resource 编进 `KQPetInventory.dll`，运行时不依赖解包目录。
-以后只更新数据、不换 DLL 时，也可以把生成结果复制到 `KQPetData\catalog\pet-detail-data.json`；扩展启动时会把它覆盖合并到内置字典。
-商店动态更新默认扫描 `D:\奥奇工程\奥奇传说解包`；如果以后解包换了位置，可设置环境变量 `KQPET_OFFICIAL_UNPACK_ROOT` 指向新根目录，不需重编译 DLL。
+报告绑定具体源码和产物。`test-release.ps1` 运行完整注册测试；平时也可针对改动运行相关测试。正式包额外要求对应的 `-AcceptanceReport`，定向测试记录不能代替真实客户端验收。
 
-## 部署和使用
-
-先关闭正在运行的氪奇，然后执行：
+关闭测试客户端后，用实际解压目录部署并启动：
 
 ```powershell
-powershell.exe -NoProfile -ExecutionPolicy Bypass -File .\scripts\deploy.ps1
+$client = 'C:\Games\KQPro-test'
+$package = 'C:\Downloads\实际预览包目录'
+& "$package\tools\deploy.ps1" -OriginalDir $client -PackageDirectory $package -AllowPreview
+& "$client\KQPetLauncher.exe"
 ```
 
-脚本只会向原版目录复制这两个新增文件：
+启动客户端根目录的稳定入口，不直接运行构建目录中的版本加载器。配对版本位于 `KQPetRuntime\releases\<releaseId>`；运行中的客户端收到更新时只暂存，关闭后重新部署完成激活。发行包不包含原版客户端或个人数据。
 
-- `KQPetLauncher.exe`
-- `KQPetInventory.dll`
+关闭客户端后，可用同一包内的 `rollback.ps1 -OriginalDir $client` 回退，或用 `uninstall.ps1 -OriginalDir $client` 卸载扩展入口。个人数据与原版客户端保留。
 
-如果原版氪奇正在运行，Windows 会锁定已加载的 DLL。部署脚本不会强行结束游戏，而会暂存为 `KQPetInventory.pending.dll`；下次正常关闭原版并运行启动器时，启动器会在创建原版进程前自动替换并删除待更新文件。
+## 文档
 
-之后从原版目录运行 `KQPetLauncher.exe`，不要直接运行原版 EXE。启动器会自动选择版本号最高的 `KQPro*.exe`，启动原版并加载扩展 DLL；DLL 会在挂钩前验证或扫描协议入口签名。进入账号后，原版窗口会出现“精灵仓库”按钮。
+| 内容 | 文档 |
+| --- | --- |
+| 版本变化 | [发行说明](RELEASE_NOTES.md) |
+| 数据目录、缓存、备份与迁移 | [本地缓存与手动更新](docs/local-cache-and-manual-updates.md) |
+| 官方资料与图片更新 | [手动公共数据更新](docs/manual-public-data-updater.md) |
+| 战力组成、星神与至高判定 | [战斗力分析](docs/pet-power-composition.md) |
+| 单只分析与资产汇总何时更新 | [分析刷新机制](docs/pet-analysis-lifecycle.md) |
+| 培养材料及空闲源兽 | [材料规则](docs/cultivation-material-rules.md)、[源兽仓库读取](docs/source-beast-inventory-protocol.md) |
+| 活动自动发现与次数、费用来源 | [活动兑换目录](docs/activity-exchange-public-data.md)、[只读观察映射](docs/activity-exchange-observations.md) |
+| 版本适配与逆向依据 | [兼容检测](docs/compatibility-adaptive.md)、[设计依据](docs/设计与逆向依据.md) |
+| 开发维护 | [工程交接](docs/AI工程交接文档.md)、[重构实施记录](docs/v2.0-implementation-log.md) |
 
-缓存固定保存在原版氪奇文件夹内：
-
-```text
-KQPetData\
-├─ last-account.txt
-├─ settings.json
-├─ accounts\<账号ID>\inventory.json
-├─ accounts\<账号ID>\details\<精灵实例ID>.json
-├─ accounts\<账号ID>\shops.json
-├─ accounts\<账号ID>\routines.json
-├─ accounts\<账号ID>\asset-analysis.json
-├─ accounts\<账号ID>\snapshots\<日期>.json
-├─ catalog\pet-detail-data.json       可选的新版外部元数据字典
-├─ catalog\shop-exchange-data.json    动态解析的官方商店项目缓存
-├─ catalog\routine-overview.json       动态解析的日常/周常/活动配置
-├─ images\attributes\attribute-icons.png
-└─ images\pets\<种族ID>_<形象ID>_<名称哈希>.png
-```
-
-普通列表刷新不会覆盖 `details` 目录。仓库详情只在“刷新仓库详情”、点击单只仓库精灵或检测到皮肤/形态变化时更新；精灵离开仓库、进入背包或 30 天未出现时都不会删除旧详情。旧版 `%LOCALAPPDATA%\KQPetInventory\cache-v1.json` 会在第一次启动时迁移，原文件保留不动。窗口底部显示当前账号、实际缓存路径和最近刷新状态。
-
-## 卸载
-
-关闭氪奇后执行：
-
-```powershell
-powershell.exe -NoProfile -ExecutionPolicy Bypass -File .\scripts\uninstall.ps1
-```
-
-它只删除上述两个扩展文件。原版 EXE 和原版 DLL 从始至终都不修改。
-
-## 原版版本兼容
-
-启动器不再绑定 V1.1.3 文件名或固定 SHA-256。同目录存在多个 `KQPro*.exe` 时按文件名中的数字版本选择最高版本。DLL 对当前 V1.1.3 仍使用已核对 RVA；更新版 RVA 变化后会扫描可执行代码段中的协议函数签名。只有三个入口都能唯一识别时才安装钩子，否则显示兼容提示并安全停止扩展，原版程序仍可正常使用。
+本项目与奥奇传说、氪奇官方无隶属关系。

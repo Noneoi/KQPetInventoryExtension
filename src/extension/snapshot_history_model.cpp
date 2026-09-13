@@ -25,18 +25,26 @@ QVariant SnapshotHistoryModel::data(const QModelIndex& index, int role) const {
     return {};
   const AccountAssetSnapshot& snapshot = snapshots_.at(index.row());
   switch (index.column()) {
-    case 0: return snapshot.createdAt.toString(QStringLiteral("yyyy-MM-dd HH:mm"));
+    case 0: return snapshot.createdAt.toLocalTime().toString(QStringLiteral("yyyy-MM-dd HH:mm"));
     case 1: return snapshot.totalPets;
     case 2: return snapshot.fullyCultivatedPets;
-    case 3: return snapshot.totalCurrentPower;
+    case 3: return snapshot.totalCurrentPowerKnown ? QString::number(snapshot.totalCurrentPower)
+        : QStringLiteral("部分未知（已记录 %1）").arg(snapshot.totalCurrentPower);
     case 4: {
       if (index.row() == 0) return QStringLiteral("首个快照");
+      if (!snapshot.petsComplete || !snapshots_.at(index.row() - 1).petsComplete)
+        return QStringLiteral("摘要；比较需读取个体指标");
       const AssetSnapshotDelta delta = AssetSnapshotComparator::compare(
           snapshot, snapshots_.at(index.row() - 1));
-      return QStringLiteral("新增 %1；满培养 +%2；星神满战力 +%3；星轮 +%4；战力 %5")
+      if (!delta.accountComparable) return QStringLiteral("账号或实例数据不可比较");
+      if (!delta.cultivationComparable)
+        return QStringLiteral("新增 %1；移出 %2；算法版本不同，不计算新达标")
+            .arg(delta.newPets).arg(delta.removedPets);
+      return QStringLiteral("新增 %1；满培养 +%2；星神满战力 +%3；星轮 +%4；可比个体战力 %5")
           .arg(delta.newPets).arg(delta.newlyFullyCultivated)
           .arg(delta.newlyRedStarComplete).arg(delta.newlyAstrolabeBreakthrough)
-          .arg(signedNumber(delta.totalPowerChange));
+          .arg(delta.powerChangeKnown ? signedNumber(delta.totalPowerChange)
+                                     : QStringLiteral("部分未知"));
     }
   }
   return {};

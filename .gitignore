@@ -1,5 +1,6 @@
 /build/
 /build-*/
+/build-*
 /build-battle/
 /build-qt663/
 /build-codex-shop/
@@ -7,6 +8,7 @@
 /build-codex-shop-v3/
 /build-check/
 /dist/
+/release/
 /.vs/
 /KQPetData/
 /**/KQPetData/
@@ -15,3 +17,12 @@
 CMakeUserPresets.json
 __pycache__/
 *.pyc
+*.log
+.env
+.env.*
+!.env.example
+*.pdb
+*.obj
+*.ilk
+*.exp
+*.tmp

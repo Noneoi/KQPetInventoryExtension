@@ -1,86 +1,34 @@
 #include "pet_filter_proxy_model.h"
 
-#include "pet_detail_catalog.h"
-#include "pet_identity.h"
 #include "pet_search.h"
 #include "pet_table_model.h"
 
-#include <QDateTime>
-#include <QJsonObject>
-
-#include <climits>
-
-namespace {
-
-QStringList categoryParts(const QString& text) {
-  QStringList result;
-  for (QString part : text.split(QLatin1Char('/'), Qt::SkipEmptyParts)) {
-    part = part.trimmed();
-    if (!part.isEmpty()) result.append(part);
-  }
-  if (result.isEmpty() && !text.trimmed().isEmpty()) result.append(text.trimmed());
-  return result;
-}
-
-qint64 numericKey(const QJsonObject& pet, PetFilterProxyModel::SortMode mode,
-                  bool* valid) {
-  *valid = true;
-  switch (mode) {
-    case PetFilterProxyModel::SortMode::BattlePower:
-      *valid = pet.contains(QStringLiteral("zdl"));
-      return pet.value(QStringLiteral("zdl")).toVariant().toLongLong();
-    case PetFilterProxyModel::SortMode::ExtremePower:
-      *valid = pet.contains(QStringLiteral("xzdl"));
-      return pet.value(QStringLiteral("xzdl")).toVariant().toLongLong();
-    case PetFilterProxyModel::SortMode::CatalogSequence:
-      *valid = petRaceId(pet) > 0;
-      return petRaceId(pet);
-    case PetFilterProxyModel::SortMode::ObtainedAt: {
-      const QJsonValue value = pet.value(QStringLiteral("gd"));
-      qint64 timestamp = value.toVariant().toLongLong();
-      if (timestamp <= 0 && value.isString())
-        timestamp = QDateTime::fromString(value.toString(), Qt::ISODate)
-                        .toMSecsSinceEpoch();
-      *valid = timestamp > 0;
-      return timestamp;
-    }
-    case PetFilterProxyModel::SortMode::Default:
-      return pet.value(QStringLiteral("_position")).toInt(INT_MAX);
-  }
-  return 0;
-}
-
-}  // namespace
-
-PetFilterProxyModel::PetFilterProxyModel(QObject* parent)
-    : QSortFilterProxyModel(parent) {
+PetFilterProxyModel::PetFilterProxyModel(QObject* parent) : QSortFilterProxyModel(parent) {
   setDynamicSortFilter(true);
+  setFilterRole(PetTableModel::FilterCacheRevisionRole);
+  setSortRole(PetTableModel::SortCacheRevisionRole);
   sort(0, Qt::AscendingOrder);
 }
 
-void PetFilterProxyModel::setQuery(const QString& query) {
-  if (query_ == query) return;
+void PetFilterProxyModel::setSourceModel(QAbstractItemModel* model) {
+  petModel_ = qobject_cast<PetTableModel*>(model);
+  QSortFilterProxyModel::setSourceModel(model);
+}
+
+void PetFilterProxyModel::setFilters(const QString& query, const QString& attribute,
+                                     const QString& job, const QString& era) {
+  if (query_ == query && attribute_ == attribute && job_ == job && era_ == era) return;
+  if (query_ != query) preparedQuery_ = preparePetSearchQuery(query);
   query_ = query;
-  invalidateFilter();
-}
-
-void PetFilterProxyModel::setAttributeFilter(const QString& attribute) {
-  if (attribute_ == attribute) return;
   attribute_ = attribute;
-  invalidateFilter();
-}
-
-void PetFilterProxyModel::setJobFilter(const QString& job) {
-  if (job_ == job) return;
   job_ = job;
-  invalidateFilter();
-}
-
-void PetFilterProxyModel::setEraFilter(const QString& era) {
-  if (era_ == era) return;
   era_ = era;
   invalidateFilter();
 }
+void PetFilterProxyModel::setQuery(const QString& query) { setFilters(query, attribute_, job_, era_); }
+void PetFilterProxyModel::setAttributeFilter(const QString& value) { setFilters(query_, value, job_, era_); }
+void PetFilterProxyModel::setJobFilter(const QString& value) { setFilters(query_, attribute_, value, era_); }
+void PetFilterProxyModel::setEraFilter(const QString& value) { setFilters(query_, attribute_, job_, value); }
 
 void PetFilterProxyModel::setSortMode(SortMode mode, bool ascending) {
   if (sortMode_ == mode && ascending_ == ascending) return;
@@ -90,42 +38,27 @@ void PetFilterProxyModel::setSortMode(SortMode mode, bool ascending) {
   sort(0, Qt::AscendingOrder);
 }
 
-bool PetFilterProxyModel::filterAcceptsRow(int sourceRow,
-                                           const QModelIndex& sourceParent) const {
-  const QModelIndex index = sourceModel()->index(sourceRow, 0, sourceParent);
-  const QJsonObject pet = index.data(PetTableModel::PetObjectRole).toJsonObject();
-  if (pet.isEmpty()) return false;
-  const PetDetailCatalog& catalog = PetDetailCatalog::instance();
-  const int raceId = petRaceId(pet);
-  QString name = pet.value(QStringLiteral("customName")).toString();
-  if (name.isEmpty()) name = pet.value(QStringLiteral("n")).toString();
-  const QStringList names = {name, pet.value(QStringLiteral("n")).toString(),
-                             catalog.petName(raceId),
-                             catalog.resolvedOriginalName(pet)};
-  const QStringList identifiers = {QString::number(petInstanceId(pet)),
-                                   QString::number(raceId)};
-  if (!petQueryMatches(query_, names, identifiers)) return false;
-  if (!attribute_.isEmpty() &&
-      !categoryParts(catalog.resolvedAttributes(pet)).contains(attribute_))
-    return false;
-  if (!job_.isEmpty() && !categoryParts(catalog.resolvedJobs(pet)).contains(job_))
-    return false;
-  return era_.isEmpty() || catalog.resolvedEra(pet) == era_;
+bool PetFilterProxyModel::filterAcceptsRow(int sourceRow, const QModelIndex& sourceParent) const {
+  if (!petModel_ || sourceParent.isValid()) return false;
+  const auto* row = petModel_->cachedRow(sourceRow);
+  if (!row || !petQueryMatches(preparedQuery_, row->search)) return false;
+  return (attribute_.isEmpty() || row->attributes.contains(attribute_)) &&
+         (job_.isEmpty() || row->jobs.contains(job_)) &&
+         (era_.isEmpty() || row->era == era_);
 }
 
-bool PetFilterProxyModel::lessThan(const QModelIndex& sourceLeft,
-                                   const QModelIndex& sourceRight) const {
-  const QJsonObject left = sourceLeft.data(PetTableModel::PetObjectRole).toJsonObject();
-  const QJsonObject right = sourceRight.data(PetTableModel::PetObjectRole).toJsonObject();
-  bool leftValid = false;
-  bool rightValid = false;
-  const qint64 leftKey = numericKey(left, sortMode_, &leftValid);
-  const qint64 rightKey = numericKey(right, sortMode_, &rightValid);
-  if (leftValid != rightValid) return leftValid;
-  if (leftValid && leftKey != rightKey)
-    return ascending_ ? leftKey < rightKey : leftKey > rightKey;
-  const int leftPosition = left.value(QStringLiteral("_position")).toInt(INT_MAX);
-  const int rightPosition = right.value(QStringLiteral("_position")).toInt(INT_MAX);
-  if (leftPosition != rightPosition) return leftPosition < rightPosition;
-  return petInstanceId(left) < petInstanceId(right);
+bool PetFilterProxyModel::lessThan(const QModelIndex& left, const QModelIndex& right) const {
+  if (!petModel_) return QSortFilterProxyModel::lessThan(left, right);
+  const auto* a = petModel_->cachedRow(left.row());
+  const auto* b = petModel_->cachedRow(right.row());
+  if (!a || !b) return left.row() < right.row();
+  const int mode = qBound(0, static_cast<int>(sortMode_), 4);
+  const auto& leftKey = a->sortKeys[mode];
+  const auto& rightKey = b->sortKeys[mode];
+  if (leftKey.known != rightKey.known) return leftKey.known;
+  if (leftKey.known && leftKey.value != rightKey.value)
+    return ascending_ ? leftKey.value < rightKey.value : leftKey.value > rightKey.value;
+  if (a->sortKeys[0].value != b->sortKeys[0].value)
+    return a->sortKeys[0].value < b->sortKeys[0].value;
+  return a->instanceId < b->instanceId;
 }

@@ -26,16 +26,13 @@ jobs:
           arch: win64_msvc2019_64
           cache: true
 
-      - name: Configure
+      - name: Configure MSVC and build Release
         shell: pwsh
         run: >-
-          cmake -S . -B build-ci -G Ninja
-          -DCMAKE_BUILD_TYPE=Release
-          -DCMAKE_PREFIX_PATH="$env:QT_ROOT_DIR"
-
-      - name: Build Release
-        shell: pwsh
-        run: cmake --build build-ci --config Release
+          & ./scripts/build.ps1
+          -QtRoot "$env:QT_ROOT_DIR"
+          -BuildDirectory (Join-Path $env:GITHUB_WORKSPACE 'build-ci')
+          -Configuration Release
 
       - name: Run smoke tests
         shell: pwsh

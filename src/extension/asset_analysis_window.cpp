@@ -1,3 +1,4 @@
+#include "asset_snapshot_comparator.h"
 #include "asset_analysis_window.h"
 
 #include "asset_analysis_filter_proxy_model.h"
@@ -5,6 +6,7 @@
 #include "build_info.h"
 #include "recommendation_model.h"
 #include "snapshot_history_model.h"
+#include "../domain/asset_derivation.h"
 
 #include <QAbstractItemView>
 #include <QBrush>
@@ -108,7 +110,7 @@ QString yesNo(bool value) {
 
 }  // namespace
 
-AssetAnalysisWindow::AssetAnalysisWindow(AssetAnalysisController* controller,
+AssetAnalysisWindow::AssetAnalysisWindow(AnalysisReadView* controller,
                                          QWidget* parent)
     : QDialog(parent), controller_(controller) {
   setObjectName(QStringLiteral("KQAssetAnalysisWindow"));
@@ -129,6 +131,19 @@ AssetAnalysisWindow::AssetAnalysisWindow(AssetAnalysisController* controller,
   refreshAnalysis_->setToolTip(
       QStringLiteral("读取当前账号本地缓存，重新计算培养完成度、缺口和商店适用性，不发送服务器请求。"));
   summaryRow->addWidget(accountSummary_, 1);
+  cancelAnalysis_ = new QPushButton(QStringLiteral("取消计算"), this);
+  cancelAnalysis_->setObjectName(QStringLiteral("KQAssetAnalysisCancel"));
+  cancelAnalysis_->setEnabled(false);
+  cancelAnalysis_->hide();
+  summaryRow->addWidget(cancelAnalysis_);
+  localStargodStatistics_ = new QPushButton(QStringLiteral("统计本地红星"),this);
+  localStargodStatistics_->setObjectName(QStringLiteral("KQLocalStargodStatistics"));
+  localStargodStatistics_->setToolTip(QStringLiteral("只读取当前账号磁盘中保存的完整精灵详情，统计实际持有的普通红星和万变红星，不联网。"));
+  cancelLocalStargodStatistics_ = new QPushButton(QStringLiteral("取消红星统计"),this);
+  cancelLocalStargodStatistics_->setObjectName(QStringLiteral("KQLocalStargodStatisticsCancel"));
+  cancelLocalStargodStatistics_->hide();
+  summaryRow->addWidget(cancelLocalStargodStatistics_);
+  summaryRow->addWidget(localStargodStatistics_);
   summaryRow->addWidget(refreshAnalysis_);
   root->addLayout(summaryRow);
   analysisStatus_ = new QLabel(this);
@@ -149,6 +164,12 @@ AssetAnalysisWindow::AssetAnalysisWindow(AssetAnalysisController* controller,
                      QStringLiteral("说明与入口")});
   overviewTable_->setObjectName(QStringLiteral("KQAssetOverviewTable"));
   overviewLayout->addWidget(overviewNote);
+  localStargodSummary_ = new QLabel(QStringLiteral("本地红星：尚未统计"),overviewPage);
+  localStargodSummary_->setObjectName(QStringLiteral("KQLocalStargodStatisticsSummary"));
+  localStargodSummary_->setTextFormat(Qt::PlainText);
+  localStargodSummary_->setWordWrap(true);
+  localStargodSummary_->setTextInteractionFlags(Qt::TextSelectableByMouse);
+  overviewLayout->addWidget(localStargodSummary_);
   overviewLayout->addWidget(overviewTable_, 1);
   tabs_->addTab(overviewPage, QStringLiteral("账号资产总览"));
 
@@ -161,11 +182,15 @@ AssetAnalysisWindow::AssetAnalysisWindow(AssetAnalysisController* controller,
       {QStringLiteral("背包"), PetAssetFilter::Backpack},
       {QStringLiteral("普通仓库"), PetAssetFilter::NormalWarehouse},
       {QStringLiteral("精英仓库"), PetAssetFilter::EliteWarehouse},
-      {QStringLiteral("已满培养"), PetAssetFilter::FullyCultivated},
+      {QStringLiteral("至高已满"), PetAssetFilter::FullyCultivated},
       {QStringLiteral("只看可提升"), PetAssetFilter::Improvable},
       {QStringLiteral("缺少详情缓存"), PetAssetFilter::MissingDetail},
-      {QStringLiteral("星神未满"), PetAssetFilter::RedStarMissing},
-      {QStringLiteral("星轮未突破"), PetAssetFilter::AstrolabeMissing},
+      {QStringLiteral("确实缺少普通红星"), PetAssetFilter::RedStarMissing},
+      {QStringLiteral("已有星神待装备"), PetAssetFilter::StargodEquipNeeded},
+      {QStringLiteral("星神等级待提升"), PetAssetFilter::StargodUpgradeNeeded},
+      {QStringLiteral("万变红星未具备"), PetAssetFilter::ChangeableMissing},
+      {QStringLiteral("培养数据待补"), PetAssetFilter::AnalysisIncomplete},
+      {QStringLiteral("星轮培养/突破未满"), PetAssetFilter::AstrolabeMissing},
       {QStringLiteral("神源兽未满"), PetAssetFilter::SacredMissing},
       {QStringLiteral("元魂未满"), PetAssetFilter::SoulMissing},
       {QStringLiteral("当前兑换商店可提升"), PetAssetFilter::ShopImprovable}};
@@ -222,11 +247,11 @@ AssetAnalysisWindow::AssetAnalysisWindow(AssetAnalysisController* controller,
                            QStringLiteral("KQReadyRecommendationTable"),
                            &readyRecommendations_,
                            &readyRecommendationModel_);
-  addRecommendationSection(QStringLiteral("还缺资源 / 资源未知"),
+  addRecommendationSection(QStringLiteral("还缺资源 / 条件待确认"),
                            QStringLiteral("KQMissingRecommendationTable"),
                            &missingRecommendations_,
                            &missingRecommendationModel_);
-  addRecommendationSection(QStringLiteral("接近满培养"),
+  addRecommendationSection(QStringLiteral("本地培养建议"),
                            QStringLiteral("KQNearFullRecommendationTable"),
                            &nearFullRecommendations_,
                            &nearFullRecommendationModel_);
@@ -238,11 +263,21 @@ AssetAnalysisWindow::AssetAnalysisWindow(AssetAnalysisController* controller,
   auto* historyToolbar = new QHBoxLayout();
   autoSnapshot_ = new QCheckBox(
       QStringLiteral("每次手动刷新资产分析后同步更新当日快照"), historyPage);
+  autoSnapshot_->setObjectName(QStringLiteral("KQAutoSnapshot"));
   recordSnapshot_ = new QPushButton(QStringLiteral("立即记录快照"), historyPage);
   historyToolbar->addWidget(autoSnapshot_);
   historyToolbar->addWidget(recordSnapshot_);
+  auto* refreshHistory = new QPushButton(QStringLiteral("读取历史"), historyPage);
+  olderHistory_ = new QPushButton(QStringLiteral("更早历史"), historyPage);
+  compareHistory_ = new QPushButton(QStringLiteral("比较最近两次"), historyPage);
+  historyToolbar->addWidget(refreshHistory);
+  historyToolbar->addWidget(olderHistory_);
+  historyToolbar->addWidget(compareHistory_);
   historyToolbar->addStretch(1);
   historyLayout->addLayout(historyToolbar);
+  historyState_ = new QLabel(historyPage);
+  historyState_->setWordWrap(true);
+  historyLayout->addWidget(historyState_);
   changeSummary_ = new QLabel(historyPage);
   changeSummary_->setWordWrap(true);
   historyLayout->addWidget(changeSummary_);
@@ -263,10 +298,13 @@ AssetAnalysisWindow::AssetAnalysisWindow(AssetAnalysisController* controller,
   instanceHistoryTable_ = makeTable(
       instancePane,
       {QStringLiteral("日期"), QStringLiteral("名称"), QStringLiteral("当前战斗力"),
-       QStringLiteral("最高战斗力"), QStringLiteral("完成度"),
+       QStringLiteral("至高战斗力"), QStringLiteral("完成度"),
        QStringLiteral("星神满战力"), QStringLiteral("星轮突破")});
   instanceHistoryTable_->setObjectName(QStringLiteral("KQAssetInstanceHistoryTable"));
   instanceLayout->addLayout(instanceToolbar);
+  instanceHistoryState_ = new QLabel(instancePane);
+  instanceHistoryState_->setWordWrap(true);
+  instanceLayout->addWidget(instanceHistoryState_);
   instanceLayout->addWidget(instanceHistoryTable_, 1);
   historySplitter->addWidget(snapshotTable_);
   historySplitter->addWidget(instancePane);
@@ -294,10 +332,23 @@ AssetAnalysisWindow::AssetAnalysisWindow(AssetAnalysisController* controller,
           &AssetAnalysisWindow::selectPetIndex);
   connect(refreshAnalysis_, &QPushButton::clicked, this,
           &AssetAnalysisWindow::refreshAnalysis);
+  connect(cancelAnalysis_, &QPushButton::clicked, controller_, &AnalysisReadView::cancelAnalysis);
+  connect(localStargodStatistics_, &QPushButton::clicked, this, [this] {
+    tabs_->setCurrentIndex(0);
+    emit localStargodStatisticsRequested();
+  });
+  connect(cancelLocalStargodStatistics_, &QPushButton::clicked, this, &AssetAnalysisWindow::localStargodStatisticsCancelled);
+  connect(refreshHistory, &QPushButton::clicked, this, [this] {
+    if (controller_) controller_->requestSnapshotHistory();
+  });
+  connect(olderHistory_, &QPushButton::clicked, this, [this] {
+    if (controller_ && !snapshots_.isEmpty()) controller_->requestSnapshotHistory(snapshots_.first().createdAt);
+  });
+  connect(compareHistory_, &QPushButton::clicked, this, &AssetAnalysisWindow::loadRecentComparison);
   connect(showAllRecommendations_, &QCheckBox::toggled, this,
           &AssetAnalysisWindow::rebuildRecommendations);
   connect(autoSnapshot_, &QCheckBox::toggled, controller_,
-          &AssetAnalysisController::setAutoSnapshotEnabled);
+          &AnalysisReadView::setAutoSnapshotEnabled);
   connect(recordSnapshot_, &QPushButton::clicked, this,
           &AssetAnalysisWindow::recordSnapshotNow);
   connect(showInstance, &QPushButton::clicked, this,
@@ -305,24 +356,38 @@ AssetAnalysisWindow::AssetAnalysisWindow(AssetAnalysisController* controller,
   connect(instanceId_, &QLineEdit::returnPressed, this,
           &AssetAnalysisWindow::showInstanceHistory);
   if (controller_) {
-    connect(controller_, &AssetAnalysisController::inventoryCountsChanged, this,
+    connect(controller_, &AnalysisReadView::analysisCompleted, this, &AssetAnalysisWindow::applyAnalysis);
+    connect(controller_, &AnalysisReadView::analysisRunningChanged, this, [this](bool running) {
+      refreshAnalysis_->setEnabled(!running);
+      cancelAnalysis_->setEnabled(running);
+      cancelAnalysis_->setVisible(running);
+      if (running) status_->setText(QStringLiteral("正在计算本地分析……"));
+    });
+    connect(controller_, &AnalysisReadView::inventoryCountsChanged, this,
             &AssetAnalysisWindow::refreshInventory);
-    connect(controller_, &AssetAnalysisController::inventoryMembershipChanged, this,
+    connect(controller_, &AnalysisReadView::inventoryMembershipChanged, this,
             &AssetAnalysisWindow::markInventoryMembershipChanged);
-    connect(controller_, &AssetAnalysisController::petDetailChanged, this,
+    connect(controller_, &AnalysisReadView::petDetailChanged, this,
             &AssetAnalysisWindow::markPetDetailChanged);
-    connect(controller_, &AssetAnalysisController::shopAnalysisInvalidated, this,
+    connect(controller_, &AnalysisReadView::shopAnalysisInvalidated, this,
             &AssetAnalysisWindow::markShopAnalysisInvalidated);
-    connect(controller_, &AssetAnalysisController::routineSummaryChanged, this,
+    connect(controller_, &AnalysisReadView::routineSummaryChanged, this,
             &AssetAnalysisWindow::refreshRoutineSummary);
-    connect(controller_, &AssetAnalysisController::accountAnalysisChanged, this,
+    connect(controller_, &AnalysisReadView::accountAnalysisChanged, this,
             &AssetAnalysisWindow::refreshAccountAnalysis);
-    connect(controller_, &AssetAnalysisController::historyChanged, this,
+    connect(controller_, &AnalysisReadView::historyChanged, this,
             &AssetAnalysisWindow::rebuildHistory);
-    connect(controller_, &AssetAnalysisController::statusChanged, status_,
+    connect(controller_, &AnalysisReadView::historyStateChanged, this,
+            &AssetAnalysisWindow::refreshHistoryState);
+    connect(controller_, &AnalysisReadView::instanceHistoryChanged, this,
+            &AssetAnalysisWindow::rebuildInstanceHistory);
+    connect(controller_, &AnalysisReadView::statusChanged, status_,
             &QLabel::setText);
   }
   refreshAccountAnalysis();
+  refreshAnalysis_->setEnabled(!controller_ || !controller_->analysisRunning());
+  cancelAnalysis_->setEnabled(controller_ && controller_->analysisRunning());
+  cancelAnalysis_->setVisible(controller_ && controller_->analysisRunning());
   rebuildHistory();
   rebuildRecommendations();
 }
@@ -344,7 +409,66 @@ void AssetAnalysisWindow::addOverviewRow(const QString& label,
 
 void AssetAnalysisWindow::refreshAnalysis() {
   if (!controller_) return;
-  overview_ = controller_->recalculateOverview();
+  controller_->requestAnalysis();
+}
+
+void AssetAnalysisWindow::setLocalStargodStatistics(const LocalStargodStatistics& result) {
+  if (!result.account.isEmpty() && !inventory_.account.isEmpty() && result.account != inventory_.account) return;
+  localStargodStatistics_->setEnabled(!result.running);
+  cancelLocalStargodStatistics_->setVisible(result.running);
+  if (!result.error.isEmpty()) {
+    localStargodSummary_->setText(QStringLiteral("本地红星统计未完成：%1").arg(result.error)); return;
+  }
+  const bool partial = result.running || !result.completed || result.incompletePets > 0 || result.skippedFiles > 0;
+  const QString prefix = partial ? QStringLiteral("已确认") : QStringLiteral("共");
+  QString text = QStringLiteral("普通红星：%1 %2 颗（已装备 %3，本宠背包 %4）\n万变红星：%1 %5 颗（已装备 %6，本宠背包 %7）")
+      .arg(prefix).arg(result.ordinaryEquipped + result.ordinaryBackpack).arg(result.ordinaryEquipped).arg(result.ordinaryBackpack)
+      .arg(result.changeableEquipped + result.changeableBackpack).arg(result.changeableEquipped).arg(result.changeableBackpack);
+  text += QStringLiteral("\n已统计本地缓存 %1 只精灵；%2 只星神资料不全，%3 个缓存文件未计入。")
+      .arg(result.countedPets).arg(result.incompletePets).arg(result.skippedFiles);
+  if (result.running) text += QStringLiteral(" 正在统计……");
+  else if (result.cancelled) text += QStringLiteral(" 已取消，仅显示已扫描部分。");
+  else if (partial) text += QStringLiteral(" 数量为已确认下限，未读取或未知项未当成零。");
+  if (result.completed && result.finishedAt.isValid()) text += QStringLiteral("\n统计时间：%1").arg(result.finishedAt.toLocalTime().toString(QStringLiteral("yyyy-MM-dd HH:mm:ss")));
+  localStargodSummary_->setText(text);
+}
+
+void AssetAnalysisWindow::resetSessionContext() {
+  emit localStargodStatisticsCancelled();
+  localStargodStatistics_->setEnabled(true);
+  cancelLocalStargodStatistics_->hide();
+  localStargodSummary_->setText(QStringLiteral("本地红星：尚未统计"));
+  inventory_ = {};
+  overview_ = {};
+  routineSummary_ = {};
+  snapshots_.clear();
+  analysisReady_ = false;
+  sessionResetPending_ = true;
+  analysisModel_->clear();
+  for (RecommendationModel* model : {readyRecommendationModel_, missingRecommendationModel_,
+                                     nearFullRecommendationModel_}) model->setRecommendations({});
+  snapshotModel_->setSnapshots({});
+  overviewTable_->setRowCount(0);
+  instanceHistoryTable_->setRowCount(0);
+  instanceId_->clear();
+  accountSummary_->setText(QStringLiteral("等待当前账号数据"));
+  diagnosticSummary_->clear();
+  changeSummary_->clear();
+  historyState_->clear();
+  instanceHistoryState_->clear();
+  analysisStatus_->setText(QStringLiteral("会话已更新，请重新分析当前账号"));
+  status_->setText(QStringLiteral("原账号的分析与历史已从当前页面清除"));
+  for (QTableView* table : {diagnosticTable_, readyRecommendations_, missingRecommendations_,
+                           nearFullRecommendations_, snapshotTable_}) {
+    table->clearSelection();
+    table->setCurrentIndex({});
+  }
+}
+
+void AssetAnalysisWindow::applyAnalysis() {
+  if (!controller_) return;
+  sessionResetPending_ = false;
+  overview_ = controller_->overview();
   inventory_.account = overview_.account;
   inventory_.inventoryUpdatedAt = overview_.inventoryUpdatedAt;
   inventory_.totalPets = overview_.totalPets;
@@ -358,17 +482,12 @@ void AssetAnalysisWindow::refreshAnalysis() {
   rebuildDiagnostics();
   rebuildRecommendations();
   updateAnalysisStatus();
-  if (controller_->autoSnapshotEnabled()) {
-    controller_->recordSnapshotFromOverview(overview_);
-  } else {
-    status_->setText(QStringLiteral(
-        "资产分析已按当前本地缓存手动刷新；后续数据变化不会在后台自动重算。"));
-  }
+  status_->setText(QStringLiteral("分析已完成。各项独立判断，共享资源可能冲突；数据变化后需手动重新计算。"));
 }
 
 void AssetAnalysisWindow::recordSnapshotNow() {
   if (!controller_) return;
-  controller_->recordSnapshot();
+  controller_->requestSnapshot();
 }
 
 void AssetAnalysisWindow::refreshInventory() {
@@ -398,6 +517,7 @@ void AssetAnalysisWindow::refreshRoutineSummary() {
 
 void AssetAnalysisWindow::refreshAccountAnalysis() {
   if (!controller_) return;
+  sessionResetPending_ = false;
   inventory_ = controller_->inventorySummary();
   routineSummary_ = controller_->routineSummary();
   analysisReady_ = controller_->hasAnalysis();
@@ -421,6 +541,10 @@ void AssetAnalysisWindow::scheduleAnalysisStatusUpdate() {
 
 void AssetAnalysisWindow::updateAnalysisStatus() {
   if (!controller_ || !analysisStatus_) return;
+  if (sessionResetPending_) {
+    analysisStatus_->setText(QStringLiteral("会话已更新，请重新分析当前账号"));
+    return;
+  }
   if (!controller_->hasAnalysis()) {
     analysisStatus_->setStyleSheet(QStringLiteral("color: #8a5a00;"));
     analysisStatus_->setText(QStringLiteral(
@@ -463,7 +587,8 @@ void AssetAnalysisWindow::rebuildOverview() {
                inventory_.inventoryUpdatedAt.isValid()
                    ? inventory_.inventoryUpdatedAt.toString(QStringLiteral("yyyy-MM-dd HH:mm:ss"))
                    : QStringLiteral("尚未完成列表同步"),
-               analysisReady_ ? QString::number(overview_.totalCurrentPower) : pending));
+               analysisReady_ ? (overview_.totalCurrentPowerKnown ? QString::number(overview_.totalCurrentPower)
+                   : QStringLiteral("部分未知（已知合计 %1）").arg(overview_.totalCurrentPower)) : pending));
   overviewTable_->setRowCount(0);
   addOverviewRow(QStringLiteral("精灵总数"), QString::number(inventory_.totalPets),
                  QStringLiteral("查看当前账号全部实例"),
@@ -479,9 +604,9 @@ void AssetAnalysisWindow::rebuildOverview() {
                  QString::number(inventory_.eliteWarehousePets),
                  QStringLiteral("查看精英仓库精灵"),
                  static_cast<int>(PetAssetFilter::EliteWarehouse));
-  addOverviewRow(QStringLiteral("已满培养数量"),
+  addOverviewRow(QStringLiteral("至高已满数量"),
                  analysisReady_ ? QString::number(overview_.fullyCultivatedPets) : pending,
-                 QStringLiteral("以当前战斗力达到已知最高战斗力为准"),
+                 QStringLiteral("各适用培养项全部证实已满；达到官方极限不等于至高已满"),
                  static_cast<int>(PetAssetFilter::FullyCultivated));
   addOverviewRow(QStringLiteral("存在培养缺口数量"),
                  analysisReady_ ? QString::number(overview_.improvablePets) : pending,
@@ -491,17 +616,32 @@ void AssetAnalysisWindow::rebuildOverview() {
                  QString::number(inventory_.missingDetailPets),
                  QStringLiteral("先在精灵仓库刷新详情后可分析"),
                  static_cast<int>(PetAssetFilter::MissingDetail));
-  addOverviewRow(QStringLiteral("星神满战力未满足"),
+  addOverviewRow(QStringLiteral("确实缺少普通红星"),
                  analysisReady_ ? QString::number(overview_.redStarMissingPets) : pending,
-                 QStringLiteral("按每只精灵实际普通栏位数，合计已装备与精灵星神背包判断；固定万变不计入"),
+                 QStringLiteral("已装备与本宠背包合并，按合法可用种类去重；已有未装备红星不再计缺货，万变另列"),
                  static_cast<int>(PetAssetFilter::RedStarMissing));
-  addOverviewRow(QStringLiteral("星轮未突破"),
+  const auto countFilter = [this](PetAssetFilter filter) {
+    int count = 0;
+    for (const auto& pet : overview_.pets) count += AssetDerivation::matchesFilter(pet, filter);
+    return count;
+  };
+  for (const auto& row : QList<QPair<QString, PetAssetFilter>>{
+        {QStringLiteral("已有星神待装备/调整"), PetAssetFilter::StargodEquipNeeded},
+        {QStringLiteral("星神等级待提升"), PetAssetFilter::StargodUpgradeNeeded},
+        {QStringLiteral("万变红星未具备"), PetAssetFilter::ChangeableMissing},
+        {QStringLiteral("培养数据待补"), PetAssetFilter::AnalysisIncomplete}})
+    addOverviewRow(row.first, analysisReady_ ? QString::number(countFilter(row.second)) : pending,
+        row.second == PetAssetFilter::AnalysisIncomplete
+            ? QStringLiteral("缺少详情或必要官方定义；不计为缺货，也不判为满培养")
+            : QStringLiteral("点击查看对应精灵与具体动作；已具备的资源无需重复兑换"),
+        static_cast<int>(row.second));
+  addOverviewRow(QStringLiteral("星轮培养/突破未满"),
                  analysisReady_ ? QString::number(overview_.astrolabeMissingPets) : pending,
                  QStringLiteral("包含星轮培养缺口或未突破"),
                  static_cast<int>(PetAssetFilter::AstrolabeMissing));
   addOverviewRow(QStringLiteral("神源兽未满"),
                  analysisReady_ ? QString::number(overview_.sacredMissingPets) : pending,
-                 QStringLiteral("按神源兽战斗力分项缺口判断"),
+                 QStringLiteral("按当前官方源兽星级、阶级计划判断"),
                  static_cast<int>(PetAssetFilter::SacredMissing));
   addOverviewRow(QStringLiteral("元魂未满"),
                  analysisReady_ ? QString::number(overview_.soulMissingPets) : pending,
@@ -518,7 +658,7 @@ void AssetAnalysisWindow::rebuildOverview() {
   addOverviewRow(QStringLiteral("今日任务 / 玩法剩余"),
                  routineSummary_.routineDataKnown
                      ? QStringLiteral("未完成任务 %1；玩法剩余 %2")
-                           .arg(routineSummary_.unfinishedDailyTasks)
+                           .arg(routineSummary_.dailyTasksKnown ? QString::number(routineSummary_.unfinishedDailyTasks) : QStringLiteral("周期未确认"))
                            .arg(routineSummary_.todayOpportunityKnown
                                     ? QString::number(routineSummary_.todayOpportunityRemaining)
                                     : QStringLiteral("—"))
@@ -527,7 +667,7 @@ void AssetAnalysisWindow::rebuildOverview() {
   addOverviewRow(QStringLiteral("本周任务 / 玩法剩余"),
                  routineSummary_.routineDataKnown
                      ? QStringLiteral("未完成任务 %1；玩法剩余 %2")
-                           .arg(routineSummary_.unfinishedWeeklyTasks)
+                           .arg(routineSummary_.weeklyTasksKnown ? QString::number(routineSummary_.unfinishedWeeklyTasks) : QStringLiteral("周期未确认"))
                            .arg(routineSummary_.weekOpportunityKnown
                                     ? QString::number(routineSummary_.weekOpportunityRemaining)
                                     : QStringLiteral("—"))
@@ -598,8 +738,8 @@ void AssetAnalysisWindow::rebuildRecommendations() {
          controller_->recommendations()) {
       if (recommendation.type == RecommendationType::ReadyNow)
         ready.append(recommendation);
-      else if (recommendation.type ==
-               RecommendationType::NearFullCultivation)
+      else if (recommendation.type == RecommendationType::NearFullCultivation ||
+               recommendation.type == RecommendationType::LocalCultivation)
         nearFull.append(recommendation);
       else
         missing.append(recommendation);
@@ -621,10 +761,10 @@ void AssetAnalysisWindow::rebuildRecommendations() {
         0, QStringLiteral("现在可以处理（%1 / %2）")
                .arg(displayedReady.size()).arg(ready.size()));
     recommendationTabs_->setTabText(
-        1, QStringLiteral("还缺资源 / 资源未知（%1 / %2）")
+        1, QStringLiteral("还缺资源 / 条件待确认（%1 / %2）")
                .arg(displayedMissing.size()).arg(missing.size()));
     recommendationTabs_->setTabText(
-        2, QStringLiteral("接近满培养（%1 / %2）")
+        2, QStringLiteral("本地培养建议（%1 / %2）")
                .arg(displayedNearFull.size()).arg(nearFull.size()));
   }
 }
@@ -661,38 +801,84 @@ void AssetAnalysisWindow::rebuildHistory() {
     autoSnapshot_->setChecked(controller_->autoSnapshotEnabled());
   }
   snapshotModel_->setSnapshots(snapshots_);
+  refreshHistoryState();
   if (snapshots_.size() >= 2) {
-    const AssetSnapshotDelta delta = AssetAnalysisController::compareSnapshots(
+    if (!snapshots_.last().petsComplete || !snapshots_.at(snapshots_.size() - 2).petsComplete) {
+      changeSummary_->setText(QStringLiteral("历史摘要已就绪；点击“比较最近两次”按需读取个体指标。"));
+      return;
+    }
+    const AssetSnapshotDelta delta = AssetSnapshotComparator::compare(
         snapshots_.last(), snapshots_.at(snapshots_.size() - 2));
-    changeSummary_->setText(
-        QStringLiteral("最近两次快照变化：新增精灵 %1　达到满培养 %2　星神满战力 +%3　完成星轮突破 %4　账号总战力 %5")
+    if (!delta.accountComparable)
+      changeSummary_->setText(QStringLiteral("账号或实例数据不可比较。"));
+    else if (!delta.cultivationComparable)
+      changeSummary_->setText(QStringLiteral("新增精灵 %1；移出 %2；算法版本不同，不计算新达标。")
+          .arg(delta.newPets).arg(delta.removedPets));
+    else changeSummary_->setText(
+        QStringLiteral("最近两次快照变化：新增精灵 %1　达到满培养 %2　星神满战力 +%3　完成星轮突破 %4　可比个体战力 %5")
             .arg(delta.newPets).arg(delta.newlyFullyCultivated)
             .arg(delta.newlyRedStarComplete).arg(delta.newlyAstrolabeBreakthrough)
-            .arg(signedNumber(delta.totalPowerChange)));
+            .arg(delta.powerChangeKnown ? signedNumber(delta.totalPowerChange)
+                                       : QStringLiteral("部分未知")));
   } else if (snapshots_.size() == 1) {
     changeSummary_->setText(QStringLiteral("已有 1 个快照；记录下一天快照后即可显示变化。"));
   } else {
     changeSummary_->setText(QStringLiteral("尚无历史快照。快照只保存轻量培养指标，不保存完整协议内容。"));
   }
-  showInstanceHistory();
 }
 
 void AssetAnalysisWindow::showInstanceHistory() {
   const qint64 id = instanceId_->text().trimmed().toLongLong();
   instanceHistoryTable_->setRowCount(0);
-  if (id <= 0) return;
-  for (const AccountAssetSnapshot& snapshot : snapshots_) {
-    for (const AssetSnapshotPet& pet : snapshot.pets) {
-      if (pet.instanceId != id) continue;
+  if (id <= 0 || !controller_) {
+    instanceHistoryState_->setText(QStringLiteral("请输入有效的实例 ID。"));
+    return;
+  }
+  controller_->requestInstanceHistory(id);
+  instanceHistoryState_->setText(QStringLiteral("正在按需读取这只精灵的历史……"));
+}
+
+void AssetAnalysisWindow::refreshHistoryState() {
+  if (!controller_) return;
+  autoSnapshot_->setEnabled(controller_->autoSnapshotSettingKnown());
+  { const QSignalBlocker blocker(autoSnapshot_); autoSnapshot_->setChecked(controller_->autoSnapshotEnabled()); }
+  olderHistory_->setEnabled(controller_->snapshotHistoryHasOlder() && !controller_->snapshotHistoryLoading());
+  compareHistory_->setEnabled(snapshots_.size() >= 2);
+  const QString error = controller_->snapshotHistoryError();
+  historyState_->setText(!error.isEmpty() ? QStringLiteral("历史读取未完成：%1").arg(error)
+      : controller_->snapshotHistoryLoading() ? QStringLiteral("正在分批读取历史摘要……")
+      : QStringLiteral("已载入 %1 份摘要；仅按需读取完整指标。%2").arg(snapshots_.size())
+          .arg(controller_->autoSnapshotSettingKnown() ? QString{} : QStringLiteral("快照设置尚未读取或保存完成。")));
+}
+
+void AssetAnalysisWindow::loadRecentComparison() {
+  if (!controller_ || snapshots_.size() < 2) return;
+  for (qsizetype row = snapshots_.size() - 2; row < snapshots_.size(); ++row)
+    if (!snapshots_.at(row).petsComplete) controller_->requestSnapshotDetails(snapshots_.at(row).storageKey);
+  changeSummary_->setText(QStringLiteral("正在读取最近两份快照的个体指标……"));
+}
+
+void AssetAnalysisWindow::rebuildInstanceHistory() {
+  if (!controller_ || instanceId_->text().trimmed().toLongLong() != controller_->instanceHistoryId()) return;
+  instanceHistoryTable_->setRowCount(0);
+  const QString error = controller_->instanceHistoryError();
+  const auto entries = controller_->instanceHistory();
+  instanceHistoryState_->setText(!error.isEmpty() ? QStringLiteral("实例历史读取未完成：%1").arg(error)
+      : controller_->instanceHistoryLoading() ? QStringLiteral("正在分批读取个体历史……")
+      : QStringLiteral("已检查 %1 份快照；未知数据保留为未知。 ").arg(entries.size()));
+  for (const auto& entry : entries) {
+      const AssetSnapshotPet& pet = entry.pet;
       const int row = instanceHistoryTable_->rowCount();
       instanceHistoryTable_->insertRow(row);
       const QStringList values = {
-          snapshot.createdAt.toString(QStringLiteral("yyyy-MM-dd HH:mm")), pet.name,
-          QString::number(pet.currentPower), QString::number(pet.highestPower),
-          QStringLiteral("%1%").arg(pet.completionPercent),
-          yesNo(pet.redStarComplete), yesNo(pet.astrolabeBreakthrough)};
+          entry.createdAt.toLocalTime().toString(QStringLiteral("yyyy-MM-dd HH:mm")),
+          !entry.membershipKnown ? QStringLiteral("成员数据未知") : !entry.present ? QStringLiteral("当日不在列表") : pet.name,
+          pet.currentPowerKnown ? QString::number(pet.currentPower) : QStringLiteral("未知"),
+          pet.cultivationKnown ? QString::number(pet.highestPower) : QStringLiteral("未知"),
+          pet.cultivationKnown ? QStringLiteral("%1%").arg(pet.completionPercent) : QStringLiteral("未知"),
+          pet.redStarKnown ? yesNo(pet.redStarComplete) : QStringLiteral("未知"),
+          pet.astrolabeKnown ? yesNo(pet.astrolabeBreakthrough) : QStringLiteral("未知")};
       for (int column = 0; column < values.size(); ++column)
         instanceHistoryTable_->setItem(row, column, item(values.at(column)));
-    }
   }
 }
