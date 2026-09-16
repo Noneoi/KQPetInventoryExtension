@@ -245,6 +245,40 @@ bool finishRequest(PetDerivationCache& cache, ExistingCompute& compute, const Pe
   QObject::disconnect(ready); QObject::disconnect(failure);
   return completed && !failed && bool(*value);
 }
+
+// A list brief carries `ri` while a detail carries `r`; both are the same race.
+// The cultivation facts of a record must be reused when the alias spelling
+// changes, instead of rejecting the pet as "one derivation key was reused with
+// different calculation seed" and stranding every later analysis of it.
+bool raceAliasSeedEquivalence() {
+  bool ok = true;
+  ExistingCompute compute;
+  PetDerivationCache cache(compute.executor(), nullptr);
+  cache.bindSession(QStringLiteral("A"), 1);
+  auto detailShaped = requestFor(501);
+  auto listShaped = detailShaped;
+  QJsonObject identity = detailShaped.seed.pet;
+  identity.remove(QStringLiteral("r"));
+  identity.insert(QStringLiteral("ri"), 7001);
+  listShaped.seed.pet = identity;
+  ok &= check(listShaped.seed.pet == AssetDerivation::identityFields(listShaped.seed.pet),
+              "alias fixture identity is not a frozen identity projection");
+  PetDerivedFactsHandle facts;
+  ok &= check(finishRequest(cache, compute, listShaped, &facts) && bool(facts),
+              "alias fixture facts were not derived");
+  const auto reused = cache.request(detailShaped);
+  ok &= check(reused.accepted && reused.status == PetDerivationStatus::CacheHit && reused.facts,
+              "a race alias spelling change was reported as a different calculation seed");
+  // A genuinely different calculation input must still be rejected.
+  auto changed = detailShaped;
+  QJsonObject other = changed.seed.pet;
+  other.insert(QStringLiteral("lv"), 101);
+  changed.seed.pet = other;
+  const auto rejected = cache.request(changed);
+  ok &= check(!rejected.accepted && rejected.status == PetDerivationStatus::InvalidRequest,
+              "a changed level was accepted as the same calculation seed");
+  return ok;
+}
 PetDerivationRequest durable(PetDerivationRequest request, const StorageContext& context) {
   auto raw = std::make_shared<RawPetRecord>(*request.raw);
   raw->persisted = true;
@@ -603,7 +637,8 @@ bool offlineLastAccountFacts() {
 }
 int main(int argc, char** argv) {
   QCoreApplication app(argc, argv);
-  bool ok = equivalenceAndLeases();
+  bool ok = raceAliasSeedEquivalence();
+  ok &= equivalenceAndLeases();
   ok &= cancellationAndEpochs();
   ok &= overloadAndIdentity();
   ok &= unknownAndMetadata();

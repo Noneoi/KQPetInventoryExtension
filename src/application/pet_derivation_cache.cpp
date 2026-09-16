@@ -172,8 +172,12 @@ bool rawIdentity(const RawPetRecord& raw, QString* error) {
 bool sameCalculationSeed(const PetAssetRecord& a, const PetAssetRecord& b) {
   if (a.instanceId != b.instanceId || a.raceId != b.raceId || a.metadataSlotMaxLevel != b.metadataSlotMaxLevel ||
       a.detailAvailable != b.detailAvailable) return false;
-  for (const QString& key : {QStringLiteral("id"), QStringLiteral("r"), QStringLiteral("ri"), QStringLiteral("fr"),
-       QStringLiteral("lv"), QStringLiteral("_metaRaceId")})
+  // Identity is compared through the resolved race above. `r` and `ri` are the
+  // protocol's two spellings of one race: a list brief carries `ri` while a
+  // detail carries `r`, so comparing the raw keys reported "different seed" for
+  // identical calculation inputs and stranded every later analysis of that pet.
+  // Only the fields the cultivation calculation actually reads are compared.
+  for (const QString& key : {QStringLiteral("fr"), QStringLiteral("lv"), QStringLiteral("_metaRaceId")})
     if (a.pet.value(key) != b.pet.value(key)) return false;
   return true;
 }
