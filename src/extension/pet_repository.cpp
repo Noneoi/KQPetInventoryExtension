@@ -1480,11 +1480,21 @@ void PetRepository::applyDetailCache(const QJsonObject& object, const PendingRea
   copyPowerFields(detail, &brief);
   brief = inventoryBrief(brief, backpack_.contains(pending.instanceId));
   RawPetRecordInput input;
-  input.key = knownOriginal ? previous.key : PetRecordKey{accountKey_, sessionGeneration_, pending.instanceId, ++nextDetailMemoryRevision_};
   input.object = detail; input.brief = brief; input.persisted = true; input.contentDigest = digest;
   input.complete = object.value(QStringLiteral("complete")).toBool(true);
   input.sourceKnown = !detail.value(QStringLiteral("_unverifiedObservation")).toBool() &&
       !brief.value(QStringLiteral("_unverifiedObservation")).toBool();
+  // The record key identifies every input of the derivation seed. A reload that
+  // changes completeness, source evidence or a calculation-relevant field must
+  // advance it instead of publishing new inputs under the previous version,
+  // which would make the derivation cache reject the pet as "one derivation key
+  // was reused with different calculation seed" and keep facts derived from the
+  // older inputs.
+  const bool seedRelevantChange = !knownOriginal || previous.complete != input.complete ||
+      previous.sourceKnown != input.sourceKnown || calculationOverlayDiffers(previous.brief, brief);
+  input.key = seedRelevantChange
+      ? PetRecordKey{accountKey_, sessionGeneration_, pending.instanceId, ++nextDetailMemoryRevision_}
+      : previous.key;
   input.observedAt = observedAt;
   input.rawProjectionOnly = calculationProjectionMatchesRaw(detail, brief);
   if (!admitRawRecords({input}, false)) {
