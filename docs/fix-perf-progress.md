@@ -494,30 +494,52 @@ GUI 绘制并发的组合；未测量进程级分配量（只有发布计数与�
 
 ## T9 同源图片任务复用
 
-状态：`Reproduced`（重复工作已用受控测试证明；在途共享任务表尚未实施）
+状态：`FixedAndTargetedTested`（重复下载已消除；在途共享源任务表已实施并通过定向回归）
 
-复现（`validation-logs\t9-duplicate.log`，`tests/image_service_smoke.cpp` 新增受控用例）：
-写入一张新索引指向未访问过的 URL，对**同一 visualKey** 同时请求 64×64 与 300×300：
+复现（修改前，`validation-logs\t9-duplicate.log`、`t9-prefix-repro.log`）：写入一张新索引指向未访问过的
+URL，对同一 visualKey 请求 64×64 与 300×300：
 
 ```text
-same-source downloads for two render sizes: 2
+same-source downloads for two render sizes: 2 (receipts 1/1)
+in-flight join downloads: 2
 ```
 
-即两个渲染尺寸各下载一次：请求键 `requestKey()` 包含输出尺寸，`active`/RAM 缓存同样按请求键
-区分，因此同源的读取/下载/导出阶段没有复用。该断言目前固定为 2（记录现状），
-T9 实施后应收紧为 1。
+实施（`src/application/image_service.cpp`）：
 
-设计（未实施，按任务书方向）：SourceKey = 规范化资源身份（visualKey）+ 资源版本
-（`options.resourceVersion`）+ 解析后的 URL + `sourceRevision` + 目录代际（`reloadImageIndex`
-递增），RenderKey = SourceKey + 输出尺寸 + devicePixelRatio。同源不同尺寸只共享
-读取/下载/导出阶段，解码与缩放仍各自独立；消费者引用计数决定取消语义（取消一个批次不能
-终止仍为预览服务的共享任务，最后一个消费者离开才停止）；共享字节与子进程沿用现有预算与并发上限。
-实施要点是把“取字节”阶段从单个 Job 的取消标志上解耦（否则取消 leader 会连带取消等待者），
-这需要对 `ImageIo::fetch` 的调用方做一次小重构，并按任务书补齐取消/版本隔离/重载/关闭/失败回退
-等回归。当前预算内未提交该改动，避免留下未验证的生命周期变更。
+- 新增 `SourceTask`（在途源任务表），键为 `imageSourceIdentity(request)|resourceVersion`：属性图标/星神
+  图标用数字身份，其余用 visualKey；**输出尺寸与 devicePixelRatio 不参与**。任务持有请求身份、候选名与
+  刷新标志、解析出的 URL/`sourceRevision`、本地候选游标、已获取的编码字节与编码预算租约、消费者集合。
+- `Impl::sources` + `pendingSource`：`request()` 计算 `sourceKey`；`pump()` 先把等待作业挂到已有源任务
+  （已就绪的直接复用字节，获取中的追加为消费者），再在上限内为每个源启动一次 `ImageIo::fetch`。
+- 取消按消费者引用计数：`releaseSource()` 在作业终态移除其 jobId，集合为空才取消并中止在途读取/下载/
+  提取；`cancelBatch()` 只让批次条目退出共享任务，不中止预览仍在等待的获取。
+- 版本隔离：`refreshChangedSource` 用带 `|refresh` 后缀的源键（不复用更新前的字节）；`reloadImageIndex()`
+  清空源表并标记取消，迟到完成按指针身份判定丢弃；`shutdown()` 同样取消清空。
+- 解码失败回退：字节不可用时按“本地候选游标 + 强制联网”重建源任务（游标推进），并把该源的其它消费者
+  一并退回等待，既不重复读同一坏候选也不死循环。
+- 落盘：每个源只有第一个到达落盘的消费者执行写入，其余消费者在其回执后执行一次 `verify()`，因此每个
+  渲染尺寸仍各有一份明确的 `persistenceCompleted`，两个尺寸不会争抢同一缓存文件与锁。
+- 失败记录：解码判定不可用时的失败回退按“消费者侧已释放”强制写盘，否则共享源释放后 `.failure.json`
+  丢失，重启会重复下载（实测到的失败原因）。
 
-剩余风险：本机测量只覆盖“同源两尺寸各一次请求”的场景，未测量多消费者并发峰值与子进程
-启动次数的真实分布。
+回归（先失败后通过，`tests/image_service_smoke.cpp`）：同源两尺寸断言由固定 2 收紧为 `downloads == 1`
+并断言两个尺寸各自收到 `Saved/AlreadyValid` 回执；新增“在途加入 + 批次取消”夹具（`/hold-join` 150ms），
+断言预览与后加入尺寸都 Ready 且服务器只收到 1 次请求。修改前 `t9-prefix-repro.log` 两条断言失败，修改后
+`t9-final-run1/2.log` → `1 (receipts 1/1)`、`in-flight join downloads: 1`，退出码 0；全套
+`t9-full-ctest-2.log` 为 72/72。
+
+残余风险：多消费者并发峰值（多个尺寸同时抢同一源）与 swf 提取子进程启动次数的真实分布未单独测量；
+共享字节仍受单份 `encodedImageBytes` 预算约束（原实现按消费者分别计费）。
+
+### 已知不稳定用例（与本批改动无关，已核实）
+
+`analysis_cache_integration_smoke` 的读压力场景（515 只精灵、`PetRecordCacheLimits::maximumRecords = 1`、
+256 深读队列、20s 预算）在当前机器上时而无法在预算内完成：`t9-analysis-probe-instrumented.log` 显示
+`running=1 ... protected=1 resident=1 evicted=286 refused=2150 retries=2543`，即每次发布都因单记录缓存
+被占用而被拒，重试退避把读队列顶满；同一二进制另一次运行在 ~21s 内通过。
+已核实与本工作无关：把 `pet_repository.cpp` 回退到 `e2e3281`（无 T5-A 修改）后同样 3/3 失败
+（`t9-prefixT5a-analysis1..3.log`），T9 改动只涉及图片服务，该用例不使用 ImageService。
+结论文本：**预存在的时序敏感用例，需单独定位（不在 T9/T5-A 范围）**。
 
 ---
 
