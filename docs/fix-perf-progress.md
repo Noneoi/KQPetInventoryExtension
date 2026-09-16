@@ -332,6 +332,79 @@ QSaveFile 写入窗口内）；已用“取消发生在保存开始前”的用�
 
 ---
 
+## T5 移动状态机与旧结果发布回归
+
+状态：B 部分 `Verified`；A 部分 `Blocked`（已定位首个根因，未做未经等价性论证的修改）
+
+### B. 大量更新只发布当前版本（`analysis_cache_integration_smoke`）
+
+原失败行：“one thousand updates supersede old computation and publish only the newest version”。
+诊断（新增现场输出）：`projectedRevision == latestRevision == 1005`（版本正确）、
+`pending=0 active=0 resident=3 rejected=0`，但 `projectedPower=0`。
+根因：断言用 `facts.asset.currentPower`（本地可达战力）作为新版本判据，而该夹具的
+`czdlv` 只带一个分项，按已确认规则本地总数必须保持未知（与 T2/T3 同一类过时断言）。
+改为按“输入版本 + 该版本的观察值”断言：`facts->key.record == latestVersion` 且
+`battlePower.serverCurrent == 10000`，并保留失败现场输出与原有的计算/驻留上限断言
+（`computations <= burstStart+2`、`residentEntries <= 3`、`chargedBytes <= limits`）。
+日志：`validation-logs\t5-analysis-cache.log`（退出码 0）。
+
+### A. 取消后再次移动（`pet_move_controller_smoke`）
+
+状态 `Blocked`。本机 3 次运行均为 14 条失败且逐条一致（`t5-move-run1..3.log`），首个失败为
+“full-pack replacement result is incorrect”。
+
+已定位的首个根因（现场输出 `t5-move-trace.log`）：
+
+```text
+PROMPT 2 rev=18 eligible=2
+STATUS rev=18 detailReq=1 pendingReads=0: 正在保存实例 3 的必要详情；保存成功前不会提交移动请求……
+STATUS rev=18 detailReq=1 pendingReads=1: 正在保存移动意图；确认写入磁盘后才会调用宿主……
+STATUS rev=19 detailReq=1 pendingReads=0: 意图保存期间列表或会话已失效，未提交请求。
+```
+
+即：替换选择被列表变化作废后，控制器确实按预期重新执行了前置检查并再次提示（PROMPT 2，符合
+“redo preflight”），但在这之后一次**详情缓存读取的完成**让 `inventoryRevision()` 从 18 变到 19
+（`pet_repository.cpp:1487` 在详情发布路径无条件 `++inventoryRevision_`，605 行则在 facts 变化时
+自增），于是写意图落盘完成时的 `movePreflightStillValid()` 判定失败，移动以 NotSent 结束。
+后续 13 条失败（关系/阵型限制、超时不重发、held-writer 夹具、歧义提交、切号隔离等）都发生在
+这一首次分叉之后，属同一现场的后继失败，尚未逐条独立核实。
+
+未做修改的原因：`movePreflightStillValid()` 使用的宽口径 `inventoryRevision` 同时覆盖了
+会改变“是否允许移动”的阵型/部署变化；把它换成更窄的列表版本会削弱写前置校验，
+而“详情读取只在真正改变已知事实时才自增”需要先证明其与所有移动许可输入的等价性。
+两者都属于状态机安全语义变更，按任务书要求保持 Blocked，不提交未经证明的改动。
+
+下一动作：确认“移动许可”依赖的输入集合（成员关系、序列、阵型/部署、账号会话）；据此选择
+(a) 写前置改用成员/序列版本 + 显式阵型复核，或 (b) 详情发布改为仅在事实变化时自增；
+两者都需要对 `eligibleReplacementIds()`/`PetMovePolicy::restriction()` 的输入做等价性验证，
+再逐条复跑 14 项失败。
+
+---
+
+## T6 推荐数量、容量与预算一致性
+
+状态：`Verified`（回归补齐；生产代码无需修改）
+
+核对结论（`src/domain/recommendation_engine.cpp`）：`reserveOutput()` 按 P 预留、
+`finishPet()` 在“商店行 + 本地星神行动行”并存时最多每宠 2 行，容器按需有界增长，
+`refreshCharge()` 按 `result.capacity()` 记账，`step()` 每轮用
+`resultChargedBytes > resultBudgetBytes` 立即取消且 `takeResults()` 在非 Complete 时返回空。
+即现状已是任务书允许的“合理有界增长”，且额外行通过 capacity 计入、未按 size 少记。
+
+新增回归（`tests/recommendation_smoke.cpp`）：4 只带“已有星神待装备”行动的精灵 + 2 个商品时，
+结果为 8 行（4 商店 + 4 本地）、资产总览仍完整保留 4 只；断言
+`resultRowCapacityBytes >= rows*sizeof(row)` 且
+`resultChargedBytes == rowHeap + rowCapacity + overviewHeap + overviewCapacity`；
+同一输入用只够 P 行的预算运行时返回 `ResultBudgetExceeded` 且结果为空（无半成品发布）。
+日志：`validation-logs\t6-recommendation.log`（退出码 0）。
+
+未改生产代码的原因：实测未发现“容量/预算不一致”或“提前超预算”现象；按任务书
+“没有可测收益的复杂改动不合入”，未把预留机械改成 2P。剩余风险：`compactFacts`
+（preparedFacts 复用）路径下额外行的实际数量未单独测量，但其记账同样走 capacity。
+
+---
+
 ## T3–T10
 
-状态：`Pending`（按批次推进；批次二为 T3–T6）
+状态：T3/T4/T6 `FixedAndTargetedTested`/`Verified`，T5-B `Verified`，T5-A `Blocked`；
+批次三 T7–T10 `Pending`

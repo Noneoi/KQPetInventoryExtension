@@ -600,6 +600,83 @@ int main(int argc, char* argv[]) {
                   "a partially corrupt external catalog replaced the last-known-good snapshot");
   }
 
+  // A pet with an owned-star action keeps both its shop row and its local
+  // cultivation row, so the real upper bound is one row per pet plus one extra
+  // row for each of those pets. The container accounting and the budget check
+  // must cover that bound instead of assuming exactly one row per pet.
+  {
+    QList<PetAssetRecord> twins;
+    for (qint64 id = 1; id <= 4; ++id) {
+      PetAssetRecord record = pet(id, 10, 80);
+      // One empty ordinary slot plus one owned red star produces the
+      // "已有星神待装备/调整" action, which is the only path that adds a second
+      // row next to the shop row for the same pet.
+      record.pet.insert(QStringLiteral("sgs"), QStringLiteral("0:8"));
+      record.pet.insert(QStringLiteral("sgsp"), QJsonArray{66});
+      record.pet.insert(QStringLiteral("stargodSlotMaxLevel"), 8);
+      twins.append(record);
+    }
+    const QList<ShopExchangeGood> goods{good(1), good(2)};
+    const auto prepared = prepareWithSyntheticPeriod(CompiledShopCatalog::compile(goods),
+        allCounts(), AccountResourceView(enough, true));
+    const PetMetadataView catalogView(PetDetailCatalog::instance().snapshot());
+    const ShopPetMetadataSnapshot metadata{catalogView.stargodDefinitions(),
+        catalogView.astrolabeDefinitions(), catalogView.petDefinitions(),
+        catalogView.sacredStarPlans(), catalogView.sacredStagePlans(),
+        catalogView.badgeDefinitions()};
+    const auto runSession = [&](quint64 budget, QList<ActionRecommendation>* rows,
+                                AccountAssetOverview* taken, RecommendationSliceStats* timing,
+                                RecommendationSession::Status* status) {
+      AccountAssetOverview input = overview(twins);
+      RecommendationSession session(QStringLiteral("account-a"), input, prepared, metadata, nullptr, true);
+      while (session.step(nullptr, 16, 4096, budget) == RecommendationSession::Status::Running) {}
+      *status = session.status();
+      *rows = session.takeResults();
+      *taken = session.takeOverview();
+      *timing = session.sliceStats();
+    };
+    QList<ActionRecommendation> rows;
+    AccountAssetOverview taken;
+    RecommendationSliceStats timing;
+    RecommendationSession::Status status = RecommendationSession::Status::Running;
+    runSession(8ULL * 1024 * 1024, &rows, &taken, &timing, &status);
+    int shopRows = 0, localRows = 0;
+    for (const auto& row : rows) {
+      if (row.shopGoodKey.isEmpty()) ++localRows; else ++shopRows;
+    }
+    if (!(status == RecommendationSession::Status::Complete && rows.size() == 8 &&
+          shopRows == 4 && localRows == 4 && taken.pets.size() == 4)) {
+      std::fprintf(stderr,
+          "  two-row batch: status=%d rows=%lld shop=%d local=%d overviewPets=%lld "
+          "capacityBytes=%llu chargedBytes=%llu rowHeap=%llu overviewHeap=%llu\n",
+          static_cast<int>(status), static_cast<long long>(rows.size()), shopRows, localRows,
+          static_cast<long long>(taken.pets.size()), timing.resultRowCapacityBytes,
+          timing.resultChargedBytes, timing.resultRowHeapBytes, timing.overviewHeapBytes);
+    }
+    ok &= require(status == RecommendationSession::Status::Complete && rows.size() == 8 &&
+                      shopRows == 4 && localRows == 4 && taken.pets.size() == 4,
+                  "two rows per pet were not published with all P overview rows kept");
+    const quint64 rowBytes = quint64(rows.size()) * sizeof(ActionRecommendation);
+    // The documented breakdown splits the overview charge into its own capacity
+    // and heap parts, so the identity includes both.
+    ok &= require(timing.resultRowCapacityBytes >= rowBytes &&
+                      timing.resultChargedBytes == timing.resultRowHeapBytes +
+                          timing.resultRowCapacityBytes + timing.overviewHeapBytes +
+                          timing.overviewCapacityBytes,
+                  "the shared result accounting did not follow the real row count or container capacity");
+    // A budget that only fits one row per pet must reject the task outright
+    // instead of publishing a half materialized result.
+    QList<ActionRecommendation> smallRows;
+    AccountAssetOverview smallTaken;
+    RecommendationSliceStats smallTiming;
+    RecommendationSession::Status smallStatus = RecommendationSession::Status::Running;
+    runSession(quint64(sizeof(ActionRecommendation)) + 4096, &smallRows, &smallTaken,
+               &smallTiming, &smallStatus);
+    ok &= require(smallStatus == RecommendationSession::Status::ResultBudgetExceeded &&
+                      smallRows.isEmpty(),
+                  "a two-row-per-pet result published rows after exceeding the result budget");
+  }
+
   if (!ok) return 1;
   std::fprintf(stdout,
                "PASS: real-project recommendation, resources, stale state, ordering, performance\n");

@@ -205,10 +205,31 @@ int main(int argc, char** argv) {
     ok &= require(until([&] { return controller.postPriorityCompute(work); }), "resume held work on the shared Compute executor");
   }
   deferredCompute.clear();
-  ok &= require(until([&] {
+  const bool burstPublished = until([&] {
     const auto facts = projection.derivedFactsFor(2001);
-    return facts && facts->key.record == latestVersion && facts->facts.asset.currentPower == 10000 && !cache.stats().pendingTasks;
-  }), "one thousand updates supersede old computation and publish only the newest version");
+    // This fixture reply carries one power component, which by the confirmed
+    // rules leaves the local total unknown. The observed server value is the
+    // per-revision discriminator here, and the record version proves which
+    // input actually reached the projection.
+    return facts && facts->key.record == latestVersion &&
+        facts->facts.battlePower.hasServerCurrent && facts->facts.battlePower.serverCurrent == 10000 &&
+        !cache.stats().pendingTasks;
+  });
+  if (!burstPublished) {
+    const auto facts = projection.derivedFactsFor(2001);
+    const auto stats = cache.stats();
+    std::fprintf(stderr,
+        "BURST: projected=%d projectedRevision=%llu projectedServerPower=%d latestRevision=%llu "
+        "pending=%d active=%d resident=%d computations=%llu rejected=%llu latestComplete=%d latestPersisted=%d "
+        "latestDerived=%d reads=%d\n",
+        bool(facts), facts ? facts->key.record.detailMemoryRevision : 0,
+        facts ? facts->facts.battlePower.serverCurrent : -1, latestVersion.detailMemoryRevision,
+        stats.pendingTasks, stats.activeTasks, stats.residentEntries, stats.computations, stats.rejected,
+        int(repository.recordVersion(2001).complete), int(repository.recordVersion(2001).persisted),
+        int(repository.recordVersion(2001).derived), repository.pendingReadCount());
+  }
+  ok &= require(burstPublished,
+                "one thousand updates supersede old computation and publish only the newest version");
   ok &= require(cache.stats().computations <= burstStart + 2 && cache.stats().residentEntries <= 3 &&
       repository.rawCacheStats().chargedBytes <= limits.maximumBytes,
       "superseded detail versions do not accumulate compute tasks or resident facts");

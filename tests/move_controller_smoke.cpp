@@ -85,8 +85,21 @@ QJsonArray journalFixtureDiagnostics(const QString& accountDirectory) {
   return records;
 }
 
-QJsonObject pet(qint64 id) {
-  return {{QStringLiteral("id"), id},
+// Prints the observable move state next to a failing expectation: a bare FAIL
+// line cannot separate a stale expectation from a state-machine defect.
+void dumpMoveState(const char* label, const QList<qint64>& pack, const QSet<qint64>& warehouse,
+                   int writes, bool succeeded, const QString& result) {
+  QStringList packed;
+  for (qint64 id : pack) packed.append(QString::number(id));
+  QStringList stored;
+  for (qint64 id : warehouse) stored.append(QString::number(id));
+  std::fprintf(stderr, "  %s: pack=[%s] warehouse=[%s] writes=%d succeeded=%d result='%s'\n",
+               label, qPrintable(packed.join(QLatin1Char(','))),
+               qPrintable(stored.join(QLatin1Char(','))), writes, int(succeeded),
+               qPrintable(result));
+}
+
+QJsonObject pet(qint64 id) {  return {{QStringLiteral("id"), id},
           {QStringLiteral("ri"), 7000 + static_cast<int>(id)},
           {QStringLiteral("n"), QStringLiteral("pet-%1").arg(id)},
           {QStringLiteral("lv"), 100},
@@ -144,6 +157,12 @@ int main(int argc, char* argv[]) {
   bool deliveringMoveAck = false;
   bool embeddedAckApplied = true;
   int reentrantVerificationSends = 0;
+  QObject::connect(&controller,&PetRefreshController::statusChanged,&application,
+      [&](const QString& message) {
+        std::fprintf(stderr, "STATUS rev=%llu detailReq=%d pendingReads=%d: %s\n",
+                     repository.inventoryRevision(), detailRequests, repository.pendingReadCount(),
+                     qPrintable(message));
+      });
 
   auto backpackPacket = [&]() {
     QJsonArray list;
@@ -273,6 +292,8 @@ int main(int argc, char* argv[]) {
       &controller, &PetRefreshController::replacementRequired, &application,
       [&](qint64, const QList<qint64>& eligible) {
         ++replacementPrompts;
+        std::fprintf(stderr, "PROMPT %d rev=%llu eligible=%d\n", replacementPrompts,
+                     repository.inventoryRevision(), int(eligible.size()));
         if (invalidateReplacementOnce) {
           invalidateReplacementOnce = false;
           repository.beginListRefresh(9000, repository.accountKey(), repository.sessionGeneration());
@@ -287,6 +308,8 @@ int main(int argc, char* argv[]) {
   controller.requestMoveToWarehouse(2);
   ok &= require(waitUntil([&]() { return finished; }),
                 "move-to-warehouse did not finish");
+  if (!(succeeded && pack == QList<qint64>({1}) && warehouse.contains(2)))
+    dumpMoveState("move-to-warehouse", pack, warehouse, writes, succeeded, result);
   ok &= require(succeeded && pack == QList<qint64>({1}) && warehouse.contains(2),
                 "move-to-warehouse result is incorrect");
   ok &= require(repository.hasCachedDetail(2),
@@ -315,6 +338,8 @@ int main(int argc, char* argv[]) {
   controller.requestMoveToBackpack(2);
   ok &= require(waitUntil([&]() { return finished; }),
                 "full-pack replacement did not finish");
+  if (!(succeeded && pack == QList<qint64>({1, 2}) && warehouse.contains(3) && !warehouse.contains(2)))
+    dumpMoveState("full-pack replacement", pack, warehouse, writes, succeeded, result);
   ok &= require(succeeded && pack == QList<qint64>({1, 2}) &&
                     warehouse.contains(3) && !warehouse.contains(2),
                 "full-pack replacement result is incorrect");
