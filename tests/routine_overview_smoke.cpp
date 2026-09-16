@@ -1,4 +1,5 @@
 #include "pet_repository.h"
+#include "asset_analyzer.h"
 #include "routine_overview_catalog.h"
 #include "routine_overview_controller.h"
 #include "protocol_test_support.h"
@@ -38,6 +39,17 @@ bool waitUntil(Predicate predicate, int timeoutMs = 3000) {
     QThread::msleep(1);
   }
   return predicate();
+}
+
+// Prints the actual summary next to a failing expectation: a bare FAIL line
+// cannot separate a stale expectation from an aggregation defect.
+void reportSummary(const char* label, const RoutineOpportunitySummary& value) {
+  std::cerr << "  " << label << ": completeness=" << static_cast<int>(value.completeness)
+            << " total=" << value.total << " confirmed=" << value.confirmedSources
+            << " expected=" << value.expectedSources
+            << " pending=" << value.pendingSources.size();
+  for (const QString& pending : value.pendingSources) std::cerr << " [" << qPrintable(pending) << "]";
+  std::cerr << '\n';
 }
 
 }  // namespace
@@ -431,6 +443,157 @@ int main(int argc, char* argv[]) {
           request.ticket.command, SubmissionOutcome::Submitted, transportMonotonicMs() - 10001});
     ok &= require(!weak.isRunning() && status.contains(QStringLiteral("超时")),
                   "a genuinely missing routine response stopped reporting its deadline");
+  }
+  // A period total means nothing without its completeness: one answered source
+  // must never be presented as the whole period.
+  {
+    PetRepository summaryRepository;
+    deliver(&summaryRepository, {{QStringLiteral("_cmd"), QStringLiteral("21_1")},
+        {QStringLiteral("info"), QJsonObject{{QStringLiteral("n"), QStringLiteral("routine-summary")}}}});
+    RoutineOverviewController summaryController(&summaryRepository);
+    QObject::connect(&summaryRepository, &PetRepository::packetObserved, &summaryController,
+        [&summaryController](const QJsonObject& packet, const InboundEnvelope& envelope) {
+          summaryController.handleDecodedEnvelope(envelope, packet);
+        });
+    ObservationClockSample clock{QDateTime(QDate(2026, 9, 9), QTime(10, 0), Qt::UTC), 250000, 0,
+                                 QStringLiteral("synthetic/UTC")};
+    summaryController.setObservationClock([&clock] { return clock; });
+    QStringList requested;
+    summaryController.setSender([&requested](const QString&, const QString& command, const QString&) {
+      requested.append(command);
+      return true;
+    });
+    const auto acceptPeriod = [&](const QString& group, const QString& period) {
+      TrustedObservationValidity evidence{summaryRepository.accountKey(),
+          summaryRepository.sessionGeneration(), group, summaryController.observedSequence(group), period,
+          QStringLiteral("synthetic-routine-period"), clock.utc.addSecs(-3600), clock.utc.addSecs(3600),
+          clock.utc, 0, QStringLiteral("tests/routine_overview_smoke.cpp synthetic routine period evidence")};
+      QString error;
+      const bool accepted = summaryController.acceptPeriodValidityEvidence(evidence, &error);
+      if (!accepted) std::cerr << "routine period evidence rejected: " << qPrintable(error) << '\n';
+      return accepted;
+    };
+    AssetAnalyzer analyzer(&summaryRepository, nullptr, &summaryController);
+    const QJsonObject dailyReply{{QStringLiteral("_cmd"), QStringLiteral("1008_20170623_dt_0")},
+        {QStringLiteral("av"), 30}, {QStringLiteral("wav"), 300},
+        {QStringLiteral("ti"), QJsonArray{1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1}},
+        {QStringLiteral("wti"), QJsonArray{15, 6, 13, 32, 13, 5, 90, 7, 15, 7, 10, 1, 8}},
+        {QStringLiteral("bi"), QJsonArray{true, false, false, false, false}},
+        {QStringLiteral("wbi"), QJsonArray{false, false, false, false, false}}};
+    const QJsonObject redPointReply{{QStringLiteral("_cmd"), QStringLiteral("1037_0")},
+        {QStringLiteral("rs"), QStringLiteral("123#456")}};
+    const auto startCycle = [&]() {
+      requested.clear();
+      return summaryController.requestRefresh() && requested.size() == 7;
+    };
+    const auto closeCycle = [&]() {
+      deliver(&summaryRepository, dailyReply);
+      deliver(&summaryRepository, redPointReply);
+      return !summaryController.isRunning();
+    };
+    const QStringList queried{QStringLiteral("1008_20220603_swa_0_0"),
+        QStringLiteral("1008_20190531_gbt_1"), QStringLiteral("2_36_1"),
+        QStringLiteral("1008_20260522_nf_0"), QStringLiteral("110_123_0")};
+    const auto deliverQueried = [&](const QJsonValue& beast, qint64 tree) {
+      deliver(&summaryRepository, {{QStringLiteral("_cmd"), QStringLiteral("1008_20220603_swa_0_0")},
+          {QStringLiteral("ti"), 2}, {QStringLiteral("wgt"), 4}});
+      deliver(&summaryRepository, {{QStringLiteral("_cmd"), QStringLiteral("1008_20190531_gbt_1")},
+          {QStringLiteral("ti"), tree}});
+      deliver(&summaryRepository, {{QStringLiteral("_cmd"), QStringLiteral("2_36_1")},
+          {QStringLiteral("t"), beast}});
+      deliver(&summaryRepository, {{QStringLiteral("_cmd"), QStringLiteral("1008_20260522_nf_0")},
+          {QStringLiteral("pt"), 3}, {QStringLiteral("rft"), 1}});
+      deliver(&summaryRepository, {{QStringLiteral("_cmd"), QStringLiteral("110_123_0")},
+          {QStringLiteral("rwwt"), 4}, {QStringLiteral("rdt"), 1}, {QStringLiteral("rdb"), 0},
+          {QStringLiteral("wwt"), 0}});
+    };
+    // Cycle 1: one queried source answers with an unusable value. The other
+    // four own the subtotal, and the period is never called complete.
+    ok &= require(startCycle(), "the routine summary refresh did not start as the full read-only batch");
+    deliverQueried(QJsonValue(QStringLiteral("bad")), 1);
+    ok &= require(closeCycle(), "the first routine summary cycle did not complete");
+    for (const QString& group : {QStringLiteral("1008_20220603_swa_0_0"),
+             QStringLiteral("1008_20190531_gbt_1"), QStringLiteral("1008_20260522_nf_0"),
+             QStringLiteral("110_123_0")})
+      ok &= require(acceptPeriod(group, QStringLiteral("activity")),
+                    qPrintable(QStringLiteral("period evidence rejected for %1").arg(group)));
+    const AccountAssetOverview partialSummary = analyzer.routineSummary();
+    const bool partialReported = !partialSummary.todayOpportunityKnown &&
+        partialSummary.todayOpportunityRemaining == 2 + 1 + 3 + 39 &&
+        partialSummary.todayOpportunities.completeness == RoutineCompleteness::Partial &&
+        partialSummary.todayOpportunities.expectedSources == 5 &&
+        partialSummary.todayOpportunities.confirmedSources == 4 &&
+        partialSummary.todayOpportunities.total == 2 + 1 + 3 + 39 &&
+        partialSummary.todayOpportunities.pendingSources.size() == 1 &&
+        partialSummary.todayOpportunities.observedAt.isValid() &&
+        partialSummary.routineDataKnown;
+    if (!partialReported) reportSummary("partial", partialSummary.todayOpportunities);
+    ok &= require(partialReported,
+                  "a partially confirmed source set was reported as the whole period total");
+    // The weekly sources are independent of the daily ones even inside the same
+    // reply: both answered here, so the weekly period stays complete.
+    ok &= require(partialSummary.weekOpportunityKnown &&
+                      partialSummary.weekOpportunities.completeness == RoutineCompleteness::Complete &&
+                      partialSummary.weekOpportunities.total == 2 + 4,
+                  "an unusable daily source made the independent weekly sources unknown");
+
+    // Cycle 2: the same sources answer properly, so the period becomes complete.
+    ok &= require(startCycle(), "the second routine summary cycle did not start");
+    deliverQueried(2, 1);
+    ok &= require(closeCycle(), "the second routine summary cycle did not complete");
+    for (const QString& group : queried)
+      ok &= require(acceptPeriod(group, QStringLiteral("activity")),
+                    qPrintable(QStringLiteral("period evidence rejected for %1").arg(group)));
+    const AccountAssetOverview completeSummary = analyzer.routineSummary();
+    const bool completeReported = completeSummary.todayOpportunityKnown &&
+        completeSummary.todayOpportunities.completeness == RoutineCompleteness::Complete &&
+        completeSummary.todayOpportunities.expectedSources == 5 &&
+        completeSummary.todayOpportunities.confirmedSources == 5 &&
+        completeSummary.todayOpportunities.pendingSources.isEmpty() &&
+        completeSummary.todayOpportunities.total == 2 + 1 + 2 + 3 + 39 &&
+        completeSummary.weekOpportunityKnown &&
+        completeSummary.weekOpportunities.completeness == RoutineCompleteness::Complete &&
+        completeSummary.weekOpportunities.total == 2 + 4;
+    if (!completeReported) reportSummary("complete", completeSummary.todayOpportunities);
+    ok &= require(completeReported, "fully confirmed sources were not reported as a complete total");
+    // Arena counters are the split sources: each returned field is its own
+    // contribution, and a field the game never returned stays pending.
+    deliver(&summaryRepository, {{QStringLiteral("_cmd"), QStringLiteral("16_24_A")},
+        {QStringLiteral("zao1"), QJsonObject{{QStringLiteral("ct"), 1}, {QStringLiteral("bct"), 0}}}});
+    ok &= require(acceptPeriod(QStringLiteral("16_24_A:zao1"), QStringLiteral("activity")),
+                  "the arena challenge period evidence was rejected");
+    const AccountAssetOverview arenaSummary = analyzer.routineSummary();
+    const bool arenaReported =
+        arenaSummary.todayOpportunities.completeness == RoutineCompleteness::Partial &&
+        arenaSummary.todayOpportunities.expectedSources == 7 &&
+        arenaSummary.todayOpportunities.confirmedSources == 6 &&
+        arenaSummary.todayOpportunities.total == 2 + 1 + 2 + 3 + 39 + 7 &&
+        arenaSummary.todayOpportunities.pendingSources.size() == 1 && !arenaSummary.todayOpportunityKnown;
+    if (!arenaReported) reportSummary("arena split", arenaSummary.todayOpportunities);
+    ok &= require(arenaReported, "one arena field made its unreturned sibling complete");
+
+    // Cycle 3: an overflowed sum is not a reliable value at all.
+    ok &= require(startCycle(), "the overflow routine summary cycle did not start");
+    deliverQueried(2, std::numeric_limits<int>::max());
+    ok &= require(closeCycle(), "the overflow routine summary cycle did not complete");
+    for (const QString& group : queried)
+      ok &= require(acceptPeriod(group, QStringLiteral("activity")),
+                    qPrintable(QStringLiteral("period evidence rejected for %1").arg(group)));
+    const AccountAssetOverview overflowSummary = analyzer.routineSummary();
+    const bool overflowReported =
+        overflowSummary.todayOpportunities.completeness == RoutineCompleteness::Overflow &&
+        !overflowSummary.todayOpportunityKnown && overflowSummary.todayOpportunities.total == 0;
+    if (!overflowReported) reportSummary("overflow", overflowSummary.todayOpportunities);
+    ok &= require(overflowReported, "an overflowed period total was presented as a usable value");
+
+    // Switching the account clears the previous account's coverage.
+    deliver(&summaryRepository, {{QStringLiteral("_cmd"), QStringLiteral("21_1")},
+        {QStringLiteral("info"), QJsonObject{{QStringLiteral("n"), QStringLiteral("routine-summary-2")}}}});
+    const AccountAssetOverview switchedSummary = analyzer.routineSummary();
+    ok &= require(switchedSummary.todayOpportunities.expectedSources == 0 &&
+                      switchedSummary.todayOpportunities.completeness == RoutineCompleteness::Unknown &&
+                      !switchedSummary.routineDataKnown,
+                  "another account inherited the previous routine coverage");
   }
   return ok ? 0 : 2;
 }

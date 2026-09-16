@@ -91,6 +91,19 @@ struct InventorySignature {
   }
 };
 
+// A period total is only meaningful together with how complete its sources are.
+// A confirmed subtotal from part of the sources is never the period total.
+enum class RoutineCompleteness { Unknown, Partial, Complete, Overflow };
+
+struct RoutineOpportunitySummary {
+  RoutineCompleteness completeness = RoutineCompleteness::Unknown;
+  int total = 0;              // confirmed sources only; 0 when Overflow
+  int confirmedSources = 0;
+  int expectedSources = 0;    // sources this analysis covers for the account
+  QStringList pendingSources; // covered sources without a confirmed current value
+  QDateTime observedAt;       // newest observation among the confirmed sources
+};
+
 struct AccountAssetOverview {
   std::shared_ptr<void> memoryRetention;
   int analysisVersion = AssetAnalysisVersion::kCurrentAnalysis;
@@ -118,10 +131,15 @@ struct AccountAssetOverview {
   bool weeklyTasksKnown = false;
   int unfinishedDailyTasks = 0;
   int unfinishedWeeklyTasks = 0;
+  // "Known" now means the period total is complete: every covered source was
+  // confirmed for its current period. A partial subtotal keeps this false and
+  // is reported through the summaries below instead.
   bool todayOpportunityKnown = false;
   bool weekOpportunityKnown = false;
   int todayOpportunityRemaining = 0;
   int weekOpportunityRemaining = 0;
+  RoutineOpportunitySummary todayOpportunities;
+  RoutineOpportunitySummary weekOpportunities;
   qint64 totalCurrentPower = 0;
   bool totalCurrentPowerKnown = false;
   QList<PetAssetRecord> pets;

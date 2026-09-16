@@ -54,6 +54,11 @@ public:
   PacketFieldState fieldState(const QString& field) const {
     return fieldStates_.value(field, PacketFieldState::Missing);
   }
+  // True once this session recorded a state for the group (queried, returned,
+  // invalid or explicitly missing). Groups that no query ever covered are
+  // outside the current expectation instead of forcing a permanent partial
+  // result. Never true for an unobserved group just because it is known here.
+  bool hasRecordedState(const QString& group) const { return fieldStates_.contains(group); }
   QDateTime observedAt(const QString& field) const { return observedAt_.value(field); }
   QJsonObject unverifiedPackets() const { return unverifiedPackets_; }
 

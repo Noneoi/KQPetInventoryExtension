@@ -231,6 +231,59 @@ CMakeLists 第 226 行），覆盖 3 个发射器 × 4 种文本（中文 / emoj
 
 ---
 
+## T3 日常/每周玩法汇总完整性
+
+状态：`FixedAndTargetedTested`
+
+相关函数/调用链：`src/extension/asset_analyzer.cpp:analyzeRoutine()`、
+`src/domain/asset_analysis_types.h:AccountAssetOverview`、
+`src/extension/routine_overview_controller.h`（分组状态）、
+`src/extension/asset_analysis_window.cpp:rebuildOverview()`。
+
+问题（已复现）：基线把“至少一个来源有效”当成总量已知。`add()` 一次有效就把
+`todayOpportunityKnown` 置真，其余来源缺失/无效/周期未核验只是被跳过，界面因此显示
+`玩法剩余 N`，把部分合计当成整期总量。复现（修复前）：`validation-logs\t3-prefix-repro.log`
+——5 个只读来源只返回 1 个且其周期已核验时，`todayOpportunityKnown` 仍为真。
+
+修复：
+
+- 新增 `RoutineCompleteness{Unknown,Partial,Complete,Overflow}` 与
+  `RoutineOpportunitySummary`（已确认小计 `total`、`confirmedSources`、`expectedSources`、
+  `pendingSources`（含原因）、`observedAt`）；`AccountAssetOverview` 增加
+  `todayOpportunities`/`weekOpportunities`。`todayOpportunityKnown`/`weekOpportunityKnown`
+  的含义明确为“整期总量已完整确认”。
+- `analyzeRoutine()` 改为逐个独立贡献项求值：每个来源分别检查
+  `fieldState(group)`（Value/Empty/Invalid/Missing）与 `group:activity` 周期有效性，
+  再解析自身数值。`Empty` 记为“已确认的 0”，缺失与真实 0 继续分开。
+- 应有来源 = 本次分析覆盖的分组（`RoutineOverviewController::hasRecordedState()`，
+  新访问器）。未被任何查询覆盖的分组不参与期望，因此未开启/不适用的玩法不会造成永久
+  Partial；被动观察的竞技场 `16_24_A:zao1|zao2` 只有游戏自身返回时才计入期望。
+- 溢出（合计超出 int 可表示范围）单独成为 `Overflow`，此时 `total` 不给出“可靠下限”。
+- 发现并一并修正：原先竞技场使用 `16_24_A:activity` 作为周期键，而该键从不产生
+  （分组按 `zao1`/`zao2` 登记），导致竞技场次数实际永不计入；现按字段键判定。
+- UI：`今日/本周任务 / 玩法剩余` 行改为
+  `玩法剩余 N 次`（完整）/`已确认 N 次，另有 M 项未更新`（部分）/
+  `玩法次数未确认`（未知）/`当前无适用玩法`（零适用）/`玩法次数合计无效（超出可表示范围）`
+  （溢出），未更新来源列入行提示。
+
+改动文件：`src/domain/asset_analysis_types.h`、`src/extension/asset_analyzer.cpp`、
+`src/extension/routine_overview_controller.h`、`src/extension/asset_analysis_window.cpp`、
+`tests/routine_overview_smoke.cpp`、`tests/workbench_ui_preview.cpp`。
+
+回归（`tests/routine_overview_smoke.cpp`，用真实 `RoutineOverviewController` 三个刷新周期
+＋合成周期证据，不联网、不读真实账号）：部分（1 个来源无效、4 个有效 → Partial 45、
+pending 1，周常仍 Complete 6）、全部有效（Complete 47/6）、竞技场单字段返回（6/7 部分）、
+恢复后 Complete、溢出（Overflow 且 total=0）、全部缺失（expected=0/Unknown）、
+周期未核验（Unknown）、切号清空旧覆盖。日志：`validation-logs\t3-postfix.log`（退出码 0）、
+`validation-logs\t3-targeted-ctest.log`（7 项相关测试全通过）。
+
+剩余风险：未覆盖跨日/跨周的真实周期翻转（依赖系统时钟推进，测试用固定时钟；
+`observation_freshness_smoke` 已覆盖周期边界过期语义）；离线缓存路径下
+`fieldStates_` 不随缓存恢复，因此重启后未刷新时汇总保持 Unknown（与“只读旧观察”一致），
+未在本次改动中改变。
+
+---
+
 ## T3–T10
 
 状态：`Pending`（按批次推进；批次二为 T3–T6）

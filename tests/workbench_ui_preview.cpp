@@ -228,6 +228,14 @@ int main(int argc, char* argv[]) {
   overview.routineDataKnown = true;
   overview.todayOpportunityKnown = true;
   overview.todayOpportunityRemaining = 8;
+  overview.todayOpportunities.completeness = RoutineCompleteness::Complete;
+  overview.todayOpportunities.total = 8;
+  overview.todayOpportunities.confirmedSources = 5;
+  overview.todayOpportunities.expectedSources = 5;
+  overview.weekOpportunities.completeness = RoutineCompleteness::Complete;
+  overview.weekOpportunities.total = 6;
+  overview.weekOpportunities.confirmedSources = 2;
+  overview.weekOpportunities.expectedSources = 2;
   for (int index = 0; index < 42; ++index) {
     const QJsonObject value = fixturePets.value(800001 + index);
     PetAssetRecord record;

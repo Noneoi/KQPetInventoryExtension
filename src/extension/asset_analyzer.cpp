@@ -17,6 +17,7 @@
 #include <QSet>
 
 #include <algorithm>
+#include <functional>
 #include <limits>
 
 namespace {
@@ -75,40 +76,134 @@ void analyzeRoutine(const RoutineOverviewController* controller,
   }
 
   const QJsonObject packets = controller->opportunityPackets();
-  bool dayOverflow = false, weekOverflow = false;
-  auto add = [&](qint64 amount, bool weekly) {
-    auto& total = weekly ? result->weekOpportunityRemaining : result->todayOpportunityRemaining;
-    auto& known = weekly ? result->weekOpportunityKnown : result->todayOpportunityKnown;
-    auto& overflow = weekly ? weekOverflow : dayOverflow;
-    if (overflow) return;
-    const qint64 next = qint64(total) + qMax<qint64>(0, amount);
-    if (next > INT_MAX) { total = 0; known = false; overflow = true; }
-    else { total = static_cast<int>(next); known = true; }
+  // One entry per independent contribution. A source is validated on its own:
+  // a valid field in one packet says nothing about that packet's other fields.
+  // A group this analysis never covered is not counted as zero, and it does not
+  // keep the period permanently partial either.
+  struct Source {
+    QString label;
+    QString group;
+    bool weekly = false;
+    bool expected = false;
+    bool confirmed = false;
+    qint64 amount = 0;
+    QDateTime observedAt;
+    QString pendingReason;
+  };
+  QList<Source> sources;
+  auto evaluate = [&](const QString& label, const QString& group, bool weekly,
+                      const std::function<bool(qint64*)>& compute) {
+    Source entry;
+    entry.label = label;
+    entry.group = group;
+    entry.weekly = weekly;
+    entry.expected = controller->hasRecordedState(group);
+    if (entry.expected) {
+      const PacketFieldState state = controller->fieldState(group);
+      if (state != PacketFieldState::Value && state != PacketFieldState::Empty)
+        entry.pendingReason = state == PacketFieldState::Invalid ? QStringLiteral("来源数据无效")
+                                                                 : QStringLiteral("来源未返回");
+      else if (!current(group + QStringLiteral(":activity")))
+        entry.pendingReason = QStringLiteral("周期未确认");
+      else if (state == PacketFieldState::Empty) {
+        entry.amount = 0;  // Explicitly empty is a confirmed zero, not missing.
+        entry.confirmed = true;
+        entry.observedAt = controller->observedAt(group);
+      } else {
+        qint64 value = 0;
+        if (compute(&value)) {
+          entry.amount = value;
+          entry.confirmed = true;
+          entry.observedAt = controller->observedAt(group);
+        } else {
+          entry.pendingReason = QStringLiteral("来源数据无效");
+        }
+      }
+    }
+    sources.append(entry);
   };
   auto number = [](const QJsonObject& object, const char* field, qint64* value) {
     return PacketContracts::checkedInteger(object.value(QLatin1String(field)), value, 0, INT_MAX);
   };
-  qint64 value = 0, bonus = 0;
+  qint64 value = 0;
   const auto star = packets.value(QStringLiteral("1008_20220603_swa_0_0")).toObject();
-  if (current(QStringLiteral("1008_20220603_swa_0_0:activity"))) {
-    if (number(star, "ti", &value)) add(value, false);
-    if (number(star, "wgt", &value)) add(6 - value, true);
-  }
-  for (const auto& pair : QList<QPair<QString, const char*>>{
-       {QStringLiteral("1008_20190531_gbt_1"), "ti"}, {QStringLiteral("2_36_1"), "t"},
-       {QStringLiteral("1008_20260522_nf_0"), "pt"}})
-    if (current(pair.first + QStringLiteral(":activity")) && number(packets.value(pair.first).toObject(), pair.second, &value)) add(value, false);
+  evaluate(QStringLiteral("星轮探险（今日）"), QStringLiteral("1008_20220603_swa_0_0"), false,
+      [&](qint64* result) { return number(star, "ti", result); });
+  evaluate(QStringLiteral("星轮探险（本周）"), QStringLiteral("1008_20220603_swa_0_0"), true,
+      [&](qint64* result) {
+        if (!number(star, "wgt", result)) return false;
+        *result = qMax<qint64>(0, 6 - *result);
+        return true;
+      });
+  const auto tree = packets.value(QStringLiteral("1008_20190531_gbt_1")).toObject();
+  evaluate(QStringLiteral("缤纷树（今日）"), QStringLiteral("1008_20190531_gbt_1"), false,
+      [&](qint64* result) { return number(tree, "ti", result); });
+  const auto beast = packets.value(QStringLiteral("2_36_1")).toObject();
+  evaluate(QStringLiteral("源兽之门（今日）"), QStringLiteral("2_36_1"), false,
+      [&](qint64* result) { return number(beast, "t", result); });
+  const auto farm = packets.value(QStringLiteral("1008_20260522_nf_0")).toObject();
+  evaluate(QStringLiteral("最新版农场（今日）"), QStringLiteral("1008_20260522_nf_0"), false,
+      [&](qint64* result) { return number(farm, "pt", result); });
   const auto competition = packets.value(QStringLiteral("110_123_0")).toObject();
-  if (current(QStringLiteral("110_123_0:activity"))) {
-    if (number(competition, "rdt", &value) && number(competition, "rdb", &bonus)) add(40 + bonus - value, false);
-    if (number(competition, "rwwt", &value)) add(value, true);
-  }
+  evaluate(QStringLiteral("全民斗技（今日）"), QStringLiteral("110_123_0"), false,
+      [&](qint64* result) {
+        qint64 used = 0, bought = 0;
+        if (!number(competition, "rdt", &used) || !number(competition, "rdb", &bought)) return false;
+        *result = qMax<qint64>(0, 40 + bought - used);
+        return true;
+      });
+  evaluate(QStringLiteral("全民斗技（本周）"), QStringLiteral("110_123_0"), true,
+      [&](qint64* result) { return number(competition, "rwwt", result); });
+  // The arena counters are never actively queried, so each is part of the
+  // expectation only while the game itself returns that group.
   const auto arena = packets.value(QStringLiteral("16_24_A")).toObject();
   for (const auto& field : {QStringLiteral("zao1"), QStringLiteral("zao2")}) {
     const auto info = arena.value(field).toObject();
-    if (current(QStringLiteral("16_24_A:activity")) && number(info, "ct", &value) && number(info, "bct", &bonus)) add(8 - value + bonus, false);
+    evaluate(field == QStringLiteral("zao1") ? QStringLiteral("经典竞技场（今日）")
+                                             : QStringLiteral("传奇竞技场（今日）"),
+        QStringLiteral("16_24_A:") + field, false, [&](qint64* result) {
+          qint64 used = 0, bought = 0;
+          if (!number(info, "ct", &used) || !number(info, "bct", &bought)) return false;
+          *result = qMax<qint64>(0, 8 + bought - used);
+          return true;
+        });
   }
 
+  const auto summarize = [&sources](bool weekly, RoutineOpportunitySummary* summary) {
+    qint64 total = 0;
+    bool overflow = false;
+    for (const Source& entry : sources) {
+      if (entry.weekly != weekly || !entry.expected) continue;
+      ++summary->expectedSources;
+      if (!entry.confirmed) {
+        summary->pendingSources.append(entry.pendingReason.isEmpty()
+            ? entry.label : entry.label + QStringLiteral("：") + entry.pendingReason);
+        continue;
+      }
+      ++summary->confirmedSources;
+      const qint64 next = total + entry.amount;
+      if (next > INT_MAX || next < 0) overflow = true;
+      else total = next;
+      if (!summary->observedAt.isValid() || summary->observedAt < entry.observedAt)
+        summary->observedAt = entry.observedAt;
+    }
+    // An overflowed sum is neither a total nor a reliable lower bound.
+    summary->total = overflow ? 0 : static_cast<int>(total);
+    summary->completeness = overflow ? RoutineCompleteness::Overflow
+        : summary->expectedSources == 0 || summary->confirmedSources == 0
+            ? RoutineCompleteness::Unknown
+            : summary->confirmedSources == summary->expectedSources
+                ? RoutineCompleteness::Complete : RoutineCompleteness::Partial;
+    if (summary->pendingSources.isEmpty()) summary->pendingSources.clear();
+  };
+  summarize(false, &result->todayOpportunities);
+  summarize(true, &result->weekOpportunities);
+  result->todayOpportunityRemaining = result->todayOpportunities.total;
+  result->weekOpportunityRemaining = result->weekOpportunities.total;
+  result->todayOpportunityKnown =
+      result->todayOpportunities.completeness == RoutineCompleteness::Complete;
+  result->weekOpportunityKnown =
+      result->weekOpportunities.completeness == RoutineCompleteness::Complete;
 }
 
 }  // namespace
@@ -241,5 +336,7 @@ void AssetAnalyzer::updateRoutineSummary(AccountAssetOverview* overview) const {
   overview->weekOpportunityKnown = false;
   overview->todayOpportunityRemaining = 0;
   overview->weekOpportunityRemaining = 0;
+  overview->todayOpportunities = {};
+  overview->weekOpportunities = {};
   analyzeRoutine(routineController_, overview);
 }

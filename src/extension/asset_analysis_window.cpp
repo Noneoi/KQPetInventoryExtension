@@ -33,6 +33,32 @@ namespace {
 constexpr int kOpenShop = -2;
 constexpr int kOpenRoutine = -3;
 
+// A confirmed subtotal from part of the sources is reported as such; only a
+// complete source set is presented as the period total.
+QString opportunitySummaryText(const RoutineOpportunitySummary& value) {
+  switch (value.completeness) {
+    case RoutineCompleteness::Complete:
+      return QStringLiteral("玩法剩余 %1 次").arg(value.total);
+    case RoutineCompleteness::Partial:
+      return QStringLiteral("已确认 %1 次，另有 %2 项未更新")
+          .arg(value.total)
+          .arg(value.pendingSources.size());
+    case RoutineCompleteness::Overflow:
+      return QStringLiteral("玩法次数合计无效（超出可表示范围）");
+    case RoutineCompleteness::Unknown:
+      return value.expectedSources == 0 ? QStringLiteral("当前无适用玩法")
+                                        : QStringLiteral("玩法次数未确认");
+  }
+  return QStringLiteral("玩法次数未确认");
+}
+
+QString opportunitySummaryNote(const RoutineOpportunitySummary& value) {
+  QString note = QStringLiteral("点击打开日常活动窗口查看逐项来源");
+  if (!value.pendingSources.isEmpty())
+    note += QStringLiteral("；未更新：%1").arg(value.pendingSources.join(QStringLiteral("、")));
+  return note;
+}
+
 QTableWidget* makeTable(QWidget* parent, const QStringList& headers) {
   auto* table = new QTableWidget(parent);
   table->setColumnCount(headers.size());
@@ -659,20 +685,22 @@ void AssetAnalysisWindow::rebuildOverview() {
                  routineSummary_.routineDataKnown
                      ? QStringLiteral("未完成任务 %1；玩法剩余 %2")
                            .arg(routineSummary_.dailyTasksKnown ? QString::number(routineSummary_.unfinishedDailyTasks) : QStringLiteral("周期未确认"))
-                           .arg(routineSummary_.todayOpportunityKnown
-                                    ? QString::number(routineSummary_.todayOpportunityRemaining)
-                                    : QStringLiteral("—"))
+                           .arg(opportunitySummaryText(routineSummary_.todayOpportunities))
                      : QStringLiteral("未查询"),
-                 QStringLiteral("点击打开日常活动窗口查看逐项来源"), kOpenRoutine);
+                 routineSummary_.routineDataKnown
+                     ? opportunitySummaryNote(routineSummary_.todayOpportunities)
+                     : QStringLiteral("点击打开日常活动窗口查看逐项来源"),
+                 kOpenRoutine);
   addOverviewRow(QStringLiteral("本周任务 / 玩法剩余"),
                  routineSummary_.routineDataKnown
                      ? QStringLiteral("未完成任务 %1；玩法剩余 %2")
                            .arg(routineSummary_.weeklyTasksKnown ? QString::number(routineSummary_.unfinishedWeeklyTasks) : QStringLiteral("周期未确认"))
-                           .arg(routineSummary_.weekOpportunityKnown
-                                    ? QString::number(routineSummary_.weekOpportunityRemaining)
-                                    : QStringLiteral("—"))
+                           .arg(opportunitySummaryText(routineSummary_.weekOpportunities))
                      : QStringLiteral("未查询"),
-                 QStringLiteral("点击打开日常活动窗口查看逐项来源"), kOpenRoutine);
+                 routineSummary_.routineDataKnown
+                     ? opportunitySummaryNote(routineSummary_.weekOpportunities)
+                     : QStringLiteral("点击打开日常活动窗口查看逐项来源"),
+                 kOpenRoutine);
 }
 
 void AssetAnalysisWindow::setDiagnosticFilter(PetAssetFilter filter) {
