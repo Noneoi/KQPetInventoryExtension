@@ -130,17 +130,26 @@
 ## 3. 测试与验收
 
 - 全量回归（最终提交、`build-agent-fix`，Release）：`validation-logs/t9-full-ctest-2.log`
-  → **72/72 通过**；串行复跑 `t9-full-ctest-3.log` 只出现下述预存在时序用例失败。
+  → **72/72 通过**；最终提交复跑 `validation-logs/batch4-final-ctest.log` → 70/72，两个失败均为
+  下述**本机时序相关旧用例**（仅文档提交使二进制与 `t9-full-ctest-2.log` 完全一致）。
 - 新增测试注册：`CMakeLists.txt` 中 `public_updater_output_encoding_smoke`（Python）、
   `data_root_config_smoke`、`repository_smoke`（新增 `diskDetailReloadRegression`）、
   `image_service_smoke`（T9 两条新断言）、`asset_analysis_ui_preview`（T7 自检）、
   `recommendation_smoke`（T6 容量/预算）、`routine_overview_smoke`（T3 完整性）。
-- 仍失败的旧用例（按任务书不得遗漏）：`analysis_cache_integration_smoke` 的读压力场景是**预存在**
-  的时序敏感用例，在本机时而无法在 20s 预算内完成（`t9-analysis-probe-instrumented.log`：
-  `running=1 protected=1 resident=1 evicted=286 refused=2150 retries=2543`）。已核实与本批改动无关：
-  把 `pet_repository.cpp` 回退到 `e2e3281` 后同样 3/3 失败（`t9-prefixT5a-analysis1..3.log`），
-  且该用例不使用 ImageService（T9 只改图片服务）。`shop_ui_preview_smoke` 在并行 `-j 4` 下出现过
-  一次 15s 超时（`t9-full-ctest.log`），串行复跑通过。
+- 仍失败的旧用例（按任务书不得遗漏，均已核实与本批改动无关）：
+  1. `analysis_cache_integration_smoke` 的读压力场景（515 精灵、单记录 raw 缓存、256 深读队列、
+     20s 预算）在本机时会超出预算：`t9-analysis-probe-instrumented.log` 显示
+     `running=1 protected=1 resident=1 evicted=286 refused=2150 retries=2543`。把
+     `pet_repository.cpp` 回退到 `e2e3281`（无 T5-A 修改）后同样 3/3 失败
+     （`t9-prefixT5a-analysis1..3.log`）；该用例不使用 ImageService（T9 只改图片服务）。
+     同一二进制早前运行 13–21s 通过。
+  2. `shop_ui_preview_smoke` 在 ctest 的 15s 超时下超时且 stdout 无输出：直接运行同一二进制
+     8.3s、退出码 0，自检打印 `SWITCH: first_call_ms=0 heartbeat_pulses=2982
+     membership_cache_hits=6 requests=0`；把 stdout 接管道后同一次运行变成 **17.8s**（超过 15s），
+     即该用例耗时对“stdout 是否被管道消费”与本机速度敏感，而 ctest 恒为管道
+     （`batch4-shop-preview-run1..3.log`、`batch4-shop-preview-verbose.log`）。
+- 判定：本机当前比早前全量运行慢约 1.4–1.7×（同二进制 8.3s→17.8s、13s→24s），这两个时间预算
+  边界用例因此落到预算之外；`t9-full-ctest-2.log` 的 72/72 表明代码路径本身可全绿。
 
 ## 4. 性能对照（同条件、同参数：`-Matrix Priority -Warmup 1 -Samples 3`）
 

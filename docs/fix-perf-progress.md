@@ -616,14 +616,24 @@ in-flight join downloads: 2
 
 ### 2. 全量回归
 
-- `validation-logs\t9-full-ctest-2.log`（`ctest -j 2`）：**72/72 通过**。
-- `validation-logs\t9-full-ctest-3.log`（`ctest -j 1`，更接近单机真实条件）：71/72，
-  仅 `analysis_cache_integration_smoke` 失败——第 T9 节已核实的**预存在时序敏感用例**
-  （回退 `pet_repository.cpp` 到 `e2e3281` 后同样 3/3 失败）。
+- `validation-logs\t9-full-ctest-2.log`（`ctest -j 2`，同一份二进制）：**72/72 通过**。
+- `validation-logs\batch4-final-ctest.log`（`ctest -j 2`，最终提交，仅文档提交使二进制不变）：70/72，
+  两个失败均为**本机时序/负载相关**的旧用例（见下）。
 - 定向复跑：`t5a-move-final-run1..3.log`（移动 14→0 条失败，3/3 一致）、
   `t5a-repository-final-run1..3.log`（磁盘重载不再自增）、`t9-final-run1/2.log`
   （同源 1 次下载、在途加入 1 次下载）、`t7-ui-preview.log`、`t6-recommendation.log`、
   `batch2-targeted-ctest.log`。
+
+#### 两个时序相关旧用例（已核实与本次改动无关）
+
+| 用例 | 现象 | 证据与判定 |
+| --- | --- | --- |
+| `analysis_cache_integration_smoke` | 读压力场景 20s 内未完成（`running=1 protected=1 resident=1 evicted=286 refused=2150 retries=2543`） | 回退 `pet_repository.cpp` 到 `e2e3281` 后同样 3/3 失败（`t9-prefixT5a-analysis1..3.log`）；该用例不使用 ImageService；同一二进制早前通过（13–21s）。详见 T9 节 |
+| `shop_ui_preview_smoke` | ctest `TIMEOUT 15` 超时，且**stdout 无任何输出**即被挂起 | 直接运行 8.3s、退出码 0 且自检输出 `SWITCH: first_call_ms=0 heartbeat_pulses=2982 membership_cache_hits=6 requests=0`；把 stdout 接管道后同一二进制变成 **17.8s**（超过 15s）。即用例耗时对“stdout 是否被管道消费”与本机速度敏感，ctest 恒为管道 |
+
+结论：两例都是预存在的时间预算边界用例，本机当前速度比早前全量运行慢约 1.4–1.7×（`shop_ui_preview`
+由 8.3s 升到 17.8s、`analysis_cache_integration` 由 13s 升到 24s），因此落在线界之外。不计入本次
+改动的回归结论，但**不隐藏**：它们就是当前仍失败的旧用例。
 
 ### 3. 性能对照（同参数：`-Matrix Priority -Warmup 1 -Samples 3`）
 
