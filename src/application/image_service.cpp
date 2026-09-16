@@ -105,8 +105,20 @@ bool safeVisualKey(const QString& key) {
   static const QRegularExpression expression(QStringLiteral("^[A-Za-z0-9_-]{1,96}$"));
   return expression.match(key).hasMatch();
 }
-bool safeExistingChain(const QString& absolutePath) {
-  const QString clean = QDir::cleanPath(QDir::fromNativeSeparators(absolutePath));
+// Signatures of the formats the preflight accepts. Used only to confirm that a
+// stored file is still an image without decoding it again.
+bool supportedImageHeader(const QByteArray& bytes) {
+  if (bytes.size() < 8) return false;
+  const auto starts = [&bytes](const char* signature, int length) {
+    return bytes.size() >= length && bytes.startsWith(QByteArray(signature, length));
+  };
+  if (starts("\x89PNG\r\n\x1a\n", 8)) return true;
+  if (bytes.startsWith("\xff\xd8\xff")) return true;
+  if (starts("GIF87a", 6) || starts("GIF89a", 6)) return true;
+  if (starts("BM", 2)) return true;
+  return starts("RIFF", 4) && bytes.mid(8, 4) == QByteArray("WEBP", 4);
+}
+bool safeExistingChain(const QString& absolutePath) {  const QString clean = QDir::cleanPath(QDir::fromNativeSeparators(absolutePath));
   if (!QDir::isAbsolutePath(clean)) return false;
   QString current = clean;
   for (;;) {
@@ -166,10 +178,22 @@ struct Job {
   bool networkAttempted = false;
   bool refreshChecked = false;
   bool attributeSheet = false;
+  // Identity of this job and of the batch that owns its terminal accounting.
+  quint64 jobId = 0;
+  quint64 batchGeneration = 0;
+  bool batch = false;
   std::atomic_bool cancelled{false};
 };
 using JobPtr = std::shared_ptr<Job>;
 using IoDone = std::function<void(JobPtr, bool)>;
+
+// Result of one disk-persistence attempt. Always produced for a request that
+// asked the disk to hold the image, including every failure path.
+struct ImagePersistenceReport {
+  ImagePersistence outcome = ImagePersistence::Failed;
+  QString message;
+  bool metadataSaved = false;
+};
 
 // Exists exclusively on the existing I/O thread. Its parent owns shutdown.
 class ImageIo final : public QObject {
@@ -413,32 +437,78 @@ public:
     process->start(python, {script, QStringLiteral("--data-root"), options_.dataRoot,
         QStringLiteral("--extract-image"), QStringLiteral("--visual-key"), ImageService::storageKey(job->request.visualKey), QStringLiteral("--replace")});
   }
-  void save(const JobPtr& job) {
-    if (closing_ || job->cancelled.load() || (job->cached && !job->migrate) || job->request.attributeId >= 0 || job->request.stargodId > 0) return;
+  // A bounded, cheap "the file on disk is still a usable image" check. It never
+  // decodes the whole file: the RAM copy already proved decodability.
+  bool validStoredImage(const QString& path) const {
+    QFile file(path);
+    return safeExistingChain(path) && file.open(QIODevice::ReadOnly) && file.size() > 0 &&
+        quint64(file.size()) <= options_.encodedImageBytes && supportedImageHeader(file.read(16));
+  }
+  ImagePersistenceReport verify(const JobPtr& job) {
+    if (closing_) return {ImagePersistence::Cancelled, QStringLiteral("图片服务正在关闭"), false};
+    if (job->cancelled.load()) return {ImagePersistence::Cancelled, QStringLiteral("磁盘确认已取消"), false};
     const QString path = cachePath(options_.dataRoot, job->request.visualKey);
-    if (path.isEmpty()) return;
+    if (path.isEmpty()) return {ImagePersistence::Failed, QStringLiteral("缓存路径无效或不可写"), false};
+    if (validStoredImage(path)) return {ImagePersistence::AlreadyValid, {}, false};
+    return {ImagePersistence::Failed,
+        QStringLiteral("内存中已有图片，但磁盘缓存缺失或无效"), false};
+  }
+  // Display success never implies persistence success: every path below returns
+  // an explicit outcome, including queue, path, lock, write and commit failures.
+  ImagePersistenceReport save(const JobPtr& job) {
+    if (closing_) return {ImagePersistence::Cancelled, QStringLiteral("图片服务正在关闭"), false};
+    if (job->cancelled.load()) return {ImagePersistence::Cancelled, QStringLiteral("保存已取消"), false};
+    if (job->cached && !job->migrate) return {ImagePersistence::AlreadyValid, {}, false};
+    const QString path = cachePath(options_.dataRoot, job->request.visualKey);
+    if (path.isEmpty()) return {ImagePersistence::Failed, QStringLiteral("缓存路径无效或不可写"), false};
     const QString directory = QFileInfo(path).absolutePath();
-    if (!QDir().mkpath(directory) || !safeExistingChain(path)) return;
-    QLockFile lock(path + QStringLiteral(".lock"));
+    if (!QDir().mkpath(directory) || !safeExistingChain(path))
+      return {ImagePersistence::Failed, QStringLiteral("缓存目录不可写"), false};
+    const QString lockPath = path + QStringLiteral(".lock");
+    QLockFile lock(lockPath);
     lock.setStaleLockTime(0);
-    if (!safeExistingChain(path + QStringLiteral(".lock")) || !lock.tryLock(0) || !safeExistingChain(path)) return;
+    if (!safeExistingChain(lockPath) || !lock.tryLock(0) || !safeExistingChain(path))
+      return {ImagePersistence::Failed, QStringLiteral("缓存文件被其他进程占用或路径无效"), false};
     QSaveFile file(path);
     file.setDirectWriteFallback(false);
-    if (!file.open(QIODevice::WriteOnly) || file.write(job->bytes) != job->bytes.size() ||
-        job->cancelled.load() || !safeExistingChain(path)) { file.cancelWriting(); return; }
-    if (file.commit()) {
-      if (!job->cached && !job->url.isEmpty()) {
-        const QString metaPath = QDir(directory).filePath(ImageService::storageKey(job->request.visualKey) + QStringLiteral(".json"));
-        QSaveFile metadata(metaPath);
-        metadata.setDirectWriteFallback(false);
-        const QByteArray body = QJsonDocument(QJsonObject{{QStringLiteral("schemaVersion"), 1}, {QStringLiteral("url"), job->url},
-            {QStringLiteral("revision"), job->sourceRevision},
-            {QStringLiteral("pngSha256"), QString::fromLatin1(QCryptographicHash::hash(job->bytes, QCryptographicHash::Sha256).toHex())}}).toJson(QJsonDocument::Compact);
-        if (safeExistingChain(metaPath) && metadata.open(QIODevice::WriteOnly) && metadata.write(body) == body.size()) metadata.commit();
-      }
+    if (!file.open(QIODevice::WriteOnly))
+      return {ImagePersistence::Failed, QStringLiteral("无法打开缓存文件写入"), false};
+    if (file.write(job->bytes) != job->bytes.size()) {
+      file.cancelWriting();
+      return {ImagePersistence::Failed, QStringLiteral("缓存写入不完整"), false};
+    }
+    // Cancellation before the commit point discards the temporary file. After a
+    // successful commit the replaced file stays valid and is never written twice.
+    if (job->cancelled.load() || closing_) {
+      file.cancelWriting();
+      return {ImagePersistence::Cancelled, QStringLiteral("保存期间已取消，未提交缓存文件"), false};
+    }
+    if (!safeExistingChain(path)) {
+      file.cancelWriting();
+      return {ImagePersistence::Failed, QStringLiteral("缓存路径检查失败"), false};
+    }
+    if (!file.commit()) return {ImagePersistence::Failed, QStringLiteral("缓存提交失败"), false};
+    const bool wantsMetadata = !job->cached && !job->url.isEmpty();
+    bool metadataSaved = false;
+    if (wantsMetadata) {
+      const QString metaPath = QDir(directory).filePath(ImageService::storageKey(job->request.visualKey) + QStringLiteral(".json"));
+      QSaveFile metadata(metaPath);
+      metadata.setDirectWriteFallback(false);
+      const QByteArray body = QJsonDocument(QJsonObject{{QStringLiteral("schemaVersion"), 1}, {QStringLiteral("url"), job->url},
+          {QStringLiteral("revision"), job->sourceRevision},
+          {QStringLiteral("pngSha256"), QString::fromLatin1(QCryptographicHash::hash(job->bytes, QCryptographicHash::Sha256).toHex())}}).toJson(QJsonDocument::Compact);
+      if (safeExistingChain(metaPath) && metadata.open(QIODevice::WriteOnly) && metadata.write(body) == body.size())
+        metadataSaved = metadata.commit();
+    }
+    if (metadataSaved || !wantsMetadata) {
       const QString failure = path + QStringLiteral(".failure.json");
       if (safeExistingChain(failure)) QFile::remove(failure);
+      return {ImagePersistence::Saved, {}, metadataSaved};
     }
+    // The raster is on disk but its source revision is not recorded, so this
+    // file must not be presented as a confirmed new version.
+    return {ImagePersistence::Failed,
+        QStringLiteral("图片已写入但来源元数据未提交；下次检查会重新获取"), false};
   }
 private:
   ImageServiceOptions options_;
@@ -476,6 +546,8 @@ struct ImageService::Impl {
   int batchFailed = 0;
   bool batchPaused = false;
   bool batchRunning = false;
+  quint64 batchGeneration = 0;
+  quint64 jobIdCounter = 0;
   quint64 clock = 0;
   quint64 cacheBytes = 0;
   bool initialized = false;
@@ -501,12 +573,12 @@ struct ImageService::Impl {
     batchTimer.setSingleShot(true);
     QObject::connect(&batchTimer, &QTimer::timeout, q, [this] { pumpBatch(); });
     QObject::connect(q, &ImageService::completed, q, [this](const ImageResult& result) {
-      if (!batchRunning || !batchActive.remove(result.key)) return;
-      ++batchCompleted;
-      if (result.outcome != ImageOutcome::Ready) ++batchFailed;
-      const QPointer<ImageService> owner(q);
-      emit q->batchProgress(batchCompleted, batchTotal, batchFailed);
-      if (owner && !closing) batchTimer.start(0);
+      if (!batchRunning || !batchActive.contains(result.key)) return;
+      // A displayed image is not a persisted one. A batch entry stays pending
+      // until its persistence receipt arrives; only a terminal display failure
+      // decides it here.
+      if (result.outcome == ImageOutcome::Ready) return;
+      accountBatch(result.key, false);
     });
   }
   static void deliver(const std::shared_ptr<Mailbox>& box, std::function<void(Impl&)> action) {
@@ -574,8 +646,64 @@ struct ImageService::Impl {
     use.peakDownloads = qMax(use.peakDownloads, downloads);
     use.decoding = bool(decoding);
   }
-  void report(const JobPtr& job, ImageOutcome outcome, ImageHandle handle = {}) {
-    if (active.value(job->key) == job) active.remove(job->key);
+  // Exactly one terminal accounting per batch entry: the first receipt or
+  // display failure removes the key, later ones are ignored.
+  void accountBatch(const QString& key, bool success) {
+    if (!batchRunning || !batchActive.remove(key)) return;
+    ++batchCompleted;
+    if (!success) ++batchFailed;
+    const QPointer<ImageService> owner(q);
+    emit q->batchProgress(batchCompleted, batchTotal, batchFailed);
+    if (owner && !closing) batchTimer.start(0);
+  }
+  void finishPersistence(const JobPtr& job, const ImagePersistenceReport& report) {
+    if (closing) return;
+    const bool success = report.outcome == ImagePersistence::Saved ||
+                         report.outcome == ImagePersistence::AlreadyValid;
+    {
+      QMutexLocker lock(&ledger->mutex);
+      if (success) ++ledger->usage.persistedImages; else ++ledger->usage.persistenceFailures;
+    }
+    // A receipt from an older batch generation must not decide a new batch even
+    // if the same key reappears in it.
+    const bool counts = job->batch && job->batchGeneration == batchGeneration &&
+        batchActive.contains(job->key);
+    accountBatch(job->key, success);
+    const ImagePersistenceResult result{job->key, job->request.visualKey, report.outcome,
+        report.message, report.metadataSaved, counts};
+    const QPointer<ImageService> owner(q);
+    emit q->persistenceCompleted(result);
+    if (owner && !closing) schedule();
+  }
+  void startPersistence(const JobPtr& job) {
+    const auto box = mailbox;
+    const bool admitted = io([job, box](ImageIo& worker) {
+      const auto report = worker.save(job);
+      deliver(box, [job, report](Impl& self) { self.finishPersistence(job, report); });
+    });
+    // A rejected or unavailable I/O queue is a visible failure, never a silent
+    // "displayed but nothing was written".
+    if (!admitted)
+      finishPersistence(job, {ImagePersistence::Failed, QStringLiteral("I/O 队列拒绝，未能写入磁盘缓存"), false});
+  }
+  // A RAM hit says nothing about the disk, so a batch entry asks I/O to confirm
+  // the stored file before it may count as persisted.
+  void verifyPersisted(const QString& key, const ImageRequest& request) {
+    auto job = std::make_shared<Job>();
+    job->key = key;
+    job->request = request;
+    job->batch = true;
+    job->batchGeneration = batchGeneration;
+    job->jobId = ++jobIdCounter;
+    const auto box = mailbox;
+    const bool admitted = io([job, box](ImageIo& worker) {
+      const auto report = worker.verify(job);
+      deliver(box, [job, report](Impl& self) { self.finishPersistence(job, report); });
+    });
+    if (!admitted)
+      finishPersistence(job, {ImagePersistence::Failed, QStringLiteral("I/O 队列拒绝，未能确认磁盘缓存"), false});
+  }
+  void report(const JobPtr& job, ImageOutcome outcome, ImageHandle handle = {}) {    if (active.value(job->key) == job) active.remove(job->key);
     if (job->cancelled.load()) return;
     if (outcome != ImageOutcome::Ready && !job->request.refreshChangedSource) {
       if (failures.size() >= 128) failures.erase(failures.begin());
@@ -821,8 +949,13 @@ void ImageService::Impl::completeDecode(const JobPtr& job, QImage image, qint64 
   }
   // Save validated encoded bytes on I/O. Its capture keeps the encoded lease
   // alive through QSaveFile, including a GUI publication that overlaps it.
-  if ((!job->cached || job->migrate) && job->request.attributeId < 0 && job->request.stargodId == 0)
-    io([job](ImageIo& worker) { worker.save(job); });
+  // A batch entry always needs a persistence decision: either it writes the
+  // file or it confirms the existing one. A plain preview is published now and
+  // only asks the disk when the bytes were not already there.
+  const bool icon = job->request.attributeId >= 0 || job->request.stargodId > 0;
+  const bool batchEntry = job->batch && job->batchGeneration == batchGeneration &&
+      batchActive.contains(job->key);
+  if (!icon && ((!job->cached || job->migrate) || batchEntry)) startPersistence(job);
   report(job, ImageOutcome::Ready, std::move(payload));
   refreshStats();
   schedule();
@@ -833,6 +966,7 @@ ImageService::ImageService(ImageServiceOptions options, ImageExecutors executors
   qRegisterMetaType<ImageResult>();
   qRegisterMetaType<ImageRequest>();
   qRegisterMetaType<ImageHandle>();
+  qRegisterMetaType<ImagePersistenceResult>();
   impl_->start();
 }
 ImageService::~ImageService() {
@@ -878,15 +1012,20 @@ void ImageService::requestBatch(const QList<ImageRequest>& requests) {
   if (!lifetime) return;
   impl_->batchTotal = 0; impl_->batchCompleted = 0; impl_->batchFailed = 0;
   impl_->batchPaused = false; impl_->batchRunning = true;
+  ++impl_->batchGeneration;
   QSet<QString> seen;
   for (auto request : requests) {
     request.selected = false;
-    // Batch results are used to populate the disk, not held for a GUI image.
+    // Batch results populate the disk instead of being held for a GUI image.
     request.outputLogicalSize = {1, 1}; request.devicePixelRatio = 1;
     const QString key = requestKey(request, impl_->options.resourceVersion);
     if (seen.contains(key)) continue;
     seen.insert(key); ++impl_->batchTotal;
-    bool valid = safeVisualKey(request.visualKey) && request.candidateNames.size() <= 8;
+    // A bundled icon has no account cache entry, so a batch would have nothing
+    // to persist for it. Reject it here instead of waiting for a receipt that
+    // can never exist.
+    bool valid = safeVisualKey(request.visualKey) && request.candidateNames.size() <= 8 &&
+        request.attributeId < 0 && request.stargodId <= 0;
     for (const auto& name : request.candidateNames) valid &= name.size() <= 512;
     if (!valid) { ++impl_->batchCompleted; ++impl_->batchFailed; continue; }
     impl_->batchWaiting.append(request);
@@ -904,6 +1043,8 @@ void ImageService::cancelBatch() {
   Q_ASSERT(thread() == QThread::currentThread());
   if (!impl_->batchRunning) return;
   impl_->batchRunning = false; impl_->batchTimer.stop();
+  // Later persistence receipts must not be accounted against a future batch.
+  ++impl_->batchGeneration;
   for (const auto& key : std::as_const(impl_->batchActive)) {
     const auto job = impl_->active.take(key);
     if (!job) continue;
@@ -932,6 +1073,11 @@ void ImageService::request(const ImageRequest& request) {
     if (!request.refreshChangedSource) {
       cached->access = ++impl_->clock;
       emit completed({key, request.visualKey, ImageOutcome::Ready, cached->image});
+      const QPointer<ImageService> owner(this);
+      // The RAM copy proves neither file existence nor content. A batch entry
+      // must let I/O confirm the stored file before it can count as persisted.
+      if (owner && !impl_->closing && impl_->batchRunning && impl_->batchActive.contains(key))
+        impl_->verifyPersisted(key, request);
       return;
     }
     impl_->cacheBytes -= cached->image->imageBytes;
@@ -965,6 +1111,9 @@ void ImageService::request(const ImageRequest& request) {
   }
   job->request = request;
   job->key = key;
+  job->jobId = ++impl_->jobIdCounter;
+  job->batch = impl_->batchRunning && impl_->batchActive.contains(key);
+  job->batchGeneration = impl_->batchGeneration;
   impl_->active.insert(key, job);
   if (request.selected) impl_->waiting.prepend(job); else impl_->waiting.append(job);
   impl_->refreshStats();
@@ -976,6 +1125,7 @@ void ImageService::shutdown() {
   impl_->closing = true;
   impl_->pumpTimer.stop();
   impl_->batchTimer.stop(); impl_->batchRunning = false;
+  ++impl_->batchGeneration;
   impl_->batchWaiting.clear(); impl_->batchActive.clear();
   for (const auto& job : std::as_const(impl_->active)) job->cancelled.store(true);
   impl_->waiting.clear();

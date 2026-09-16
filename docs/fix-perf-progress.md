@@ -284,6 +284,54 @@ pending 1，周常仍 Complete 6）、全部有效（Complete 47/6）、竞技�
 
 ---
 
+## T4 图片显示与持久化完成分离
+
+状态：`FixedAndTargetedTested`
+
+相关函数/调用链：`src/application/image_service.cpp` 的 `ImageIo::save()`、`completeDecode()`、
+`requestBatch()`/`pumpBatch()`、`report()`、RAM 命中分支；`src/application/image_service.h`
+的结果合约；`tests/image_service_smoke.cpp`。
+
+问题（已复现）：`ImageIo::save()` 返回 void，路径/目录/锁/打开/写入/提交失败都直接 return；
+`completeDecode()` 投递保存后立刻 `report(Ready)`，批量监听 `completed(Ready)` 就累加完成。
+于是“能显示”被当成“已落盘”：缓存目录不可写时批量仍报 0 失败。
+复现（修复前，只使用旧 API 的断言）：`validation-logs\t4-prefix-repro.log`
+——`FAIL: a batch entry that could not be written was counted as a persisted image`（退出码 1）。
+
+修复：
+
+- 新增 `ImagePersistence{Saved,AlreadyValid,Failed,Cancelled}` 与 `ImagePersistenceResult`
+  （含显式原因、`metadataSaved`、`batchCounted`）以及 `persistenceCompleted` 信号；
+  `ImageMemoryUsage` 增加 `persistedImages`/`persistenceFailures`。
+- `save()` 改为返回结果：路径无效、目录不可写、锁冲突、打开失败、写入不完整、提交失败、
+  元数据未提交、取消（提交点前后区分）都给出明确原因，不再静默 return。
+  保留 QSaveFile 原子替换、`safeExistingChain` 路径/重解析点检查与 QLockFile。
+- 元数据提交失败不再宣称新版本：栅格已提交（保留文件用于诊断）但结果记为 Failed，
+  并说明“下次检查会重新获取”。
+- 交互预览继续“解码成功即可显示”：预览在 `report(Ready)` 后立即发布，不等磁盘。
+- 批量记账改为“终态唯一且基于持久化结果”：`completed(Ready)` 不再计成功；
+  持久化回执 Saved/AlreadyValid 计成功，Failed/Cancelled 计失败；
+  显示层终态（Rejected/Unavailable/BudgetExceeded/Closed）直接计失败。
+- RAM 命中不再等于已落盘：批次键命中 RAM 时会通过 I/O 确认磁盘文件仍存在且是可识别图片
+  （存在、非空、大小受限、文件头合法），否则失败。
+- 每批有 `batchGeneration`，每个作业有 `jobId`；旧批回执不决定新批
+  （`batchCounted=false`），同一键只记一次终态。
+- 批量不再接收图标（内置资源无账号缓存项），改为在 `requestBatch()` 明确计为失败，
+  避免等待不存在的回执。
+- I/O 投递被拒时立即给出可见失败（“I/O 队列拒绝…”），不做静默跳过。
+
+故障注入回归（`tests/image_service_smoke.cpp`，注入式 I/O 闸门/序号拒绝 + 目录占位 + 锁占用）：
+预览先显示后落盘、迁移保存成功且新服务可本地读取、不可写目标仍显示但报失败、锁冲突失败、
+保存投递被拒失败、元数据失败（栅格保留、结果失败）、RAM 命中但文件被删（批量计失败）、
+已有有效文件计 AlreadyValid、取消中的保存不报成功、旧批回执不污染新批、服务析构后无回调。
+日志：`validation-logs\t4-targeted.log`、`t4-postfix.log`（退出码 0）、`t4-prefix-repro.log`。
+
+剩余风险：`save()` 提交点之前的取消分支在本套件中不能确定性注入（需要取消恰好落在
+QSaveFile 写入窗口内）；已用“取消发生在保存开始前”的用例与代码内检查覆盖，其余路径
+（I/O 拒绝、目录/锁/元数据失败）均有确定性用例。真实磁盘故障与真实客户端图片流程未验证。
+
+---
+
 ## T3–T10
 
 状态：`Pending`（按批次推进；批次二为 T3–T6）

@@ -13,6 +13,8 @@
 #include <QHostAddress>
 #include <QJsonArray>
 #include <QJsonDocument>
+#include <QLockFile>
+#include <QSemaphore>
 #include <QSignalSpy>
 #include <QTcpServer>
 #include <QTcpSocket>
@@ -463,6 +465,233 @@ int main(int argc, char* argv[]) {
     raw.hide();
     raw.setJson({{QStringLiteral("id"), 123}});
     ok &= require(raw.topLevelItemCount() == 0, "hidden updated raw tab rebuilt old personal details");
+  }
+
+  // A displayable image is not a persisted one: a batch entry whose file can
+  // never be written must be reported as failed, not as a filled disk cache.
+  {
+    QTemporaryDir blockedRoot;
+    ok &= require(blockedRoot.isValid(), "blocked batch root unavailable");
+    const QString blockedLegacy = QDir(blockedRoot.path()).filePath(QStringLiteral("images/pets/versions/legacy"));
+    ok &= require(QDir().mkpath(blockedLegacy), "blocked batch legacy directory failed");
+    QFile legacy(QDir(blockedLegacy).filePath(QStringLiteral("blocked-write.png")));
+    ok &= require(legacy.open(QIODevice::WriteOnly) && legacy.write(smallPng) == smallPng.size(),
+                  "blocked batch legacy fixture failed");
+    legacy.close();
+    ok &= require(QDir().mkpath(QDir(blockedRoot.path()).filePath(QStringLiteral("images/pets/blocked-write.png"))),
+                  "blocked batch target fixture failed");
+    ImageServiceOptions blockedOptions;
+    blockedOptions.dataRoot = blockedRoot.path();
+    blockedOptions.timeoutMilliseconds = 200;
+    ImageService blockedService(blockedOptions, executors);
+    ImageOutcome blockedOutcome = ImageOutcome::Unavailable;
+    QObject::connect(&blockedService, &ImageService::completed, &blockedService,
+                     [&](const ImageResult& result) { blockedOutcome = result.outcome; });
+    QSignalSpy blockedBatch(&blockedService, &ImageService::batchFinished);
+    blockedService.requestBatch({request(QStringLiteral("blocked-write"), QStringLiteral("no-online-entry"))});
+    ok &= require(until([&] { return blockedBatch.size() == 1; }),
+                  "the blocked batch never reached a terminal state");
+    ok &= require(blockedOutcome == ImageOutcome::Ready && blockedBatch.last().at(1).toInt() == 1,
+                  "a batch entry that could not be written was counted as a persisted image");
+    blockedService.shutdown();
+  }
+
+  // Display and persistence are separate results: an image is visible before,
+  // and even when, the disk write fails. Every failure below must end as an
+  // explicit receipt instead of a silent "displayed so it must be cached".
+  {
+    QTemporaryDir persistenceRoot;
+    ok &= require(persistenceRoot.isValid(), "persistence fixture root unavailable");
+    const QString persistentRoot = persistenceRoot.path();
+    const auto writeUnder = [&](const QString& relative, const QByteArray& bytes) {
+      const QString path = QDir(persistentRoot).filePath(relative);
+      QDir().mkpath(QFileInfo(path).absolutePath());
+      QFile file(path);
+      return file.open(QIODevice::WriteOnly) && file.write(bytes) == bytes.size();
+    };
+    // Legacy-path bytes give every case real content without any network use.
+    const auto legacyFile = [&](const QString& key) {
+      return writeUnder(QStringLiteral("images/pets/versions/legacy/%1.png").arg(key), smallPng);
+    };
+    std::atomic_bool gateIo{false}, dropIo{false};
+    std::atomic<int> ioOrdinal{0}, blockedOrdinal{-1}, droppedOrdinal{-1};
+    QSemaphore ioGate;
+    ImageExecutors persistenceExecutors{
+        [&](auto job) {
+          const int ordinal = ++ioOrdinal;
+          if (ordinal == droppedOrdinal.load()) return false;
+          const bool blocked = ordinal == blockedOrdinal.load();
+          return storage.postAuxiliary([&, job = std::move(job), blocked](QObject* ioRoot) {
+            if (blocked || gateIo.load()) ioGate.acquire();
+            if (dropIo.load()) return;
+            job(ioRoot);
+          });
+        },
+        executors.compute};
+    ImageServiceOptions persistenceOptions;
+    persistenceOptions.dataRoot = persistentRoot;
+    persistenceOptions.timeoutMilliseconds = 200;
+    ImageService faultService(persistenceOptions, persistenceExecutors);
+    QHash<QString, ImageResult> faultResults;
+    QHash<QString, ImagePersistenceResult> receipts;
+    QObject::connect(&faultService, &ImageService::completed, &faultService,
+                     [&](const ImageResult& result) { faultResults.insert(result.visualKey, result); });
+    QObject::connect(&faultService, &ImageService::persistenceCompleted, &faultService,
+                     [&](const ImagePersistenceResult& result) { receipts.insert(result.visualKey, result); });
+
+    // A preview is published from the decoded image without waiting for disk.
+    ok &= require(legacyFile(QStringLiteral("p-saved")), "legacy persistence fixture failed");
+    faultService.request(request(QStringLiteral("p-saved"), QStringLiteral("no-online-entry")));
+    ok &= require(until([&] { return faultResults.value(QStringLiteral("p-saved")).outcome == ImageOutcome::Ready; }) &&
+        !receipts.contains(QStringLiteral("p-saved")),
+        "an interactive preview waited for the disk before showing the image");
+    ok &= require(until([&] { return receipts.value(QStringLiteral("p-saved")).outcome == ImagePersistence::Saved; }),
+        "a migrated image was not reported as saved");
+    const QString savedPath = QDir(persistentRoot).filePath(QStringLiteral("images/pets/p-saved.png"));
+    ok &= require(QFile::exists(savedPath) && faultService.memoryUsage().persistedImages >= 1,
+        "a saved image is missing on disk or was not counted");
+    {
+      // A later process/service must read the saved file locally.
+      ImageService restartedService(persistenceOptions, persistenceExecutors);
+      ImageResult restarted;
+      QObject::connect(&restartedService, &ImageService::completed, &restartedService,
+                       [&](const ImageResult& result) { restarted = result; });
+      restartedService.request(request(QStringLiteral("p-saved"), QStringLiteral("no-online-entry")));
+      ok &= require(until([&] { return restarted.outcome == ImageOutcome::Ready; }),
+          "a saved image was not readable by a new service instance");
+      restartedService.shutdown();
+    }
+
+    // An unwritable cache target still displays, but never claims persistence.
+    ok &= require(legacyFile(QStringLiteral("p-blocked")) &&
+        QDir().mkpath(QDir(persistentRoot).filePath(QStringLiteral("images/pets/p-blocked.png"))),
+        "unwritable persistence fixture failed");
+    faultService.request(request(QStringLiteral("p-blocked"), QStringLiteral("no-online-entry")));
+    ok &= require(until([&] { return receipts.contains(QStringLiteral("p-blocked")); }) &&
+        faultResults.value(QStringLiteral("p-blocked")).outcome == ImageOutcome::Ready &&
+        receipts.value(QStringLiteral("p-blocked")).outcome == ImagePersistence::Failed &&
+        !receipts.value(QStringLiteral("p-blocked")).message.isEmpty(),
+        "an unwritable cache target was reported as a persisted image");
+
+    // A lock held by another owner is a visible failure, not a silent skip.
+    ok &= require(legacyFile(QStringLiteral("p-locked")), "lock persistence fixture failed");
+    QLockFile heldLock(QDir(persistentRoot).filePath(QStringLiteral("images/pets/p-locked.png.lock")));
+    ok &= require(heldLock.tryLock(0), "test-side cache lock could not be taken");
+    faultService.request(request(QStringLiteral("p-locked"), QStringLiteral("no-online-entry")));
+    ok &= require(until([&] { return receipts.contains(QStringLiteral("p-locked")); }) &&
+        receipts.value(QStringLiteral("p-locked")).outcome == ImagePersistence::Failed &&
+        !receipts.value(QStringLiteral("p-locked")).message.isEmpty(),
+        "a lock conflict was not reported as a persistence failure");
+    heldLock.unlock();
+
+    // An I/O admission rejection for the save dispatch terminates as failure.
+    ok &= require(legacyFile(QStringLiteral("p-queue")), "queue persistence fixture failed");
+    ioOrdinal.store(0); droppedOrdinal.store(2);
+    faultService.request(request(QStringLiteral("p-queue"), QStringLiteral("no-online-entry")));
+    ok &= require(until([&] { return receipts.contains(QStringLiteral("p-queue")); }) &&
+        receipts.value(QStringLiteral("p-queue")).outcome == ImagePersistence::Failed &&
+        receipts.value(QStringLiteral("p-queue")).message.contains(QStringLiteral("队列")),
+        "a rejected I/O admission was reported as a persisted image");
+    droppedOrdinal.store(-1);
+
+    // The raster may be committed while its source metadata is not: that must
+    // stay a failure and must not be presented as a confirmed new version.
+    {
+      ImageServiceOptions networkOptions = persistenceOptions;
+      networkOptions.verifiedUrls.insert(QStringLiteral("net-one"), base + QStringLiteral("/one"));
+      ok &= require(QDir().mkpath(QDir(persistentRoot).filePath(QStringLiteral("images/pets/net-key.json"))),
+          "metadata fixture failed");
+      ImageService networkService(networkOptions, persistenceExecutors);
+      QHash<QString, ImagePersistenceResult> networkReceipts;
+      ImageResult networkResult;
+      QObject::connect(&networkService, &ImageService::completed, &networkService,
+                       [&](const ImageResult& result) { if (!result.key.isEmpty()) networkResult = result; });
+      QObject::connect(&networkService, &ImageService::persistenceCompleted, &networkService,
+                       [&](const ImagePersistenceResult& result) { networkReceipts.insert(result.visualKey, result); });
+      networkService.request(request(QStringLiteral("net-key"), QStringLiteral("net-one")));
+      ok &= require(until([&] { return networkReceipts.contains(QStringLiteral("net-key")); }) &&
+          networkResult.outcome == ImageOutcome::Ready &&
+          networkReceipts.value(QStringLiteral("net-key")).outcome == ImagePersistence::Failed &&
+          !networkReceipts.value(QStringLiteral("net-key")).metadataSaved &&
+          networkReceipts.value(QStringLiteral("net-key")).message.contains(QStringLiteral("元数据")),
+          "a metadata commit failure was reported as a confirmed new image version");
+      ok &= require(QFile::exists(QDir(persistentRoot).filePath(QStringLiteral("images/pets/net-key.png"))),
+          "the committed raster was removed instead of kept for diagnosis");
+      networkService.shutdown();
+    }
+
+    // A batch entry that already exists on disk is AlreadyValid, and the RAM
+    // copy of a deleted file never counts as persisted.
+    QSignalSpy persistenceBatch(&faultService, &ImageService::batchFinished);
+    ok &= require(writeUnder(QStringLiteral("images/pets/p-batch-ram.png"), smallPng),
+        "batch persistence fixture failed");
+    const QList<ImageRequest> batchEntry{request(QStringLiteral("p-batch-ram"), QStringLiteral("no-online-entry"))};
+    faultService.requestBatch(batchEntry);
+    ok &= require(until([&] { return persistenceBatch.size() == 1; }) &&
+        persistenceBatch.last().at(1).toInt() == 0 &&
+        receipts.value(QStringLiteral("p-batch-ram")).outcome == ImagePersistence::AlreadyValid,
+        "a valid cached file was not reported as already persisted");
+    ok &= require(QFile::remove(QDir(persistentRoot).filePath(QStringLiteral("images/pets/p-batch-ram.png"))),
+        "batch fixture removal failed");
+    faultService.requestBatch(batchEntry);
+    ok &= require(until([&] { return persistenceBatch.size() == 2; }) &&
+        persistenceBatch.last().at(1).toInt() == 1,
+        "a RAM hit counted as a persisted image after the file disappeared");
+
+    // A cancelled batch must not accept the receipt of its stalled save, and a
+    // later batch must not inherit it either.
+    ok &= require(legacyFile(QStringLiteral("p-stale")), "stale batch fixture failed");
+    ioOrdinal.store(0); blockedOrdinal.store(1);
+    faultService.requestBatch({request(QStringLiteral("p-stale"), QStringLiteral("no-online-entry"))});
+    QTest::qWait(30);
+    const int generationA = persistenceBatch.size();
+    faultService.cancelBatch();
+    ok &= require(until([&] { return persistenceBatch.size() > generationA; }) &&
+        persistenceBatch.last().at(0).toBool(),
+        "cancelling a stalled image batch was not reported");
+    gateIo.store(false); ioGate.release(64); blockedOrdinal.store(-1);
+    QTest::qWait(50);
+    ok &= require(!receipts.contains(QStringLiteral("p-stale")) ||
+        receipts.value(QStringLiteral("p-stale")).outcome != ImagePersistence::Saved,
+        "a cancelled save was still reported as a persisted image");
+
+    // A receipt from the cancelled batch must not decide the next batch even
+    // when it reuses the same key.
+    ioOrdinal.store(0); blockedOrdinal.store(1);
+    faultService.requestBatch({request(QStringLiteral("p-stale"), QStringLiteral("no-online-entry"))});
+    QTest::qWait(30);
+    faultService.cancelBatch();
+    ok &= require(legacyFile(QStringLiteral("p-stale")) &&
+        writeUnder(QStringLiteral("images/pets/p-stale.png"), smallPng), "stale batch refixture failed");
+    faultService.requestBatch({request(QStringLiteral("p-stale"), QStringLiteral("no-online-entry"))});
+    gateIo.store(false); ioGate.release(64); blockedOrdinal.store(-1);
+    ok &= require(until([&] { return persistenceBatch.last().at(1).toInt() == 0; }) &&
+        until([&] { return receipts.value(QStringLiteral("p-stale")).batchCounted; }),
+        "a stale batch receipt decided a newer batch");
+
+    // Destroying the service while a receipt is still pending must not reach a
+    // destroyed object and must not publish a success.
+    {
+      auto doomed = std::make_unique<ImageService>(persistenceOptions, persistenceExecutors);
+      int callbacks = 0;
+      QObject::connect(doomed.get(), &ImageService::persistenceCompleted, &app,
+                       [&](const ImagePersistenceResult&) { ++callbacks; });
+      // Warm up first: the first request also finishes the asynchronous index
+      // read, so the dispatch ordinals below are stable.
+      ok &= require(legacyFile(QStringLiteral("p-doomed-warm")), "destruction warm-up fixture failed");
+      doomed->request(request(QStringLiteral("p-doomed-warm"), QStringLiteral("no-online-entry")));
+      ok &= require(until([&] { return callbacks == 1; }),
+                    "the destruction warm-up did not persist its image");
+      ok &= require(legacyFile(QStringLiteral("p-doomed")), "destruction fixture failed");
+      ioOrdinal.store(0); blockedOrdinal.store(2);
+      doomed->request(request(QStringLiteral("p-doomed"), QStringLiteral("no-online-entry")));
+      QTest::qWait(30);
+      doomed.reset();
+      ioGate.release(64); blockedOrdinal.store(-1);
+      QTest::qWait(60);
+      ok &= require(callbacks == 1, "a destroyed image service received a persistence callback");
+    }
+    faultService.shutdown();
   }
 
   auto deletingService = std::make_unique<ImageService>(options, executors);

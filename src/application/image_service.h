@@ -69,6 +69,20 @@ struct ImageResult {
   QString message;
 };
 
+// Displaying an image and keeping it on disk are separate results. A decoded
+// image is displayable before, and even when, it can never be written to disk,
+// so a preview never waits for the file system and a batch entry never counts
+// a visible image as a persisted one.
+enum class ImagePersistence { Saved, AlreadyValid, Failed, Cancelled };
+struct ImagePersistenceResult {
+  QString key;
+  QString visualKey;
+  ImagePersistence outcome = ImagePersistence::Failed;
+  QString message;         // explicit reason for Failed/Cancelled
+  bool metadataSaved = false; // source metadata committed together with the image
+  bool batchCounted = false;  // this receipt decided a current-batch entry
+};
+
 struct ImageMemoryUsage {
   quint64 chargedBytes = 0;
   quint64 peakChargedBytes = 0;
@@ -80,6 +94,8 @@ struct ImageMemoryUsage {
   quint64 downloadsStarted = 0;
   quint64 decodedImages = 0;
   quint64 decodeNanosecondsMaximum = 0;
+  quint64 persistedImages = 0;
+  quint64 persistenceFailures = 0;
   int downloads = 0;
   int peakDownloads = 0;
   int waiting = 0;
@@ -112,6 +128,10 @@ public:
 
 signals:
   void completed(const ImageResult& result);
+  // Emitted once per request that asked the disk to hold this image (a new
+  // download, a legacy-path migration, or a batch entry that had to confirm the
+  // file is still there). Never emitted for a plain preview.
+  void persistenceCompleted(const ImagePersistenceResult& result);
   void imageIndexReloaded();
   void batchProgress(int completed, int total, int failed);
   void batchFinished(bool cancelled, int failed);
@@ -124,3 +144,4 @@ private:
 Q_DECLARE_METATYPE(ImageRequest)
 Q_DECLARE_METATYPE(ImageResult)
 Q_DECLARE_METATYPE(ImageHandle)
+Q_DECLARE_METATYPE(ImagePersistenceResult)
