@@ -28,3 +28,4 @@ __pycache__/
 *.ilk
 *.exp
 *.tmp
+/dist2/
