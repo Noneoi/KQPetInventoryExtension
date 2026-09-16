@@ -473,7 +473,59 @@ GUI 绘制并发的组合；未测量进程级分配量（只有发布计数与�
 
 ---
 
+## T9 同源图片任务复用
+
+状态：`Reproduced`（重复工作已用受控测试证明；在途共享任务表尚未实施）
+
+复现（`validation-logs\t9-duplicate.log`，`tests/image_service_smoke.cpp` 新增受控用例）：
+写入一张新索引指向未访问过的 URL，对**同一 visualKey** 同时请求 64×64 与 300×300：
+
+```text
+same-source downloads for two render sizes: 2
+```
+
+即两个渲染尺寸各下载一次：请求键 `requestKey()` 包含输出尺寸，`active`/RAM 缓存同样按请求键
+区分，因此同源的读取/下载/导出阶段没有复用。该断言目前固定为 2（记录现状），
+T9 实施后应收紧为 1。
+
+设计（未实施，按任务书方向）：SourceKey = 规范化资源身份（visualKey）+ 资源版本
+（`options.resourceVersion`）+ 解析后的 URL + `sourceRevision` + 目录代际（`reloadImageIndex`
+递增），RenderKey = SourceKey + 输出尺寸 + devicePixelRatio。同源不同尺寸只共享
+读取/下载/导出阶段，解码与缩放仍各自独立；消费者引用计数决定取消语义（取消一个批次不能
+终止仍为预览服务的共享任务，最后一个消费者离开才停止）；共享字节与子进程沿用现有预算与并发上限。
+实施要点是把“取字节”阶段从单个 Job 的取消标志上解耦（否则取消 leader 会连带取消等待者），
+这需要对 `ImageIo::fetch` 的调用方做一次小重构，并按任务书补齐取消/版本隔离/重载/关闭/失败回退
+等回归。当前预算内未提交该改动，避免留下未验证的生命周期变更。
+
+剩余风险：本机测量只覆盖“同源两尺寸各一次请求”的场景，未测量多消费者并发峰值与子进程
+启动次数的真实分布。
+
+---
+
+## T10 冷分析专项
+
+状态：`Pending`（剖析入口与已测现象已记录，未做针对性优化）
+
+已记录的剖析入口：`scripts/run-performance.ps1 -Matrix Priority -Warmup 1 -Samples 3`
+（阶段指标见 `docs/performance-benchmark-v2.md`：`preparationToFrozenInputNs`、
+`coreRawJsonDecodeNs`、`cacheRawDeriveActiveWallNs`、`catalogCompileNs`、
+`candidateComputeNs`、`sortNs`、`guiModelCommitNs`、`snapshotSaveNs` 等）。
+
+批次三复跑的样本：`validation-logs\t10-performance.log` 与
+`C:\Users\25982\Desktop\11\build-performance-results\batch3-t10\`（含每次运行的
+`executions.json`、逐样本 jsonl 与 `summary.json`）。已知现象（与 T0 基线一致）：
+`p10000-g1000-sparse/full` 组 `correct=false`，`outcome=InputRejected`、
+`finishStage=preparation`，原因是派生 facts 账本超预算
+（`factsPeakBytesSampled` 超过 `factsRetainedBytes`），不是耗时指标问题。
+
+未优化原因：该失败是**预算/工作集**问题而非可安全替换的算法热点；按任务书不得为达标
+扩大预算或缩减数据规模，也不得在未经等价性证明时替换战力匹配算法。下一步应在 2,000×200
+与 10,000×1,000 两组上分别读取阶段指标（读取/排队、Core JSON、派生、编译、候选、排序、
+GUI、快照），先定位是否有可去重的重复解析或可提前退出的失效任务，再决定是否改动。
+
+---
+
 ## T3–T10
 
 状态：T3/T4/T6 `FixedAndTargetedTested`/`Verified`、T5-B `Verified`、T5-A `Blocked`、
-T7 `FixedAndTargetedTested`、T8 `Verified`（无生产改动）；T9/T10 见下
+T7 `FixedAndTargetedTested`、T8 `Verified`、T9 `Reproduced`（未实施）、T10 `Pending`

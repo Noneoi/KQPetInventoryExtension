@@ -694,6 +694,37 @@ int main(int argc, char* argv[]) {
     faultService.shutdown();
   }
 
+  // Same source, different render sizes: T9 measurement of duplicate work.
+  {
+    const QString indexPath = QDir(directory.path()).filePath(QStringLiteral("catalog/pet-image-index.json"));
+    QFile index(indexPath);
+    const QByteArray bytes = QJsonDocument(QJsonObject{{QStringLiteral("schemaVersion"), 1},
+        {QStringLiteral("images"), QJsonObject{{QStringLiteral("777_0"),
+            QJsonObject{{QStringLiteral("url"), base + QStringLiteral("/size-split")}}}}}}).toJson();
+    ok &= require(index.open(QIODevice::WriteOnly | QIODevice::Truncate) && index.write(bytes) == bytes.size(),
+                  "same-source index fixture failed");
+    index.close();
+    const int decodedBefore = service.memoryUsage().decodedImages;
+    service.reloadImageIndex();
+    QTest::qWait(80);
+    ImageRequest thumbnail = request(QStringLiteral("777_0_0123456789ab"), QStringLiteral("unused"));
+    thumbnail.outputLogicalSize = {64, 64};
+    ImageRequest detail = request(QStringLiteral("777_0_0123456789ab"), QStringLiteral("unused"));
+    service.request(thumbnail);
+    service.request(detail);
+    ok &= require(until([&] {
+      return service.memoryUsage().decodedImages >= decodedBefore + 2;
+    }, 5000), "same-source size variants did not both decode");
+    QTest::qWait(80);
+    const int downloads = requests.value(QStringLiteral("/size-split"));
+    // T9 measurement: the same source at two render sizes is downloaded twice.
+    // This pins the current behaviour; tightening it to 1 is what the shared
+    // in-flight source task must achieve.
+    ok &= require(downloads == 2,
+                  "same-source size variants changed their duplicate download behaviour");
+    std::fprintf(stdout, "same-source downloads for two render sizes: %d\n", downloads);
+  }
+
   auto deletingService = std::make_unique<ImageService>(options, executors);
   QObject::connect(deletingService.get(), &ImageService::completed, &app,
                    [&](const ImageResult&) { deletingService.reset(); }, Qt::DirectConnection);
