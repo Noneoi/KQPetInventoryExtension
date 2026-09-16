@@ -545,28 +545,130 @@ in-flight join downloads: 2
 
 ## T10 冷分析专项
 
-状态：`Pending`（剖析入口与已测现象已记录，未做针对性优化）
+状态：`Verified`（两组规模的阶段指标已读取并定位；未发现重复解析或失效任务，故不做生产改动）
 
 已记录的剖析入口：`scripts/run-performance.ps1 -Matrix Priority -Warmup 1 -Samples 3`
 （阶段指标见 `docs/performance-benchmark-v2.md`：`preparationToFrozenInputNs`、
 `coreRawJsonDecodeNs`、`cacheRawDeriveActiveWallNs`、`catalogCompileNs`、
 `candidateComputeNs`、`sortNs`、`guiModelCommitNs`、`snapshotSaveNs` 等）。
 
-批次三复跑的样本：`validation-logs\t10-performance.log` 与
-`C:\Users\25982\Desktop\11\build-performance-results\batch3-t10\`（含每次运行的
-`executions.json`、逐样本 jsonl 与 `summary.json`）。已知现象（与 T0 基线一致）：
-`p10000-g1000-sparse/full` 组 `correct=false`，`outcome=InputRejected`、
-`finishStage=preparation`，原因是派生 facts 账本超预算
-（`factsPeakBytesSampled` 超过 `factsRetainedBytes`），不是耗时指标问题。
+批次三样本：`validation-logs\t10-performance.log`、`C:\Users\25982\Desktop\11\build-performance-results\batch3-t10\`
+（逐样本 jsonl + `summary.json`）。按任务书要求逐项读取两组规模的阶段指标：
 
-未优化原因：该失败是**预算/工作集**问题而非可安全替换的算法热点；按任务书不得为达标
-扩大预算或缩减数据规模，也不得在未经等价性证明时替换战力匹配算法。下一步应在 2,000×200
-与 10,000×1,000 两组上分别读取阶段指标（读取/排队、Core JSON、派生、编译、候选、排序、
-GUI、快照），先定位是否有可去重的重复解析或可提前退出的失效任务，再决定是否改动。
+| 指标（p50，1 样本用单值） | p2000-g200 warm | p2000-g200 cold | p10000-g1000 warm | p10000-g1000 cold |
+| --- | --- | --- | --- | --- |
+| outcome | Published(3) | Published | InputRejected(3) | InputRejected |
+| preparationToFrozenInputNs | 31.8 ms | 5.80 s | 21.5 s | 24.1 s |
+| coreRawJsonDecodeNs | 0 | 157 ms | 583 ms | 632 ms |
+| coreRawApplyNs | 0 | 243 ms | 966 ms | 1.07 s |
+| cacheRawDeriveActiveWallNs | 0 | 1.16 s | 4.24 s | 4.64 s |
+| cacheComputeActiveWallNs | 0 | 2.02 s | 7.35 s | 8.04 s |
+| rawDiskReadActiveWallNs | 0 | 3.61 s | 13.9 s | 15.7 s |
+| rawDiskReadQueueWaitNs（累计） | 0 | 22.0 s | 84.3 s | 95.1 s |
+| readFiles / readBytes | 0 | 1988 / 16.5 MB | 7173 / 59.7 MB | 7726 / 64.3 MB |
+| cacheComputations / cacheHits | 0 / 2000 | 2000 / 0 | 7211 / 375 | 7586 / 0 |
+| candidateComputeNs | 53.0 ms | 61.4 ms | — | — |
+| snapshotSaveNs | 28.0 ms | 29.2 ms | — | — |
+| sortNs | 2.18 ms | 2.69 ms | 0 | 0 |
+
+结论（是否可去重）：
+
+1. **没有重复解析**：`readFiles` 与精灵数同阶（1988/2000、7173/7586），`cacheComputations`
+   同样与精灵数 1:1（2000/2000、7586/7586），warm 组 `cacheHits == 2000` 表示全部命中缓存、
+   未重算。每宠只有一次原文读取、一次 JSON 解析、一次派生，没有可去重的重复工作。
+2. **没有失效任务残留**：p10000 的 `InputRejected` 出现在 `finishStage=preparation`，原因是
+   派生 facts 账本超预算（`factsPeakBytesSampled` > `factsRetainedBytes = 134217728`），
+   与 T0 基线一致，属**预算/工作集**判定而非耗时热点；`sortNs/snapshotSaveNs/candidateComputeNs`
+   在该组为空（未进入候选阶段），也说明没有“先算再丢”的浪费。
+3. **耗时结构**：单次详情读取的活动 I/O 约 1.8–1.9 ms，而在队列中等待约 11 ms/次
+   （p2000 cold 22.0 s/1988、p10000 84.3 s/7173）；派生约 0.58 ms/宠（1.16 s/2000、4.24 s/7211），
+   应用与解析分别约 122 µs、79 µs/文件。即冷分析时间由**读队列等待**与**派生**两项构成，
+   两者都随规模线性，没有超线性放大点。
+
+不改动的理由：唯一“缩短墙钟”的手段是提高读取并发/预算或替换战力匹配算法；前者属任务书禁止的
+“为达标扩大预算或并发上限”，后者需要先做等价性证明，而当前指标并未显示算法热点
+（派生单宠成本在两组规模下一致：578 µs vs 591 µs）。因此按“无可测收益的复杂改动不合入”保持现状。
+
+批次四同条件复跑见下文“批次四验收”。
 
 ---
 
 ## T3–T10
 
-状态：T3/T4/T6 `FixedAndTargetedTested`/`Verified`、T5-B `Verified`、T5-A `Blocked`、
-T7 `FixedAndTargetedTested`、T8 `Verified`、T9 `Reproduced`（未实施）、T10 `Pending`
+状态：T3/T4/T6 `Verified`、T5-A/T5-B `Verified`、T7/T9 `FixedAndTargetedTested`、T8 `Verified`
+（实测无收益、不改生产代码）、T10 `Verified`（指标已读、无可去重项）
+
+---
+
+## 批次四：全量重建、全量回归、性能对照、客户端验收
+
+状态：构建/回归/性能对照**已完成**；真实客户端验收**未完成**（10 项全部 `NotRun`）
+
+### 1. 全量重建
+
+`cmake --build build-agent-fix`（Release，MSVC 19.51 + Ninja）从 `070e2de` 的完整树重建，退出码 0。
+最终二进制：
+
+- `build-agent-fix/bin/Release/KQPetInventory.dll`（5396992 字节）
+  sha256 `44CB7669F36E44A76E3D5BF899ED72A2577309F733EBE740870EA2BD02804425`
+- `build-agent-fix/bin/Release/KQPetLauncher.exe`（309760 字节）
+  sha256 `A5C12F13CD0411E304A12060622BCF179D36B643F291D7724A02573EF8430541`
+
+### 2. 全量回归
+
+- `validation-logs\t9-full-ctest-2.log`（`ctest -j 2`）：**72/72 通过**。
+- `validation-logs\t9-full-ctest-3.log`（`ctest -j 1`，更接近单机真实条件）：71/72，
+  仅 `analysis_cache_integration_smoke` 失败——第 T9 节已核实的**预存在时序敏感用例**
+  （回退 `pet_repository.cpp` 到 `e2e3281` 后同样 3/3 失败）。
+- 定向复跑：`t5a-move-final-run1..3.log`（移动 14→0 条失败，3/3 一致）、
+  `t5a-repository-final-run1..3.log`（磁盘重载不再自增）、`t9-final-run1/2.log`
+  （同源 1 次下载、在途加入 1 次下载）、`t7-ui-preview.log`、`t6-recommendation.log`、
+  `batch2-targeted-ctest.log`。
+
+### 3. 性能对照（同参数：`-Matrix Priority -Warmup 1 -Samples 3`）
+
+原始样本：`build-performance-results\t0-baseline`、`batch3-t10`、`batch4`
+（`validation-logs\batch4-performance.log` 为本次执行的逐用例摘要）。p50 对照：
+
+| 用例 | 指标 | T0 基线 | 批次三 | 批次四 |
+| --- | --- | --- | --- | --- |
+| p2000-g200 warm | preparationToFrozenInputNs | 43.4 ms | 31.8 ms | 23.6 ms |
+| p2000-g200 warm | candidateComputeNs | 69.1 ms | 53.0 ms | 38.0 ms |
+| p2000-g200 warm | snapshotSaveNs | 39.7 ms | 28.0 ms | 23.1 ms |
+| p2000-g200 warm | sampleThroughPersistenceNs | 209.1 ms | 144.8 ms | 114.0 ms |
+| p2000-g200 cold | preparationToFrozenInputNs | 7.07 s | 5.80 s | 5.16 s |
+| p10000-g1000 warm | preparationToFrozenInputNs | 22.9 s | 21.5 s | 18.1 s |
+| p10000-g1000 warm | cacheRawDeriveActiveWallNs | 4.57 s | 4.24 s | 3.64 s |
+| p10000-g1000 cold | preparationToFrozenInputNs | 23.3 s | 24.1 s | 19.2 s |
+
+输出正确性：p2000 两组 `Published`；p10000 两组仍为 `InputRejected`（facts 账本超预算，与基线
+一致），未出现新的失败类别。**归因说明**：阶段指标是墙钟量，批次三与批次四的差异不能归因于本批
+改动（改动目标是 UI 局部更新、图片复用与移动前置修复），此处只声明“同条件复跑无退化”。
+
+### 4. 真实客户端验收（未完成：无客户端访问与操作授权）
+
+未获得客户端访问/操作授权，按任务书不自行发送任何游戏写请求，以下 10 项全部 `NotRun`：
+
+| # | 项目 | 状态 |
+| --- | --- | --- |
+| 1 | 启动与各页面打开、离线已有内容读取 | NotRun |
+| 2 | 刷新背包/仓库与选中详情、重启后详情缓存恢复 | NotRun |
+| 3 | 手动刷新材料（普通/空闲源兽、部分失败保旧、已装备不算空闲） | NotRun |
+| 4 | 本地红星统计范围与未完整缓存标注 | NotRun |
+| 5 | 切号/同账号重登的旧数据与迟到回调隔离 | NotRun |
+| 6 | 商店预览初始化、切换、排序筛选不触发额外全仓重算 | NotRun |
+| 7 | 人工缓存队列拥塞复验（排队失败可恢复，不永久降级为缺失） | NotRun |
+| 8 | 图片批量下载与预览并发、取消/暂停、保存失败可见、重启可读 | NotRun |
+| 9 | 缓存迁移成功后再次启动仍用新目录且原目录保留 | NotRun |
+| 10 | 移动类写操作的授权测试场景（取消、满背包替换、结果未知后只读核对） | NotRun |
+
+**总体状态：真实客户端验收未完成。** 交付的是已通过本机构建、全量回归与性能对照的局部修复。
+
+### 5. 交付物
+
+- 逐任务提交：`31a0817`(T1) → `f7f2e02`(docs) → `c9495b5`(T2) → `3583258`(docs) → `61a98cb`(T3)
+  → `9b72d7a`(T4) → `26634c3`(T5/T6) → `a9740a0`(T7) → `380ae1b`(T8) → `e2e3281`(T9 证据/docs)
+  → `8511130`(T5-A) → `2297aba`(重构) → `9100f91`(T9) → `070e2de`(docs)。
+- `docs/fix-perf-progress.md`（本文件，逐项状态与证据）、`docs/fix-perf-report.md`（结论/根因/风险）。
+- 未执行：推送、合并、发布；未在真实账号做压力发包或额外写入。
+
