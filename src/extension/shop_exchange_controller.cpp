@@ -34,6 +34,30 @@ bool successfulReply(const QJsonObject& packet) {
           result == 1));
 }
 
+// Why a response was not accepted as a successful one. The GUI used to report a
+// bare "rejected or wrong result type" with no way to tell a stale activity
+// aside from an unexpected success marker, so the exact field is named here and
+// the bounded payload is recorded for offline comparison.
+QString replyRejectionReason(const QJsonObject& packet) {
+  qint64 result = 0;
+  if (packet.contains(QStringLiteral("$")) && !packet.value(QStringLiteral("$")).isNull())
+    return QStringLiteral("$=%1").arg(packet.value(QStringLiteral("$")).toVariant().toString());
+  if (packet.contains(QStringLiteral("r"))) {
+    const QJsonValue value = packet.value(QStringLiteral("r"));
+    if (!PacketContracts::checkedInteger(value, &result, std::numeric_limits<qint64>::min(),
+                                         std::numeric_limits<qint64>::max()))
+      return QStringLiteral("r=%1 (not an integer)").arg(value.toVariant().toString());
+    return QStringLiteral("r=%1").arg(result);
+  }
+  return QStringLiteral("no success marker");
+}
+
+QString boundedPayload(const QJsonObject& packet) {
+  const QByteArray bytes = QJsonDocument(packet).toJson(QJsonDocument::Compact);
+  return bytes.size() <= 512 ? QString::fromUtf8(bytes)
+                             : QString::fromUtf8(bytes.left(512)) + QStringLiteral("…");
+}
+
 bool validShopGroup(const QJsonObject& shop) {
   // Captured siN objects also contain unrelated progress and reward metadata.
   // Validate the consumed per-item counters without interpreting that metadata.
@@ -579,8 +603,13 @@ void ShopExchangeController::handleDecodedEnvelope(const InboundEnvelope& envelo
     QStringList warnings;
     QJsonObject observation;
     bool updated = false;
-    if (!successfulReply(packet))
-      warnings.append(QStringLiteral("%1响应被拒绝或结果类型错误").arg(command));
+    if (!successfulReply(packet)) {
+      const QString reason = replyRejectionReason(packet);
+      DiagnosticLogger::warning(QStringLiteral("response"),
+                                QStringLiteral("read-only reply rejected command=%1 reason=%2 payload=%3")
+                                    .arg(command, reason, boundedPayload(packet)));
+      warnings.append(QStringLiteral("%1响应被拒绝或结果类型错误（%2）").arg(command, reason));
+    }
     else if (activityResponse)
       updated = acceptActivityPacket(packet,&warnings,false);
     else if (command == QStringLiteral("3_11"))
@@ -685,9 +714,13 @@ void ShopExchangeController::handleVerifiedPacket(const QJsonObject& packet) {
     return;
   }
   if (!successfulReply(packet)) {
-    completeRequest(command, false, {QStringLiteral("%1响应被拒绝或结果类型错误")
-                                        .arg(shopResponse ? QStringLiteral("兑换次数")
-                                                          : QStringLiteral("账号货币"))});
+    const QString reason = replyRejectionReason(packet);
+    DiagnosticLogger::warning(QStringLiteral("response"),
+                              QStringLiteral("reply rejected command=%1 reason=%2 payload=%3")
+                                  .arg(command, reason, boundedPayload(packet)));
+    completeRequest(command, false, {QStringLiteral("%1响应被拒绝或结果类型错误（%2）")
+                                         .arg(shopResponse ? QStringLiteral("兑换次数")
+                                                           : QStringLiteral("账号货币"), reason)});
     return;
   }
   QStringList warnings;
