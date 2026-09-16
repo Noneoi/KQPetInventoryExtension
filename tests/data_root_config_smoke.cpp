@@ -76,6 +76,92 @@ int main() {
       result.dataRoot == pendingRoot && result.pendingRoot.empty() &&
       read(pendingRoot / L"accounts/test/details/7.json") == "synthetic-detail-7" && read(sourceDetail) == "synthetic-detail-7",
       "embedded migration failed to copy/activate the new root or removed the old original");
+  // An 8.3 short name is a real spelling of the same directory. The pending
+  // request and the configuration committed by the cache manager can therefore
+  // differ lexically while denoting one directory; acceptance must use the
+  // file-system identity, not the spelling.
+  const auto aliasDestination = root / L"别名 目标 目录";
+  std::filesystem::create_directory(aliasDestination);
+  wchar_t shortAlias[32768]{};
+  const DWORD shortLength = GetShortPathNameW(aliasDestination.c_str(), shortAlias, 32768);
+  const bool aliasAvailable = shortLength > 0 && shortLength < 32768 &&
+      _wcsicmp(shortAlias, aliasDestination.c_str()) != 0 && std::filesystem::exists(std::filesystem::path(shortAlias));
+  if (!aliasAvailable) {
+    std::fputs("SKIP: this volume exposes no 8.3 short alias; the long/short migration case is not available here\n",
+        stderr);
+  } else {
+    ok &= check(write(configuration(selectedRoot, shortAlias)), "alias migration fixture write failed");
+    result = kqpet::launcher::resolveDataRoot(client);
+    ok &= check(result.dataRoot == selectedRoot && result.pendingRoot == shortAlias,
+        "the short-name pending root was not preserved from the configuration");
+    error.clear();
+    const bool aliasMigrated = kqpet::launcher::prepareDataRootMigration(GetModuleHandleW(nullptr), client, &result, true, &error);
+    if (!aliasMigrated) std::fwprintf(stderr, L"Alias migration diagnostic: %ls\n", error.c_str());
+    ok &= check(aliasMigrated && result.pendingRoot.empty() &&
+        std::filesystem::weakly_canonical(result.dataRoot) == std::filesystem::weakly_canonical(aliasDestination) &&
+        read(aliasDestination / L"accounts/test/details/7.json") == "synthetic-detail-7" && read(sourceDetail) == "synthetic-detail-7",
+        "a long/short alias pair for one directory was rejected as an uncommitted migration");
+    result = kqpet::launcher::resolveDataRoot(client);
+    ok &= check(result.configured && result.pendingRoot.empty() &&
+        std::filesystem::weakly_canonical(result.dataRoot) == std::filesystem::weakly_canonical(aliasDestination),
+        "the alias-spelled committed migration was not stable after a restart");
+  }
+  // Directory identity is a file-system fact. A spelling that cannot be
+  // verified must be reported as an explicit error instead of being accepted.
+  const auto identityRoot = root / L"身份 目标 目录";
+  std::filesystem::create_directory(identityRoot);
+  DWORD identityError = ERROR_SUCCESS;
+  ok &= check(kqpet::launcher::compareDirectoryIdentity(identityRoot, identityRoot, &identityError) ==
+                  kqpet::launcher::DirectoryIdentity::Same &&
+              identityError == ERROR_SUCCESS,
+      "an existing directory was not identified as itself");
+  ok &= check(kqpet::launcher::compareDirectoryIdentity(identityRoot, selectedRoot, &identityError) ==
+                  kqpet::launcher::DirectoryIdentity::Different,
+      "two different directories were reported as one directory");
+  wchar_t identityAlias[32768]{};
+  const DWORD identityAliasLength = GetShortPathNameW(identityRoot.c_str(), identityAlias, 32768);
+  const bool identityAliasAvailable = identityAliasLength > 0 && identityAliasLength < 32768 &&
+      _wcsicmp(identityAlias, identityRoot.c_str()) != 0;
+  if (identityAliasAvailable) {
+    identityError = ERROR_SUCCESS;
+    ok &= check(kqpet::launcher::compareDirectoryIdentity(identityRoot, identityAlias, &identityError) ==
+                    kqpet::launcher::DirectoryIdentity::Same &&
+                identityError == ERROR_SUCCESS,
+        "a long/short alias pair of one directory did not share an identity");
+  } else {
+    std::fputs("SKIP: this volume exposes no 8.3 short alias for the identity comparison case\n", stderr);
+  }
+  const auto identityFile = root / L"身份 文件.txt";
+  { std::ofstream file(identityFile, std::ios::binary); file << "not-a-directory"; }
+  identityError = ERROR_SUCCESS;
+  ok &= check(kqpet::launcher::compareDirectoryIdentity(identityRoot, identityFile, &identityError) ==
+                  kqpet::launcher::DirectoryIdentity::Unverifiable &&
+              identityError != ERROR_SUCCESS,
+      "a regular file was accepted as a directory identity");
+  identityError = ERROR_SUCCESS;
+  ok &= check(kqpet::launcher::compareDirectoryIdentity(identityRoot, root / L"不存在的目录", &identityError) ==
+                  kqpet::launcher::DirectoryIdentity::Unverifiable &&
+              identityError != ERROR_SUCCESS,
+      "a missing directory produced a usable identity instead of an explicit error");
+  // A shared identity never makes a linked or malformed path acceptable.
+  identityError = ERROR_SUCCESS;
+  ok &= check(kqpet::launcher::plainDirectoryPath(identityRoot, &identityError) &&
+              identityError == ERROR_SUCCESS,
+      "an ordinary directory chain was rejected");
+  identityError = ERROR_SUCCESS;
+  ok &= check(!kqpet::launcher::plainDirectoryPath(identityFile, &identityError) && identityError != ERROR_SUCCESS,
+      "a regular file was accepted as a plain directory path");
+  identityError = ERROR_SUCCESS;
+  ok &= check(!kqpet::launcher::plainDirectoryPath(identityFile / L"子目录", &identityError) &&
+              identityError != ERROR_SUCCESS,
+      "a chain with a regular file component was accepted");
+  identityError = ERROR_SUCCESS;
+  ok &= check(!kqpet::launcher::plainDirectoryPath(root / L"不存在的目录", &identityError) &&
+              identityError != ERROR_SUCCESS,
+      "a missing directory was accepted as a plain directory path");
+  identityError = ERROR_SUCCESS;
+  ok &= check(!kqpet::launcher::plainDirectoryPath(L"相对目录", &identityError) && identityError != ERROR_SUCCESS,
+      "a relative path was accepted as a plain directory path");
   const auto occupied = root / L"非空目标";
   std::filesystem::create_directory(occupied);
   { std::ofstream file(occupied / L"existing.txt"); file << "keep-this"; }

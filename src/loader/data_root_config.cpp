@@ -2,6 +2,7 @@
 #include "../bootstrap/strict_json.h"
 
 #include <windows.h>
+#include <cstring>
 #include <cwchar>
 #include <fstream>
 #include <vector>
@@ -118,6 +119,92 @@ bool clearPendingFailure(DataRootSelection* selection, const std::wstring& messa
   selection->pendingRoot.clear();
   return replaced;
 }
+// Directory identity comes from the open handle, never from the spelling. The
+// cache manager canonicalizes the destination with GetFullPath (which expands
+// 8.3 aliases against the file system) while the launcher only normalizes
+// lexically, so the two sides of a committed migration can spell one existing
+// directory differently.
+struct DirectoryIdentityKey {
+  unsigned long long volume = 0;
+  unsigned char fileId[16]{};
+  bool operator==(const DirectoryIdentityKey& other) const {
+    return volume == other.volume && std::memcmp(fileId, other.fileId, sizeof(fileId)) == 0;
+  }
+};
+bool openPlainDirectory(const std::filesystem::path& path, HANDLE* handle, DWORD* error) {
+  const DWORD attributes = GetFileAttributesW(path.c_str());
+  if (attributes == INVALID_FILE_ATTRIBUTES) { *error = GetLastError(); return false; }
+  // A link is not the requested directory even when it resolves to it. The
+  // migration path must not start following a reparse point before deciding.
+  if (!(attributes & FILE_ATTRIBUTE_DIRECTORY) || (attributes & FILE_ATTRIBUTE_REPARSE_POINT)) {
+    *error = ERROR_DIRECTORY;
+    return false;
+  }
+  HANDLE opened = CreateFileW(path.c_str(), FILE_READ_ATTRIBUTES,
+      FILE_SHARE_READ | FILE_SHARE_WRITE | FILE_SHARE_DELETE, nullptr, OPEN_EXISTING,
+      FILE_ATTRIBUTE_NORMAL | FILE_FLAG_BACKUP_SEMANTICS | FILE_FLAG_OPEN_REPARSE_POINT, nullptr);
+  if (opened == INVALID_HANDLE_VALUE) { *error = GetLastError(); return false; }
+  BY_HANDLE_FILE_INFORMATION information{};
+  const bool readable = GetFileInformationByHandle(opened, &information);
+  const DWORD code = readable ? ERROR_SUCCESS : GetLastError();
+  const bool plain = readable && (information.dwFileAttributes & FILE_ATTRIBUTE_DIRECTORY) &&
+      !(information.dwFileAttributes & FILE_ATTRIBUTE_REPARSE_POINT);
+  if (!plain) {
+    CloseHandle(opened);
+    *error = readable ? ERROR_DIRECTORY : (code ? code : ERROR_DIRECTORY);
+    return false;
+  }
+  *handle = opened;
+  return true;
+}
+}
+// A shared identity never makes a linked path acceptable. The cache manager
+// walks the same chain before copying, so a linked component that reaches this
+// point is a race or an externally edited configuration.
+bool plainDirectoryPath(const std::filesystem::path& absolute, DWORD* error) {
+  if (!absolute.is_absolute()) { *error = ERROR_INVALID_NAME; return false; }
+  const std::filesystem::path normalized = absolute.lexically_normal();
+  std::filesystem::path current = normalized.root_path();
+  if (current.empty()) { *error = ERROR_INVALID_NAME; return false; }
+  HANDLE root = INVALID_HANDLE_VALUE;
+  if (!openPlainDirectory(current, &root, error)) return false;
+  CloseHandle(root);
+  for (const auto& component : normalized.relative_path()) {
+    if (component.empty() || component == std::filesystem::path(L".")) continue;
+    if (component == std::filesystem::path(L"..")) { *error = ERROR_INVALID_NAME; return false; }
+    current /= component;
+    HANDLE handle = INVALID_HANDLE_VALUE;
+    if (!openPlainDirectory(current, &handle, error)) return false;
+    CloseHandle(handle);
+  }
+  return true;
+}
+namespace {
+bool extendedIdentity(HANDLE handle, DirectoryIdentityKey* key) {
+  FILE_ID_INFO information{};
+  if (!GetFileInformationByHandleEx(handle, FileIdInfo, &information, sizeof(information))) return false;
+  key->volume = information.VolumeSerialNumber;
+  static_assert(sizeof(information.FileId.Identifier) == sizeof(key->fileId), "file id size");
+  std::memcpy(key->fileId, information.FileId.Identifier, sizeof(key->fileId));
+  return true;
+}
+bool legacyIdentity(HANDLE handle, DirectoryIdentityKey* key) {
+  BY_HANDLE_FILE_INFORMATION information{};
+  if (!GetFileInformationByHandle(handle, &information)) return false;
+  // A zero volume serial or a zero file index identifies nothing on the file
+  // systems that report them, so they are refused instead of matching hits.
+  if (!information.dwVolumeSerialNumber || (!information.nFileIndexHigh && !information.nFileIndexLow)) return false;
+  key->volume = information.dwVolumeSerialNumber;
+  key->fileId[0] = static_cast<unsigned char>(information.nFileIndexHigh >> 24);
+  key->fileId[1] = static_cast<unsigned char>(information.nFileIndexHigh >> 16);
+  key->fileId[2] = static_cast<unsigned char>(information.nFileIndexHigh >> 8);
+  key->fileId[3] = static_cast<unsigned char>(information.nFileIndexHigh);
+  key->fileId[4] = static_cast<unsigned char>(information.nFileIndexLow >> 24);
+  key->fileId[5] = static_cast<unsigned char>(information.nFileIndexLow >> 16);
+  key->fileId[6] = static_cast<unsigned char>(information.nFileIndexLow >> 8);
+  key->fileId[7] = static_cast<unsigned char>(information.nFileIndexLow);
+  return true;
+}
 }
 
 std::wstring inheritedDataRoot() {
@@ -126,6 +213,39 @@ std::wstring inheritedDataRoot() {
   std::vector<wchar_t> value(length);
   const DWORD read = GetEnvironmentVariableW(L"KQPET_DATA_ROOT", value.data(), length);
   return read && read < length ? std::wstring(value.data(), read) : std::wstring{};
+}
+
+DirectoryIdentity compareDirectoryIdentity(const std::filesystem::path& left,
+                                          const std::filesystem::path& right, DWORD* error) {
+  if (error) *error = ERROR_SUCCESS;
+  const auto unverifiable = [error](DWORD code) {
+    if (error) *error = code ? code : ERROR_INVALID_FUNCTION;
+    return DirectoryIdentity::Unverifiable;
+  };
+  HANDLE leftHandle = INVALID_HANDLE_VALUE, rightHandle = INVALID_HANDLE_VALUE;
+  DWORD code = ERROR_SUCCESS;
+  if (!openPlainDirectory(left, &leftHandle, &code)) return unverifiable(code);
+  if (!openPlainDirectory(right, &rightHandle, &code)) {
+    CloseHandle(leftHandle);
+    return unverifiable(code);
+  }
+  DirectoryIdentityKey leftKey, rightKey;
+  if (!extendedIdentity(leftHandle, &leftKey) || !extendedIdentity(rightHandle, &rightKey)) {
+    code = GetLastError();
+    // Filesystems without FILE_ID_INFO still report the legacy identity fields.
+    // Both sides must come from the same reporting method to be comparable.
+    leftKey = DirectoryIdentityKey{};
+    rightKey = DirectoryIdentityKey{};
+    if (!legacyIdentity(leftHandle, &leftKey) || !legacyIdentity(rightHandle, &rightKey)) {
+      const DWORD legacyCode = GetLastError();
+      CloseHandle(rightHandle);
+      CloseHandle(leftHandle);
+      return unverifiable(legacyCode ? legacyCode : code);
+    }
+  }
+  CloseHandle(rightHandle);
+  CloseHandle(leftHandle);
+  return leftKey == rightKey ? DirectoryIdentity::Same : DirectoryIdentity::Different;
 }
 
 DataRootSelection resolveDataRoot(const std::filesystem::path& clientRoot,
@@ -253,9 +373,22 @@ bool prepareDataRootMigration(HMODULE module, const std::filesystem::path& clien
   if (!parsed || exitCode != 0 || response.at("ok").kind != release::json::Value::Kind::Boolean || !response.at("ok").boolean)
     return failed(parsed ? wide(response.at("message").text) : L"缓存迁移没有返回有效结果");
   auto committed = resolveDataRoot(clientRoot, selection->dataRoot.wstring());
-  if (!committed.configured || !committed.pendingRoot.empty() ||
-      _wcsicmp(committed.dataRoot.c_str(), selection->pendingRoot.c_str()))
+  if (!committed.configured || !committed.pendingRoot.empty())
     return failed(L"缓存迁移的目录配置尚未提交");
+  // The committed root must be the very directory that was requested. The
+  // cache manager rewrites the destination through GetFullPath, so a spelling
+  // difference is normal and only a file-system identity comparison can tell
+  // "same directory, other alias" apart from "other directory".
+  DWORD identityError = ERROR_SUCCESS;
+  if (!plainDirectoryPath(selection->pendingRoot, &identityError) ||
+      !plainDirectoryPath(committed.dataRoot, &identityError))
+    return failed(L"缓存迁移的目录链包含链接、无效组件或无法确认的目录（Windows 错误 " +
+                  std::to_wstring(identityError) + L"）");
+  const DirectoryIdentity identity =
+      compareDirectoryIdentity(selection->pendingRoot, committed.dataRoot, &identityError);
+  if (identity == DirectoryIdentity::Different) return failed(L"缓存迁移提交的目录与请求的目录不是同一目录");
+  if (identity != DirectoryIdentity::Same)
+    return failed(L"无法确认缓存迁移提交的目录身份（Windows 错误 " + std::to_wstring(identityError) + L"）");
   *selection = std::move(committed);
   if (notice) *notice = L"缓存迁移完成，原目录已保留。";
   return true;

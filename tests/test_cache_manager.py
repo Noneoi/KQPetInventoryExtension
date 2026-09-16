@@ -1,4 +1,5 @@
 """Cache actions run only inside disposable directories, without a client."""
+import ctypes
 import json
 import os
 from pathlib import Path
@@ -94,6 +95,47 @@ class CacheManagerTest(unittest.TestCase):
     def test_invalid_destination_does_not_change_config(self):
         self.assertFalse(self.run_action('schedule-root', destination=str(self.root / 'nested'), copyExisting=True)['ok'])
         self.assertFalse((self.client / 'KQPetDataRoot.json').exists())
+
+    def make_junction(self, link, target):
+        # mklink writes its diagnostics in the console code page; only the exit
+        # status is used here, so the bytes are not decoded.
+        result = subprocess.run(['cmd', '/c', 'mklink', '/J', str(link), str(target)],
+                                capture_output=True, timeout=30,
+                                creationflags=subprocess.CREATE_NO_WINDOW)
+        return result.returncode == 0 and Path(link).is_dir()
+
+    def test_migration_rejects_reparse_and_contained_destinations(self):
+        real = self.base / 'junction-target'
+        real.mkdir()
+        link = self.base / 'junction-link'
+        if not self.make_junction(link, real):
+            self.skipTest('directory junction creation is unavailable in this environment')
+        self.assertFalse(self.run_action('migrate', destination=str(link))['ok'])
+        self.assertFalse((self.client / 'KQPetDataRoot.json').exists())
+        self.assertFalse(self.run_action('migrate', destination=str(self.root / 'nested'))['ok'])
+        self.assertFalse(self.run_action('migrate', destination=str(self.base))['ok'])
+        self.assertFalse((self.client / 'KQPetDataRoot.json').exists())
+        self.assertTrue((self.root / 'accounts/123/details/456.json').exists())
+
+    def test_short_name_destination_is_committed_in_canonical_spelling(self):
+        """The cache manager canonicalizes the destination through GetFullPath.
+
+        GetFullPath expands an 8.3 alias against the file system, so the root it
+        commits is spelled differently from the request. The launcher can only
+        accept that request by comparing directory identity, never by string.
+        """
+        target = self.base / 'LongAliasDestinationForCache'
+        target.mkdir()
+        buffer = ctypes.create_unicode_buffer(32768)
+        length = ctypes.windll.kernel32.GetShortPathNameW(str(target), buffer, 32768)
+        if not length or buffer.value.lower() == str(target).lower():
+            self.skipTest('this volume exposes no 8.3 short alias')
+        alias = buffer.value
+        self.assertNotEqual(alias.lower(), str(target).lower())
+        self.assertTrue(self.run_action('migrate', destination=alias)['ok'])
+        committed = json.loads((self.client / 'KQPetDataRoot.json').read_text())['dataRoot']
+        self.assertNotEqual(committed.lower(), alias.lower())
+        self.assertTrue(os.path.samefile(committed, target))
 
 
 if __name__ == '__main__':
