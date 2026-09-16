@@ -42,6 +42,9 @@ public:
   QList<qint64> currentInstanceIds() const;
   QJsonObject backpackPet(qint64 instanceId) const;
   QJsonObject detailFor(qint64 instanceId) const;
+  // The same merged view without counting a naked export. Internal fact
+  // comparisons use this: they are not exports to a consumer.
+  QJsonObject mergedRecordView(qint64 instanceId) const;
   QJsonObject warehousePet(qint64 instanceId) const;
   QList<qint64> backpackIds(int packType = 0) const;
   int backpackCapacity(int packType = 0) const;
@@ -185,6 +188,7 @@ private:
 
   static qint64 petId(const QJsonObject& pet);
   static QJsonObject merge(const QJsonObject& base, const QJsonObject& overlay);
+  QJsonObject mergeRecordView(const RawPetRecordHandle& raw, qint64 instanceId) const;
   static QJsonObject warehouseBriefForCache(const QJsonObject& pet);
   static QJsonObject inventoryBrief(const QJsonObject& pet, bool backpack);
   static bool calculationOverlayDiffers(const QJsonObject& before, const QJsonObject& after);

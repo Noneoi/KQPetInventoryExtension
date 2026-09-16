@@ -265,14 +265,20 @@ quint64 PetRepository::preserveBackpackDetailAsync(qint64 instanceId) {
   return saveDetail(instanceId, pet, QDateTime::currentDateTime(), 0, true);
 }
 
-QJsonObject PetRepository::detailFor(qint64 instanceId) const {
-  const auto raw = rawRecords_->acquire(accountKey_, sessionGeneration_, instanceId);
+QJsonObject PetRepository::mergeRecordView(const RawPetRecordHandle& raw, qint64 instanceId) const {
   const QJsonObject brief = recordBrief(instanceId);
   if (!raw) return brief;
-  rawRecords_->noteUntrackedExport();
   QJsonObject result = merge(raw->object(), brief);
   copyPowerFields(raw->object(), &result);
   return backpack_.contains(instanceId) ? withDeploymentState(result) : result;
+}
+QJsonObject PetRepository::mergedRecordView(qint64 instanceId) const {
+  return mergeRecordView(rawRecords_->acquire(accountKey_, sessionGeneration_, instanceId), instanceId);
+}
+QJsonObject PetRepository::detailFor(qint64 instanceId) const {
+  const auto raw = rawRecords_->acquire(accountKey_, sessionGeneration_, instanceId);
+  if (raw) rawRecords_->noteUntrackedExport();
+  return mergeRecordView(raw, instanceId);
 }
 
 QJsonObject PetRepository::warehousePet(qint64 instanceId) const {
@@ -1449,7 +1455,7 @@ void PetRepository::applyDetailCache(const QJsonObject& object, const PendingRea
       backpack_.contains(pending.instanceId);
   const QJsonObject rosterBriefBefore = warehouse_.contains(pending.instanceId)
       ? warehouse_.value(pending.instanceId) : backpack_.value(pending.instanceId);
-  const QJsonObject mergedBefore = detailFor(pending.instanceId);
+  const QJsonObject mergedBefore = mergedRecordView(pending.instanceId);
   if (schema == 4 && object.value(QStringLiteral("trust")).toString() == QStringLiteral("read-only-observation"))
     detail.insert(QStringLiteral("_unverifiedObservation"), true);
   detail = PetDetailCatalog::instance().enrichMetadata(detail);
@@ -1498,7 +1504,7 @@ void PetRepository::applyDetailCache(const QJsonObject& object, const PendingRea
   // publication that changes nothing any consumer can read would abort that
   // confirmed write as "list or session changed" without any change: keep the
   // bump for genuinely new facts, drop it for an exact republication.
-  if (!rosterPresent || rosterBriefBefore != brief || mergedBefore != detailFor(id) ||
+  if (!rosterPresent || rosterBriefBefore != brief || mergedBefore != mergedRecordView(id) ||
       previous.complete != input.complete || previous.sourceKnown != input.sourceKnown)
     ++inventoryRevision_;
   announceRaw(id);
