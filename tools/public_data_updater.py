@@ -128,7 +128,11 @@ def matching_resource(previous: dict, label: str, key: str, versions: dict) -> b
 
 
 def emit(event: str, **values) -> None:
-    print(json.dumps({"event": event, **values}, ensure_ascii=False), flush=True)
+    # Progress lines are machine input, so they are written as pure ASCII:
+    # json.dumps escapes non-ASCII as \uXXXX and the consumer decodes the same
+    # text back. The alternative (raw UTF-8 bytes) is identical only while every
+    # caller sets PYTHONIOENCODING, which a standalone script run does not do.
+    print(json.dumps({"event": event, **values}, ensure_ascii=True), flush=True)
 
 
 def digest(path: Path) -> str:

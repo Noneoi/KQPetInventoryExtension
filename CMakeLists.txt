@@ -223,6 +223,7 @@ add_test(NAME public_icons_updater_smoke COMMAND Python3::Interpreter -B "${CMAK
 add_test(NAME public_routine_updater_smoke COMMAND Python3::Interpreter -B "${CMAKE_CURRENT_SOURCE_DIR}/tests/test_public_routine_updater.py")
 add_test(NAME activity_evolution_selector_smoke COMMAND Python3::Interpreter -B "${CMAKE_CURRENT_SOURCE_DIR}/tests/test_activity_evolution_selector.py")
 add_test(NAME public_activity_exchange_smoke COMMAND Python3::Interpreter -B "${CMAKE_CURRENT_SOURCE_DIR}/tests/public_activity_exchange_updater_test.py")
+add_test(NAME public_updater_output_encoding_smoke COMMAND Python3::Interpreter -B "${CMAKE_CURRENT_SOURCE_DIR}/tests/public_updater_output_encoding_test.py")
 add_test(NAME cache_manager_smoke COMMAND Python3::Interpreter -B "${CMAKE_CURRENT_SOURCE_DIR}/tests/test_cache_manager.py")
 add_executable(KQReleaseCoreSmoke tests/release_core_smoke.cpp)
 target_link_libraries(KQReleaseCoreSmoke PRIVATE KQPetReleaseCore shell32)

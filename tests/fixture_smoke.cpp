@@ -25,6 +25,57 @@ bool require(bool condition, const char* message) {
   return condition;
 }
 
+// Prints the actual analysis state next to a failing expectation. A bare FAIL
+// line cannot distinguish a stale fixture expectation from a derivation bug.
+void reportPower(const char* label, const PetBattlePowerState& power) {
+  std::fprintf(stderr,
+               "  %s: current=%d currentKnown=%d extreme=%d highest=%d highestKnown=%d slots=%d "
+               "equipped=%d available=%d missing=%d backpackStars=%d currentStargod=%d "
+               "bestOrdinary=%d changeable=%d target=%d full=%d isHighest=%d reasons=%s\n",
+               label, power.current, int(power.hasCurrent), power.extreme, power.highest,
+               int(power.hasHighest), power.stargodSlots, power.equippedStars, power.availableStars,
+               power.missingStars, power.backpackStars, power.currentStargodPower,
+               power.bestOrdinaryStargodPower, power.changeableStargodPower, power.targetStargodPower,
+               int(power.stargodFull), int(power.isHighest),
+               qPrintable(power.unknownReasons.join(QStringLiteral("；"))));
+}
+
+void reportBattlePower(const PetDetailViewModel& model) {
+  const PetBattlePowerState& power = model.battlePower;
+  std::fprintf(stderr,
+               "  detail view model: instance=%lld race=%d level=%d current=%d extreme=%d hasHighest=%d "
+               "highest=%d currentStargodPower=%d equippedStargodPower=%d slots=%d slotsKnown=%d "
+               "equippedStars=%d availableStars=%d missingStars=%d backpackKnown=%d stargodFull=%d "
+               "gaps=%d reasons=%s\n",
+               static_cast<long long>(model.instanceId), model.raceId, model.level, power.current,
+               power.extreme, int(power.hasHighest), power.highest, power.currentStargodPower,
+               power.equippedStargodPower, power.stargodSlots, int(power.stargodSlotsKnown),
+               power.equippedStars, power.availableStars, power.missingStars,
+               int(power.stargodBackpackKnown), int(power.stargodFull),
+               int(power.componentGaps.size()),
+               qPrintable(power.unknownReasons.join(QStringLiteral("；"))));
+}
+
+// The confirmed protocol reply carries all eleven power components and uses an
+// explicit zero for an inactive system (docs/精灵字段语义映射.md). Synthetic
+// fixtures complete their component objects through this helper so they
+// describe a real reply instead of a partial object that cannot establish a
+// known total. It never invents a non-zero value.
+QJsonObject completeComponents(QJsonObject parts) {
+  for (const char* key : {"lv", "iv", "pl", "sgv", "ep", "gsv", "lav", "lsv", "bsv", "asv", "sjv"})
+    if (!parts.contains(QLatin1String(key))) parts.insert(QLatin1String(key), 0);
+  return parts;
+}
+
+QJsonObject completeReply(QJsonObject pet) {
+  pet.insert(QStringLiteral("czdlv"),
+             completeComponents(pet.value(QStringLiteral("czdlv")).toObject()));
+  pet.insert(QStringLiteral("mzdlv"),
+             completeComponents(pet.value(QStringLiteral("mzdlv")).toObject()));
+  if (!pet.contains(QStringLiteral("sgsp"))) pet.insert(QStringLiteral("sgsp"), QJsonArray{});
+  return pet;
+}
+
 QJsonObject loadFixture(const QString& relativePath, bool* ok) {
   const QString path = QDir(QStringLiteral(KQPET_FIXTURE_ROOT)).filePath(relativePath);
   QFile file(path);
@@ -124,18 +175,26 @@ int main(int argc, char* argv[]) {
                 "real relationship detail fixture was not parsed and cached");
   const PetDetailViewModel analyzed =
       PetDetailAnalyzer::analyze(repository.detailFor(900001), &repository);
-  ok &= require(analyzed.instanceId == 900001 && analyzed.raceId == 6506 &&
-                    analyzed.battlePower.current == 14547 &&
-                    analyzed.battlePower.extreme == 29400 &&
-                    analyzed.battlePower.hasHighest &&
-                    analyzed.battlePower.highest == 30750 &&
-                    analyzed.battlePower.currentStargodPower == 200 &&
-                    analyzed.battlePower.stargodSlots == 7 &&
-                    analyzed.battlePower.equippedStars == 2 &&
-                    analyzed.battlePower.missingStars == 5 &&
-                    !analyzed.battlePower.stargodFull &&
-                    !analyzed.battlePower.componentGaps.isEmpty(),
-                "detail analyzer did not produce the expected stable view model");
+  const bool stableViewModel =
+      analyzed.instanceId == 900001 && analyzed.raceId == 6506 &&
+      analyzed.battlePower.extreme == 29400 &&
+      analyzed.battlePower.stargodSlots == 7 && analyzed.battlePower.equippedStars == 2 &&
+      analyzed.battlePower.missingStars == 5 && !analyzed.battlePower.stargodFull &&
+      !analyzed.battlePower.componentGaps.isEmpty() &&
+      // This frozen sample predates two confirmed protocol fields: five of the
+      // eleven components and the per-pet stargod backpack. A partial object
+      // must not be summed into a confident total.
+      !analyzed.battlePower.hasCurrent && analyzed.battlePower.current == 0 &&
+      !analyzed.battlePower.hasHighest && analyzed.battlePower.highest == 0;
+  if (!stableViewModel) reportBattlePower(analyzed);
+  ok &= require(stableViewModel, "the partial frozen reply produced a fabricated total or lost its known parts");
+  const PetDetailViewModel completeAnalyzed =
+      PetDetailAnalyzer::analyze(completeReply(repository.detailFor(900001)), &repository);
+  const bool completeTotals = completeAnalyzed.battlePower.hasCurrent &&
+      completeAnalyzed.battlePower.current == 14547 && completeAnalyzed.battlePower.extreme == 29400 &&
+      completeAnalyzed.battlePower.hasHighest && completeAnalyzed.battlePower.highest == 30750;
+  if (!completeTotals) reportBattlePower(completeAnalyzed);
+  ok &= require(completeTotals, "a complete reply of the same observation lost the known totals");
   ok &= require(analyzed.badges.size() == 2 && analyzed.astrolabe.stars.size() >= 5 &&
                     analyzed.stargods.size() == 3 &&
                     analyzed.relationships.summonRows.size() == 1 &&
@@ -201,6 +260,17 @@ int main(int argc, char* argv[]) {
   gapModel.battlePower.availableStars = 4;
   gapModel.battlePower.goldStars = 4;
   gapModel.battlePower.stargodLevelsFull = true;
+  // The renderer reads the per-component rows, not the legacy componentGaps
+  // list, so the model below uses the current contract.
+  gapModel.battlePower.components = {
+      {QStringLiteral("lv"), QStringLiteral("等级与基础成长"), {}, 900, 1000, 1000, 100,
+       true, true, true, true, true},
+      {QStringLiteral("bsv"), QStringLiteral("元魂"), {}, 100, 200, 200, 100,
+       true, true, true, true, true},
+      {QStringLiteral("asv"), QStringLiteral("天迹星轮"), {}, 50, 100, 100, 50,
+       true, true, true, true, true},
+      {QStringLiteral("sjv"), QStringLiteral("神源兽"), {}, 200, 400, 400, 200,
+       true, true, true, true, true}};
   gapModel.battlePower.componentGaps = {
       {QStringLiteral("lv"), QStringLiteral("等级与基础成长"), 900, 1000, 100},
       {QStringLiteral("bsv"), QStringLiteral("元魂"), 100, 200, 100},
@@ -218,44 +288,61 @@ int main(int argc, char* argv[]) {
       {QStringLiteral("已点亮但未装备"), {}, false, true, false},
       {QStringLiteral("专属节点"), {QStringLiteral("应显示材料")}, true, false, false},
       {QStringLiteral("专属已点亮"), {QStringLiteral("不应显示材料")}, true, true, false}};
+  gapModel.battlePower.breakthroughApplicable = true;
+  gapModel.battlePower.breakthroughApplicabilityKnown = true;
+  gapModel.battlePower.breakthroughKnown = true;
+  gapModel.battlePower.astrolabeApplicabilityKnown = true;
+  gapModel.battlePower.astrolabeApplicable = true;
   gapModel.astrolabe.activatedCount = 2;
   gapModel.astrolabe.selectedCount = 1;
   const QString renderedGaps = PetDetailRenderer::render(gapModel);
-  ok &= require(renderedGaps.contains(QStringLiteral("等级与基础成长差 100 战力")) &&
-                    renderedGaps.contains(QStringLiteral("专属元魂未觉醒：专属元魂")) &&
-                    renderedGaps.contains(QStringLiteral("神源兽星级差 2 星")) &&
-                    renderedGaps.contains(QStringLiteral("神源兽阶级差 2 阶")) &&
-                    renderedGaps.contains(QStringLiteral("天迹星轮还有 1 个未点亮")) &&
-                    renderedGaps.contains(QStringLiteral("专属星轮未点亮：专属节点")) &&
-                    renderedGaps.contains(
-                        QStringLiteral("font-weight:700'>已装备但未点亮（未点亮）</span>")) &&
-                    renderedGaps.contains(
-                        QStringLiteral("<span>已点亮但未装备</span>")) &&
-                    renderedGaps.contains(QStringLiteral("应显示材料")) &&
-                    !renderedGaps.contains(QStringLiteral("不应显示材料")) &&
-                    !renderedGaps.contains(QStringLiteral("已点亮、已装备")) &&
-                    !renderedGaps.contains(QStringLiteral("已点亮数量")) &&
-                    !renderedGaps.contains(QStringLiteral("已装备数量")) &&
-                    renderedGaps.contains(QStringLiteral("天迹星轮未突破")) &&
-                    !renderedGaps.contains(QStringLiteral("暂未突破")),
-                "ordinary/highest power gap descriptions lost semantic detail");
+  // The confirmed presentation is per component ("当前 / 官方极限分项 / 至高分项 /
+  // 尚缺") and per astrolabe node; the older aggregate phrasings no longer exist.
+  const bool gapDescriptions =
+      renderedGaps.contains(QStringLiteral(
+          "当前 900 / 官方极限分项 1000 / 至高分项 1000 / 尚缺 100")) &&
+      renderedGaps.contains(QStringLiteral("专属元魂 · 未觉醒")) &&
+      renderedGaps.contains(QStringLiteral("7/9 星（未满星）")) &&
+      renderedGaps.contains(QStringLiteral("4/6 阶（未满阶），还差 2 阶")) &&
+      renderedGaps.contains(QStringLiteral("font-weight:700'>已装备但未点亮（未点亮）</span>")) &&
+      renderedGaps.contains(QStringLiteral("<span>已点亮但未装备</span>")) &&
+      renderedGaps.contains(QStringLiteral("专属节点 <span class='muted'>（点亮需 应显示材料）</span>（未点亮）")) &&
+      renderedGaps.contains(QStringLiteral(">未突破</span>")) &&
+      !renderedGaps.contains(QStringLiteral("不应显示材料")) &&
+      !renderedGaps.contains(QStringLiteral("已点亮、已装备")) &&
+      !renderedGaps.contains(QStringLiteral("已点亮数量")) &&
+      !renderedGaps.contains(QStringLiteral("已装备数量")) &&
+      !renderedGaps.contains(QStringLiteral("暂未突破"));
+  if (!gapDescriptions) {
+    std::fputs("  rendered gap document:\n", stderr);
+    std::fputs(qPrintable(renderedGaps), stderr);
+    std::fputc('\n', stderr);
+  }
+  ok &= require(gapDescriptions, "ordinary/highest power gap descriptions lost semantic detail");
 
-  QJsonObject backpackStargodPet = repository.detailFor(900001);
+  QJsonObject backpackStargodPet = completeReply(repository.detailFor(900001));
   backpackStargodPet.insert(
       QStringLiteral("sgsp"), QJsonArray{66, 67, 70, 77, 89, 80});
   const PetDetailViewModel backpackStargods =
       PetDetailAnalyzer::analyze(backpackStargodPet, &repository);
-  ok &= require(backpackStargods.stargodBackpack.size() == 6 &&
-                    backpackStargods.battlePower.stargodBackpackKnown &&
-                    backpackStargods.battlePower.backpackStars == 5 &&
-                    backpackStargods.battlePower.availableStars == 7 &&
-                    backpackStargods.battlePower.stargodFull &&
-                    backpackStargods.battlePower.bestOrdinaryStargodPower == 3690 &&
-                    backpackStargods.battlePower.changeableStargodPower == 500 &&
-                    backpackStargods.battlePower.currentStargodPower == 4190 &&
-                    backpackStargods.battlePower.highest == 30750 &&
-                    PetDetailRenderer::render(backpackStargods)
-                        .contains(QStringLiteral("数量已满足满战力")),
+  // Owned ordinary stars are the equipped ones plus the per-pet backpack, and
+  // one star per type: 9(6), 18(5), 66(4), 67(7), 70(5 duplicated), 77(22),
+  // 89(28) give six usable types for seven slots. Star values follow the slot
+  // level, which is 1 in this frozen observation, and the changeable slot uses
+  // the best owned movable star (80, red) instead of the equipped gold one.
+  const bool backpackCounted = backpackStargods.stargodBackpack.size() == 6 &&
+      backpackStargods.battlePower.stargodBackpackKnown &&
+      backpackStargods.battlePower.backpackStars == 5 &&
+      backpackStargods.battlePower.availableStars == 6 &&
+      !backpackStargods.battlePower.stargodFull &&
+      backpackStargods.battlePower.missingStars == 1 &&
+      backpackStargods.battlePower.bestOrdinaryStargodPower == 740 &&
+      backpackStargods.battlePower.changeableStargodPower == 140 &&
+      backpackStargods.battlePower.currentStargodPower == 880 &&
+      backpackStargods.battlePower.highest == 30750 &&
+      !PetDetailRenderer::render(backpackStargods).contains(QStringLiteral("数量已满足满战力"));
+  if (!backpackCounted) reportPower("per-pet stargod backpack", backpackStargods.battlePower);
+  ok &= require(backpackCounted,
                 "per-pet stargod backpack was not displayed or counted without changeable stars");
 
   QJsonObject sixSlotPet = backpackStargodPet;
@@ -265,23 +352,25 @@ int main(int argc, char* argv[]) {
   sixSlotPet.insert(QStringLiteral("sgsp"), QJsonArray{66, 67, 70, 80});
   const PetBattlePowerState sixSlotPower =
       PetDetailAnalyzer::analyzeBattlePower(sixSlotPet);
-  ok &= require(sixSlotPower.stargodSlots == 6 &&
-                    sixSlotPower.equippedStars == 2 &&
-                    sixSlotPower.backpackStars == 3 &&
-                    !sixSlotPower.stargodFull && sixSlotPower.missingStars == 1 &&
-                    sixSlotPower.hasHighest && sixSlotPower.highest == 30100,
-                "six-slot stargod capacity was not derived from the actual slot sequence");
+  // Six ordinary slots against three owned ordinary types (66, 67, 70); the
+  // changeable star 80 must not consume an ordinary slot type.
+  const bool sixSlots = sixSlotPower.stargodSlots == 6 && sixSlotPower.equippedStars == 2 &&
+      sixSlotPower.backpackStars == 3 && !sixSlotPower.stargodFull &&
+      sixSlotPower.missingStars == 3 && sixSlotPower.hasHighest && sixSlotPower.highest == 30100;
+  if (!sixSlots) reportPower("six-slot stargod", sixSlotPower);
+  ok &= require(sixSlots, "six-slot stargod capacity was not derived from the actual slot sequence");
 
   QJsonObject threeSlotPet = sixSlotPet;
   threeSlotPet.insert(QStringLiteral("sgs"), QStringLiteral("66:8#0:8#0:8"));
   threeSlotPet.insert(QStringLiteral("sgsp"), QJsonArray{66, 80});
   const PetBattlePowerState threeSlotPower =
       PetDetailAnalyzer::analyzeBattlePower(threeSlotPet);
-  ok &= require(threeSlotPower.stargodSlots == 3 &&
-                    threeSlotPower.availableStars == 2 &&
-                    threeSlotPower.missingStars == 1 &&
-                    !threeSlotPower.stargodFull,
-                "three-slot stargod capacity or changeable-star exclusion regressed");
+  // Only star 66 is an owned ordinary star here; the changeable star 80 is
+  // excluded from the ordinary type quota, so two of the three slots remain.
+  const bool threeSlots = threeSlotPower.stargodSlots == 3 && threeSlotPower.availableStars == 1 &&
+      threeSlotPower.missingStars == 2 && !threeSlotPower.stargodFull;
+  if (!threeSlots) reportPower("three-slot stargod", threeSlotPower);
+  ok &= require(threeSlots, "three-slot stargod capacity or changeable-star exclusion regressed");
 
   const PetDetailCatalog& detailCatalog = PetDetailCatalog::instance();
   ok &= require(detailCatalog.stargod(4)
@@ -311,30 +400,36 @@ int main(int argc, char* argv[]) {
                             .toInt() == 650,
                 "official green/blue/purple/gold/red stargod power table regressed");
 
-  QJsonObject locallyCalculatedHighest{
+  QJsonObject locallyCalculatedHighest = completeReply(QJsonObject{
       {QStringLiteral("ri"), 6506},
       {QStringLiteral("zdl"), 99999},
       {QStringLiteral("xzdl"), 99999},
       {QStringLiteral("astrolabebr"), true},
+      // Three lit and selected outer nodes at 190 each (frozen catalog), so the
+      // 灵初 breakthrough bonus of 150 applies to the reachable total while the
+      // official extreme stays at the node sum alone.
+      {QStringLiteral("astrolabe"),
+       QStringLiteral("350:1:1#351:1:1#352:1:1")},
       {QStringLiteral("sgs"),
        QStringLiteral("66:8#67:8#70:8#71:8#72:8#73:8#74:8#80:8:80")},
       {QStringLiteral("sgsp"), QJsonArray{4, 51}},
       {QStringLiteral("czdlv"),
        QJsonObject{{QStringLiteral("lv"), 25400},
                    {QStringLiteral("sgv"), 1},
-                   {QStringLiteral("asv"), 150}}},
+                   {QStringLiteral("asv"), 720}}},
       {QStringLiteral("mzdlv"),
        QJsonObject{{QStringLiteral("lv"), 25400},
                    {QStringLiteral("sgv"), 9999},
-                   {QStringLiteral("asv"), 0}}}};
+                   {QStringLiteral("asv"), 570}}}});
   const PetBattlePowerState localHighestPower =
       PetDetailAnalyzer::analyzeBattlePower(locallyCalculatedHighest);
-  ok &= require(localHighestPower.current == 30750 &&
-                    localHighestPower.highest == 30750 &&
-                    localHighestPower.targetStargodPower == 5200 &&
-                    localHighestPower.currentLocallyCalculated &&
-                    localHighestPower.isHighest,
-                "highest power still depended on server zdl or server stargod power");
+  // 25400 non-stargod + 720 reachable astrolabe + 5200 stargod = 31320, and the
+  // server zdl/xzdl/sgv replies (99999/99999/9999) are ignored.
+  const bool localHighest = localHighestPower.current == 31320 &&
+      localHighestPower.highest == 31320 && localHighestPower.targetStargodPower == 5200 &&
+      localHighestPower.currentLocallyCalculated && localHighestPower.isHighest;
+  if (!localHighest) reportPower("locally calculated highest", localHighestPower);
+  ok &= require(localHighest, "highest power still depended on server zdl or server stargod power");
 
   QJsonObject backpackRedReplacement = locallyCalculatedHighest;
   backpackRedReplacement.insert(QStringLiteral("zdl"), 30360);
@@ -344,18 +439,17 @@ int main(int argc, char* argv[]) {
   backpackRedReplacement.insert(QStringLiteral("sgsp"), QJsonArray{74});
   backpackRedReplacement.insert(
       QStringLiteral("czdlv"),
-      QJsonObject{{QStringLiteral("lv"), 25400},
-                  {QStringLiteral("sgv"), 4810},
-                  {QStringLiteral("asv"), 150}});
+      completeComponents(QJsonObject{{QStringLiteral("lv"), 25400},
+                                     {QStringLiteral("sgv"), 4810},
+                                     {QStringLiteral("asv"), 720}}));
   const PetBattlePowerState backpackRedPower =
       PetDetailAnalyzer::analyzeBattlePower(backpackRedReplacement);
-  ok &= require(backpackRedPower.serverCurrent == 30360 &&
-                    backpackRedPower.equippedStargodPower == 4810 &&
-                    backpackRedPower.currentStargodPower == 5200 &&
-                    backpackRedPower.current == 30750 &&
-                    backpackRedPower.redStars == 7 &&
-                    backpackRedPower.missingRedStars == 0 &&
-                    backpackRedPower.isHighest,
+  const bool redReplacement = backpackRedPower.serverCurrent == 30360 &&
+      backpackRedPower.equippedStargodPower == 4810 && backpackRedPower.currentStargodPower == 5200 &&
+      backpackRedPower.current == 31320 && backpackRedPower.redStars == 7 &&
+      backpackRedPower.missingRedStars == 0 && backpackRedPower.isHighest;
+  if (!redReplacement) reportPower("backpack red replacement", backpackRedPower);
+  ok &= require(redReplacement,
                 "red stargods in the per-pet backpack did not replace the equipped purple stargod");
 
   bool rejectedMissingDetail = false;

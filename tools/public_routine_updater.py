@@ -26,7 +26,9 @@ LIMIT = 2**31 - 1
 
 
 def _emit(message: str) -> None:
-    print(json.dumps({"event": "progress", "message": message}, ensure_ascii=False), flush=True)
+    # Pure ASCII progress line: the consumer decodes the same text back, and the
+    # bytes no longer depend on the console code page of a standalone run.
+    print(json.dumps({"event": "progress", "message": message}, ensure_ascii=True), flush=True)
 
 
 def _read(path: Path) -> dict:

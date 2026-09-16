@@ -33,7 +33,9 @@ MAX_MODULES = 512
 
 
 def emit(message):
-    print(json.dumps({"event": "progress", "message": message}, ensure_ascii=False), flush=True)
+    # Pure ASCII progress line: the consumer decodes the same text back, and the
+    # bytes no longer depend on the console code page of a standalone run.
+    print(json.dumps({"event": "progress", "message": message}, ensure_ascii=True), flush=True)
 
 
 def swf_body(data: bytes) -> bytes:

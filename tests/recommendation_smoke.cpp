@@ -25,6 +25,31 @@ bool require(bool condition, const char* message) {
   return condition;
 }
 
+// A bare FAIL line cannot separate a stale expectation from a ranking or
+// quantity defect, so the deciding row is printed on failure.
+void reportRows(const char* label, const QList<ActionRecommendation>& rows) {
+  std::fprintf(stderr, "  %s: rows=%lld\n", label, static_cast<long long>(rows.size()));
+  for (const ActionRecommendation& row : rows) {
+    std::fprintf(stderr,
+                 "    type=%d key=%s pet=%lld countKnown=%d count=%d remainingGap=%d closes=%d "
+                 "exchangeLeft=%d supportedGap=%d coverageKnown=%d\n",
+                 static_cast<int>(row.type), qPrintable(row.shopGoodKey),
+                 static_cast<long long>(row.petInstanceId), int(row.actionableCountKnown),
+                 row.actionableCount, row.remainingGapAfterAction, int(row.closesKnownGap),
+                 row.remainingExchangeCount, row.supportedGapCount, int(row.resourceCoverageKnown));
+    const auto state = [](const ShopCondition& condition) {
+      return static_cast<int>(condition.effectiveState());
+    };
+    std::fprintf(stderr, "    conditions: eligibility=%d cost=%d resource=%d limit=%d unlock=%d unknown=%d\n",
+                 state(row.eligibilityCondition), state(row.costCondition), state(row.resourceCondition),
+                 state(row.limitCondition), state(row.unlockCondition), row.unknownConditionCount);
+    std::fprintf(stderr, "    reasons: eligibility='%s' cost='%s' resource='%s' limit='%s' unlock='%s'\n",
+                 qPrintable(row.eligibilityCondition.reason), qPrintable(row.costCondition.reason),
+                 qPrintable(row.resourceCondition.reason), qPrintable(row.limitCondition.reason),
+                 qPrintable(row.unlockCondition.reason));
+  }
+}
+
 ShopExchangeGood good(int itemId, const QString& cost = QStringLiteral("4:100:20"),
                       const QString& code = QStringLiteral("41")) {
   ShopExchangeGood result;
@@ -219,9 +244,13 @@ int main(int argc, char* argv[]) {
                 "ReadyNow pet was duplicated as near-full");
 
   PetAssetRecord red = pet(1004, 10, 92);
-  red.pet.insert(QStringLiteral("sgs"), QStringLiteral("0:8#80:8:80"));
+  // The record mirrors what a complete detail yields, and the raw reply must
+  // carry the slot sequence and the per-pet stargod backpack: without them the
+  // red-star offer cannot be confirmed as a real purchase gap at all.
   red.missingRedStars = 2;
   red.stargodSlotsKnown = true;
+  red.pet.insert(QStringLiteral("sgs"), QStringLiteral("0:8#0:8"));
+  red.pet.insert(QStringLiteral("sgsp"), QJsonArray{});
   red.gaps = {QStringLiteral("红色星神缺 2")};
   ShopExchangeGood redGood = good(5, QStringLiteral("4:100:20"),
                                   QStringLiteral("34"));
@@ -232,10 +261,10 @@ int main(int argc, char* argv[]) {
   result = generateWithSyntheticPeriod(
       QStringLiteral("account-a"), overview({red}), {redGood}, allCounts(), true,
       oneExchange);
-  ok &= require(result.size() == 1 && result.constFirst().actionableCountKnown &&
-                    result.constFirst().actionableCount == 1 &&
-                    result.constFirst().remainingGapAfterAction == 1,
-                "proven one-unit exchange quantity was not calculated correctly");
+  const bool oneUnitQuantity = result.size() == 1 && result.constFirst().actionableCountKnown &&
+      result.constFirst().actionableCount == 1 && result.constFirst().remainingGapAfterAction == 1;
+  if (!oneUnitQuantity) reportRows("proven one-unit exchange", result);
+  ok &= require(oneUnitQuantity, "proven one-unit exchange quantity was not calculated correctly");
   redGood.provenGapUnitsPerExchange = 0;
   redGood.provenGapCode.clear();
   result = generateWithSyntheticPeriod(
@@ -449,9 +478,10 @@ int main(int argc, char* argv[]) {
   ShopExchangeGood wide = good(6, QStringLiteral("4:100:20"), QStringLiteral("34-41"));
   result = generateWithSyntheticPeriod(QStringLiteral("audit"), overview({red}),
       {wide, redGood}, allCounts(), true, enoughResources);
-  ok &= require(result.size() == 1 && result.first().shopGoodKey == redGood.stableKey() &&
-                    result.first().closesKnownGap && result.first().actionableCount == 2,
-                "proven gap closure did not rank before broader unquantified coverage");
+  const bool provenClosureRanked = result.size() == 1 && result.first().shopGoodKey == redGood.stableKey() &&
+      result.first().closesKnownGap && result.first().actionableCount == 2;
+  if (!provenClosureRanked) reportRows("proven gap closure ranking", result);
+  ok &= require(provenClosureRanked, "proven gap closure did not rank before broader unquantified coverage");
 
   const auto readyBeforeStale = recommend(good(1), enoughResources);
   const auto invalidatedReady = RecommendationEngine::applyFreshness(readyBeforeStale, false, true);
@@ -487,7 +517,13 @@ int main(int argc, char* argv[]) {
                 "unknown completion participated as a known high sorting value");
   result = generateWithSyntheticPeriod(QStringLiteral("ranking"),
       overview({unknownCompletion}), {}, allCounts(), true, enoughResources);
-  ok &= require(result.isEmpty(), "unknown completion generated a near-full claim");
+  // Unknown completion keeps the evidenced local suggestion and must never turn
+  // into a near-full claim with a confirmed completion percentage.
+  const bool unknownCompletionRow = result.size() == 1 &&
+      result.constFirst().type == RecommendationType::LocalCultivation &&
+      !result.constFirst().completionKnown && !result.constFirst().powerGapKnown;
+  if (!unknownCompletionRow) reportRows("unknown completion", result);
+  ok &= require(unknownCompletionRow, "unknown completion generated a near-full claim");
 
   QList<ShopExchangeGood> shuffledGoods{good(1), good(2), good(3)};
   const auto beforeShuffle = generateWithSyntheticPeriod(QStringLiteral("shuffle"),

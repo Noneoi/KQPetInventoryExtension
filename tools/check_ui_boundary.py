@@ -27,6 +27,10 @@ PORTS = {
     "src/application/contracts/refresh_timings.h", "src/application/contracts/operation_types.h",
     "src/contracts/pet_record_types.h", "src/contracts/pet_derivation_types.h",
     "src/contracts/pet_detail_types.h", "src/contracts/observation_types.h",
+    # Header-only value contracts: one snapshot struct plus an inline key helper
+    # for cultivation materials, and the local stargod statistics result. They
+    # carry no implementation and their own includes are still inspected.
+    "src/contracts/cultivation_material_inventory.h", "src/contracts/local_stargod_statistics.h",
 }
 # Value wrappers and header-only presentation helpers not listed as library
 # sources. Their contents/includes are recursively checked, never trusted blind.
