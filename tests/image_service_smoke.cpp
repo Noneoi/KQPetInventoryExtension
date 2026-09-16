@@ -97,7 +97,9 @@ int main(int argc, char* argv[]) {
         const QByteArray body = path == QStringLiteral("/large") ? large :
             path == QStringLiteral("/full") ? full :
             path == QStringLiteral("/bad") ? QByteArray("not an image") : smallPng;
-        QTimer::singleShot(40, socket, [socket, body, path] {
+        // One fixture stays open long enough to join and to cancel against.
+        const int delay = path == QStringLiteral("/hold-join") ? 150 : 40;
+        QTimer::singleShot(delay, socket, [socket, body, path] {
           if (socket->state() != QAbstractSocket::ConnectedState) return;
           const qint64 length = path == QStringLiteral("/oversize") ? 16 * 1024 * 1024 + 1 : body.size();
           socket->write("HTTP/1.1 200 OK\r\nContent-Type: image/png\r\nContent-Length: " +
@@ -710,19 +712,76 @@ int main(int argc, char* argv[]) {
     ImageRequest thumbnail = request(QStringLiteral("777_0_0123456789ab"), QStringLiteral("unused"));
     thumbnail.outputLogicalSize = {64, 64};
     ImageRequest detail = request(QStringLiteral("777_0_0123456789ab"), QStringLiteral("unused"));
+    QHash<QString, ImagePersistence> sharedReceipts;
+    const auto sharedConnection = QObject::connect(&service, &ImageService::persistenceCompleted, &app,
+        [&](const ImagePersistenceResult& result) { sharedReceipts.insert(result.key, result.outcome); });
     service.request(thumbnail);
     service.request(detail);
     ok &= require(until([&] {
       return service.memoryUsage().decodedImages >= decodedBefore + 2;
     }, 5000), "same-source size variants did not both decode");
+    const QString thumbnailKey = ImageService::requestKey(thumbnail, options.resourceVersion);
+    const QString detailKey = ImageService::requestKey(detail, options.resourceVersion);
+    ok &= require(until([&] {
+      return sharedReceipts.contains(thumbnailKey) && sharedReceipts.contains(detailKey);
+    }, 5000), "a shared-source render size never received its disk receipt");
+    QObject::disconnect(sharedConnection);
     QTest::qWait(80);
     const int downloads = requests.value(QStringLiteral("/size-split"));
-    // T9 measurement: the same source at two render sizes is downloaded twice.
-    // This pins the current behaviour; tightening it to 1 is what the shared
-    // in-flight source task must achieve.
-    ok &= require(downloads == 2,
-                  "same-source size variants changed their duplicate download behaviour");
-    std::fprintf(stdout, "same-source downloads for two render sizes: %d\n", downloads);
+    // T9: one shared read/download/extract per source identity. Each render size
+    // still decodes its own scale, and each one still gets its own receipt.
+    ok &= require(downloads == 1,
+                  "same-source size variants did not share a single download");
+    ok &= require((sharedReceipts.value(thumbnailKey) == ImagePersistence::Saved ||
+                   sharedReceipts.value(thumbnailKey) == ImagePersistence::AlreadyValid) &&
+                  (sharedReceipts.value(detailKey) == ImagePersistence::Saved ||
+                   sharedReceipts.value(detailKey) == ImagePersistence::AlreadyValid),
+                  "a shared-source render size reported a failed disk receipt");
+    std::fprintf(stdout, "same-source downloads for two render sizes: %d (receipts %d/%d)\n",
+                 downloads, int(sharedReceipts.contains(thumbnailKey)),
+                 int(sharedReceipts.contains(detailKey)));
+  }
+
+  // T9: a render size that arrives while its source is already in flight joins
+  // the shared acquisition, and a cancelled batch entry over the same source
+  // must not abort the download a preview is still waiting for.
+  {
+    const QString indexPath = QDir(directory.path()).filePath(QStringLiteral("catalog/pet-image-index.json"));
+    QFile index(indexPath);
+    const QByteArray bytes = QJsonDocument(QJsonObject{{QStringLiteral("schemaVersion"), 1},
+        {QStringLiteral("images"), QJsonObject{{QStringLiteral("778_0"),
+            QJsonObject{{QStringLiteral("url"), base + QStringLiteral("/hold-join")}}}}}}).toJson();
+    ok &= require(index.open(QIODevice::WriteOnly | QIODevice::Truncate) && index.write(bytes) == bytes.size(),
+                  "in-flight join index fixture failed");
+    index.close();
+    service.reloadImageIndex();
+    QTest::qWait(80);
+    ImageRequest preview = request(QStringLiteral("778_0_0123456789ab"), QStringLiteral("unused"));
+    preview.outputLogicalSize = {96, 96};
+    ImageRequest joined = request(QStringLiteral("778_0_0123456789ab"), QStringLiteral("unused"));
+    joined.outputLogicalSize = {192, 192};
+    const QString previewKey = ImageService::requestKey(preview, options.resourceVersion);
+    const QString joinedKey = ImageService::requestKey(joined, options.resourceVersion);
+    QHash<QString, ImageOutcome> joinedResults;
+    const auto joinedConnection = QObject::connect(&service, &ImageService::completed, &app,
+        [&](const ImageResult& result) { joinedResults.insert(result.key, result.outcome); });
+    service.request(preview);
+    ok &= require(until([&] { return requests.value(QStringLiteral("/hold-join")) == 1; }),
+                  "in-flight join fixture never reached the server");
+    // A batch entry for the same source is cancelled while the download is open.
+    service.requestBatch({request(QStringLiteral("778_0_0123456789ab"), QStringLiteral("unused"))});
+    service.cancelBatch();
+    service.request(joined);
+    const bool bothReady = until([&] {
+      return joinedResults.contains(previewKey) && joinedResults.contains(joinedKey) &&
+          joinedResults.value(previewKey) == ImageOutcome::Ready &&
+          joinedResults.value(joinedKey) == ImageOutcome::Ready;
+    }, 5000);
+    QObject::disconnect(joinedConnection);
+    ok &= require(bothReady, "a cancelled batch entry aborted the shared acquisition of a live preview");
+    ok &= require(requests.value(QStringLiteral("/hold-join")) == 1,
+                  "an in-flight render size downloaded its own copy of the source");
+    std::fprintf(stdout, "in-flight join downloads: %d\n", requests.value(QStringLiteral("/hold-join")));
   }
 
   auto deletingService = std::make_unique<ImageService>(options, executors);
