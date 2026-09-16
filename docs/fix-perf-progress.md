@@ -404,7 +404,39 @@ STATUS rev=19 detailReq=1 pendingReads=0: 意图保存期间列表或会话已�
 
 ---
 
+## T7 资产概览局部更新
+
+状态：`FixedAndTargetedTested`
+
+相关函数/调用链：`src/extension/asset_analysis_window.cpp` 的 `rebuildOverview()`、
+`refreshInventory()`、`refreshRoutineSummary()`、`addOverviewRow()`。
+
+基线成本（代码核对）：`rebuildOverview()` 每次都 `overviewTable_->setRowCount(0)` 重建 17 行，
+并对 4 个分类过滤器各做一次全仓扫描（`countFilter()`）；日常摘要变化也走同一条整表重建路径。
+
+修复：
+
+- `overviewFilterCounts()`：一次遍历 `overview_.pets` 同时算出 4 个分类计数并按分析结果缓存；
+  缓存只在分析结果变化处失效（`applyAnalysis()`、`refreshAccountAnalysis()`、`resetSessionContext()`）。
+  列表摘要变化（`refreshInventory()`）不影响这些计数，因此不再重算。
+- `addOverviewRow()`：改为按标签定位并**原地更新**单元格，不再整表重建；行点击动作、
+  选择与滚动位置因此保留；行集合仍为固定的 17 行。
+- 新增 `updateRoutineOverviewRows()`：`refreshRoutineSummary()` 只改写今日/本周两行的数值与提示，
+  不扫描精灵、不重建表格。
+- 新增只读计数 `overviewPetScanCount()` 供预览自测断言“仅日常变化时全仓扫描为 0”。
+
+回归（`tests/asset_analysis_ui_preview.cpp` 自测）：日常摘要刷新后扫描计数不变、行数与
+首行点击动作不变、计数单元格不变；分类计数与对 `controller->overview().pets` 的独立重算一致；
+新分析结果到达时扫描恰好 +1、行数恢复；`resetSessionContext()` 后行被清空且日常刷新不会复活旧行，
+再次分析后恢复。日志：`validation-logs\t7-ui-preview.log`、`t7-full-ctest.log`
+（全量 72 项 71 通过，仅剩 T5-A）。
+
+剩余风险：`refreshInventory()` 仍会重写全部单元格文本（未做单元格级脏检查）；
+本任务只消除了重复扫描与整表重建，未改动表格其它行为。
+
+---
+
 ## T3–T10
 
-状态：T3/T4/T6 `FixedAndTargetedTested`/`Verified`，T5-B `Verified`，T5-A `Blocked`；
-批次三 T7–T10 `Pending`
+状态：T3/T4/T6 `FixedAndTargetedTested`/`Verified`、T5-B `Verified`、T5-A `Blocked`、
+T7 `FixedAndTargetedTested`；批次三 T8–T10 `Pending`

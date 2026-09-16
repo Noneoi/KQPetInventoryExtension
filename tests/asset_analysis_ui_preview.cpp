@@ -2,6 +2,7 @@
 #include "asset_analysis_controller.h"
 #include "asset_analysis_window.h"
 #include "asset_analysis_model.h"
+#include "asset_derivation.h"
 #include "pet_repository.h"
 #include "routine_overview_controller.h"
 #include "shop_exchange_controller.h"
@@ -154,9 +155,56 @@ int main(int argc, char* argv[]) {
       if (!waitUntil([&] { return !controller->persistencePendingTaskCount() && !controller->snapshotHistoryLoading(); })) {
         application.exit(8); return;
       }
+      // The overview summary recomputes pet-derived counts once per analysis
+      // result. A routine-only change must rewrite only its two cells.
+      QTableWidget* overviewTable =
+          window->findChild<QTableWidget*>(QStringLiteral("KQAssetOverviewTable"));
+      const auto overviewValue = [&](const QString& label) -> QString {
+        if (!overviewTable) return {};
+        for (int row = 0; row < overviewTable->rowCount(); ++row)
+          if (overviewTable->item(row, 0) && overviewTable->item(row, 0)->text() == label)
+            return overviewTable->item(row, 1) ? overviewTable->item(row, 1)->text() : QString{};
+        return {};
+      };
+      const quint64 scansAfterAnalysis = window->overviewPetScanCount();
+      const int overviewRows = overviewTable ? overviewTable->rowCount() : 0;
+      const QVariant firstAction =
+          overviewTable && overviewTable->item(0, 0) ? overviewTable->item(0, 0)->data(Qt::UserRole) : QVariant{};
+      const QString upgradeCount = overviewValue(QStringLiteral("星神等级待提升"));
+      const QString routineDaily = overviewValue(QStringLiteral("今日任务 / 玩法剩余"));
+      QMetaObject::invokeMethod(window, "refreshRoutineSummary", Qt::DirectConnection);
+      int expectedUpgrade = 0;
+      for (const PetAssetRecord& record : controller->overview().pets)
+        if (AssetDerivation::matchesFilter(record, PetAssetFilter::StargodUpgradeNeeded)) ++expectedUpgrade;
+      const bool routineOnly = overviewTable && overviewRows > 0 &&
+          window->overviewPetScanCount() == scansAfterAnalysis &&
+          overviewTable->rowCount() == overviewRows &&
+          overviewTable->item(0, 0)->data(Qt::UserRole) == firstAction &&
+          overviewValue(QStringLiteral("星神等级待提升")) == upgradeCount &&
+          overviewValue(QStringLiteral("今日任务 / 玩法剩余")) == routineDaily &&
+          upgradeCount == QString::number(expectedUpgrade);
+      // A new analysis result invalidates the cache and rescans exactly once.
+      const quint64 scansBeforeThird = window->overviewPetScanCount();
+      const bool thirdAnalysis = analyzeAndWait() &&
+          window->overviewPetScanCount() == scansBeforeThird + 1;
+      // A session reset clears the rows and must not let a routine update
+      // resurrect them before the next analysis.
+      window->resetSessionContext();
+      const bool clearedRows = overviewTable && overviewTable->rowCount() == 0;
+      QMetaObject::invokeMethod(window, "refreshRoutineSummary", Qt::DirectConnection);
+      const bool resetKept = clearedRows && overviewTable && overviewTable->rowCount() == 0;
+      const bool restored = resetKept && analyzeAndWait() && overviewTable &&
+          overviewTable->rowCount() == overviewRows;
+      const bool overviewLocalUpdate = routineOnly && thirdAnalysis && restored;
+      if (!overviewLocalUpdate) {
+        std::fprintf(stderr,
+            "FAIL: overview scans=%llu rows=%d upgrade=%s expected=%d routineOnly=%d third=%d restored=%d\n",
+            static_cast<unsigned long long>(window->overviewPetScanCount()), overviewRows,
+            qPrintable(upgradeCount), expectedUpgrade, int(routineOnly), int(thirdAnalysis),
+            int(restored));
+      }
       QTabWidget* recommendationTabs =
-          window->findChild<QTabWidget*>(QStringLiteral("KQRecommendationTabs"));
-      QTableView* readyRecommendations =
+          window->findChild<QTabWidget*>(QStringLiteral("KQRecommendationTabs"));      QTableView* readyRecommendations =
           window->findChild<QTableView*>(QStringLiteral("KQReadyRecommendationTable"));
       QTableView* missingRecommendations =
           window->findChild<QTableView*>(QStringLiteral("KQMissingRecommendationTable"));
@@ -165,6 +213,7 @@ int main(int argc, char* argv[]) {
       const bool valid =
           refresh &&
           refresh->text() == QStringLiteral("重新计算养成分析（仅本地）") &&
+          overviewLocalUpdate &&
           window->findChild<QTableWidget*>(QStringLiteral("KQAssetOverviewTable")) &&
           diagnostics && diagnostics->model() && rowsBeforeDetail == 1 &&
           diagnostics->model()->rowCount() == 1 &&

@@ -421,16 +421,30 @@ AssetAnalysisWindow::AssetAnalysisWindow(AnalysisReadView* controller,
 void AssetAnalysisWindow::addOverviewRow(const QString& label,
                                          const QString& value,
                                          const QString& note, int action) {
-  const int row = overviewTable_->rowCount();
-  overviewTable_->insertRow(row);
-  QTableWidgetItem* labelItem = item(label, QColor(QStringLiteral("#3156a3")));
-  QFont font = labelItem->font();
-  font.setBold(true);
-  labelItem->setFont(font);
+  // The row set is static and ordered by first build. Update the existing row in
+  // place so a refresh keeps the click action, selection and scrolling instead
+  // of rebuilding the table.
+  const auto existing = overviewRowIndex_.constFind(label);
+  int row = existing == overviewRowIndex_.constEnd() ? -1 : existing.value();
+  if (row < 0 || !overviewTable_->item(row, 0)) {
+    row = overviewTable_->rowCount();
+    overviewTable_->insertRow(row);
+    QTableWidgetItem* labelItem = item(label, QColor(QStringLiteral("#3156a3")));
+    QFont font = labelItem->font();
+    font.setBold(true);
+    labelItem->setFont(font);
+    labelItem->setData(Qt::UserRole, action);
+    overviewTable_->setItem(row, 0, labelItem);
+    overviewTable_->setItem(row, 1, item(value));
+    overviewTable_->setItem(row, 2, item(note));
+    overviewRowIndex_.insert(label, row);
+    return;
+  }
+  QTableWidgetItem* labelItem = overviewTable_->item(row, 0);
+  labelItem->setText(label);
   labelItem->setData(Qt::UserRole, action);
-  overviewTable_->setItem(row, 0, labelItem);
-  overviewTable_->setItem(row, 1, item(value));
-  overviewTable_->setItem(row, 2, item(note));
+  overviewTable_->item(row, 1)->setText(value);
+  overviewTable_->item(row, 2)->setText(note);
 }
 
 void AssetAnalysisWindow::refreshAnalysis() {
@@ -470,6 +484,9 @@ void AssetAnalysisWindow::resetSessionContext() {
   snapshots_.clear();
   analysisReady_ = false;
   sessionResetPending_ = true;
+  overviewFilterCounts_.clear();
+  overviewFilterCountsValid_ = false;
+  overviewRowIndex_.clear();
   analysisModel_->clear();
   for (RecommendationModel* model : {readyRecommendationModel_, missingRecommendationModel_,
                                      nearFullRecommendationModel_}) model->setRecommendations({});
@@ -503,6 +520,7 @@ void AssetAnalysisWindow::applyAnalysis() {
   inventory_.eliteWarehousePets = overview_.eliteWarehousePets;
   inventory_.missingDetailPets = overview_.missingDetailPets;
   analysisReady_ = true;
+  overviewFilterCountsValid_ = false;
   routineSummary_ = controller_->routineSummary();
   rebuildOverview();
   rebuildDiagnostics();
@@ -538,7 +556,9 @@ void AssetAnalysisWindow::markShopAnalysisInvalidated() {
 void AssetAnalysisWindow::refreshRoutineSummary() {
   if (!controller_) return;
   routineSummary_ = controller_->routineSummary();
-  rebuildOverview();
+  // Routine data does not change any pet-derived total, so only the two routine
+  // cells are rewritten.
+  updateRoutineOverviewRows();
 }
 
 void AssetAnalysisWindow::refreshAccountAnalysis() {
@@ -547,6 +567,7 @@ void AssetAnalysisWindow::refreshAccountAnalysis() {
   inventory_ = controller_->inventorySummary();
   routineSummary_ = controller_->routineSummary();
   analysisReady_ = controller_->hasAnalysis();
+  overviewFilterCountsValid_ = false;
   overview_ = analysisReady_ ? controller_->overview() : AccountAssetOverview{};
   rebuildOverview();
   rebuildDiagnostics();
@@ -605,8 +626,56 @@ void AssetAnalysisWindow::updateAnalysisStatus() {
                stateText));
 }
 
-void AssetAnalysisWindow::rebuildOverview() {
-  const QString pending = QStringLiteral("待手动刷新");
+// One pass over the pet list answers every classification count, and the result
+// is reused until the analysis result itself changes. A routine-only update
+// never reaches this function.
+const QHash<int, int>& AssetAnalysisWindow::overviewFilterCounts() {
+  static const QList<PetAssetFilter> filters{PetAssetFilter::StargodEquipNeeded,
+      PetAssetFilter::StargodUpgradeNeeded, PetAssetFilter::ChangeableMissing,
+      PetAssetFilter::AnalysisIncomplete};
+  if (!overviewFilterCountsValid_) {
+    overviewFilterCounts_.clear();
+    for (PetAssetFilter filter : filters)
+      overviewFilterCounts_.insert(static_cast<int>(filter), 0);
+    if (analysisReady_) {
+      ++overviewPetScans_;
+      for (const PetAssetRecord& pet : overview_.pets) {
+        for (PetAssetFilter filter : filters)
+          if (AssetDerivation::matchesFilter(pet, filter))
+            ++overviewFilterCounts_[static_cast<int>(filter)];
+      }
+    }
+    overviewFilterCountsValid_ = true;
+  }
+  return overviewFilterCounts_;
+}
+
+void AssetAnalysisWindow::updateRoutineOverviewRows() {
+  const QString routineNote = QStringLiteral("点击打开日常活动窗口查看逐项来源");
+  const auto write = [this, &routineNote](const QString& label, const QString& taskText,
+                                          const RoutineOpportunitySummary& opportunities) {
+    const auto found = overviewRowIndex_.constFind(label);
+    const int row = found == overviewRowIndex_.constEnd() ? -1 : found.value();
+    if (row < 0 || row >= overviewTable_->rowCount() || !overviewTable_->item(row, 1)) return;
+    overviewTable_->item(row, 1)->setText(
+        routineSummary_.routineDataKnown
+            ? QStringLiteral("未完成任务 %1；%2").arg(taskText,
+                  opportunitySummaryText(opportunities))
+            : QStringLiteral("未查询"));
+    overviewTable_->item(row, 2)->setText(
+        routineSummary_.routineDataKnown ? opportunitySummaryNote(opportunities) : routineNote);
+  };
+  write(QStringLiteral("今日任务 / 玩法剩余"),
+        routineSummary_.dailyTasksKnown ? QString::number(routineSummary_.unfinishedDailyTasks)
+                                        : QStringLiteral("周期未确认"),
+        routineSummary_.todayOpportunities);
+  write(QStringLiteral("本周任务 / 玩法剩余"),
+        routineSummary_.weeklyTasksKnown ? QString::number(routineSummary_.unfinishedWeeklyTasks)
+                                         : QStringLiteral("周期未确认"),
+        routineSummary_.weekOpportunities);
+}
+
+void AssetAnalysisWindow::rebuildOverview() {  const QString pending = QStringLiteral("待手动刷新");
   accountSummary_->setText(
       QStringLiteral("账号：%1　资产缓存时间：%2　当前缓存总战力：%3")
           .arg(inventory_.account,
@@ -615,7 +684,6 @@ void AssetAnalysisWindow::rebuildOverview() {
                    : QStringLiteral("尚未完成列表同步"),
                analysisReady_ ? (overview_.totalCurrentPowerKnown ? QString::number(overview_.totalCurrentPower)
                    : QStringLiteral("部分未知（已知合计 %1）").arg(overview_.totalCurrentPower)) : pending));
-  overviewTable_->setRowCount(0);
   addOverviewRow(QStringLiteral("精灵总数"), QString::number(inventory_.totalPets),
                  QStringLiteral("查看当前账号全部实例"),
                  static_cast<int>(PetAssetFilter::All));
@@ -647,9 +715,7 @@ void AssetAnalysisWindow::rebuildOverview() {
                  QStringLiteral("已装备与本宠背包合并，按合法可用种类去重；已有未装备红星不再计缺货，万变另列"),
                  static_cast<int>(PetAssetFilter::RedStarMissing));
   const auto countFilter = [this](PetAssetFilter filter) {
-    int count = 0;
-    for (const auto& pet : overview_.pets) count += AssetDerivation::matchesFilter(pet, filter);
-    return count;
+    return overviewFilterCounts().value(static_cast<int>(filter));
   };
   for (const auto& row : QList<QPair<QString, PetAssetFilter>>{
         {QStringLiteral("已有星神待装备/调整"), PetAssetFilter::StargodEquipNeeded},

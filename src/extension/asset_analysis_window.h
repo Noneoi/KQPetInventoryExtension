@@ -25,6 +25,9 @@ class AssetAnalysisWindow final : public QDialog {
 public:
   explicit AssetAnalysisWindow(AnalysisReadView* controller,
                                QWidget* parent = nullptr);
+  // Number of full overview-pet passes the summary rows performed. Used by the
+  // preview self-test: a routine-only change must not scan the pet list again.
+  quint64 overviewPetScanCount() const { return overviewPetScans_; }
 
 public slots:
   void resetSessionContext();
@@ -62,8 +65,11 @@ private slots:
 
 private:
   void rebuildOverview();
+  // Updates only the two routine cells; the pet-derived counts stay cached.
+  void updateRoutineOverviewRows();
   void addOverviewRow(const QString& label, const QString& value,
                       const QString& note, int action);
+  const QHash<int, int>& overviewFilterCounts();
   void setDiagnosticFilter(PetAssetFilter filter);
   void scheduleAnalysisStatusUpdate();
   void updateAnalysisStatus();
@@ -78,6 +84,12 @@ private:
   bool analysisReady_ = false;
   bool sessionResetPending_ = false;
   bool analysisStatusUpdatePending_ = false;
+  // Cached classification counts for the current analysis result, computed in a
+  // single pass. Invalidated explicitly whenever the overview result changes.
+  QHash<int, int> overviewFilterCounts_;
+  bool overviewFilterCountsValid_ = false;
+  quint64 overviewPetScans_ = 0;
+  QHash<QString, int> overviewRowIndex_;
   QTabWidget* tabs_ = nullptr;
   QTabWidget* recommendationTabs_ = nullptr;
   QCheckBox* showAllRecommendations_ = nullptr;
