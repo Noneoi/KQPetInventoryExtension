@@ -436,7 +436,44 @@ STATUS rev=19 detailReq=1 pendingReads=0: 意图保存期间列表或会话已�
 
 ---
 
+## T8 库存快照发布与写时复制成本
+
+状态：`Verified`（实测后判定无需生产改动）
+
+先测量后改动。新增 `analysis_cache_integration_smoke` 的发布突发测量：200 次详情更新
+（每次一个事件循环回合，含 1 ms 间隔，总计约 3.08 s）后读取投影收到的发布数与
+当前版本。
+
+实测结果（`validation-logs\t8-final-run1..3.log`，三次一致）：
+
+```text
+publisher burst: updates=200 publications=1 elapsedMs=3080 changedIds=0 full=1
+```
+
+即现有零延时合并（`scheduled_` + `QTimer::singleShot(0)`）已经把整段突发合并为
+**1 次发布**，且该发布是成员全量发布（包含全部记录版本），最终版本与仓库最新版本一致。
+
+候选项与判定：
+
+1. “有上限的发布合并窗口（16 ms）+ 选中详情优先”（已实现并实测）：同条件下同样是
+   1 次发布，没有可重复改善，而且会额外增加最多 16 ms 的详情可见延迟；
+   按任务书“没有可测收益的复杂改动不合入”**已回退**。
+2. “仅在内容变化时写入共享容器”（跳过无变化写入）：语义上是严格 no-op 规避，
+   但实测同样没有可观测收益，并且会让本测试中一段依赖时序的既有场景
+   （250 ms IO 阻塞下的读取准入重试）出现不稳定（3 次中 2 次失败，而基线 3/3 稳定）；
+   已一并回退，保持基线行为。
+
+验收对照：最终值正确（发布快照的记录版本 = 仓库最新版本）、发布数有界（200 次更新 → 1 次发布）、
+账号切换立即失效（同一测试内既有的 “account transition … cannot publish old-account facts” 断言）、
+滚动/选择不重置（未改动模型与视图绑定）。发布成本的可重复改善未能测得，
+按任务书不引入无收益的复杂改动；`chunked snapshot` 后续设计也未实施。
+
+剩余风险：本测量在离线夹具（1 个实例 200 次更新）上完成，未覆盖多实例、真实网络节奏与
+GUI 绘制并发的组合；未测量进程级分配量（只有发布计数与耗时）。
+
+---
+
 ## T3–T10
 
 状态：T3/T4/T6 `FixedAndTargetedTested`/`Verified`、T5-B `Verified`、T5-A `Blocked`、
-T7 `FixedAndTargetedTested`；批次三 T8–T10 `Pending`
+T7 `FixedAndTargetedTested`、T8 `Verified`（无生产改动）；T9/T10 见下

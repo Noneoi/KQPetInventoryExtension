@@ -282,6 +282,65 @@ int main(int argc, char** argv) {
       projection.snapshot()->facts.isEmpty() && projection.snapshot()->rawDetails.isEmpty(),
       "account transition clears prepared references and cannot publish old-account facts");
   ok &= require(controller.shutdownAnalysis(2000), "shared cache and Compute stop cleanly");
+  // A burst of detail updates must not republish the whole list per response,
+  // while every changed id and every final value still reaches the projection.
+  {
+    ok &= require(waitForRepositoryIdle(&repository, 10000), "burst account settles");
+    lists(repository);
+    ok &= require(waitForRepositoryIdle(&repository, 10000), "burst lists saved");
+    QThread::msleep(40);
+    quint64 publications = projection.snapshot() ? projection.snapshot()->publication : 0;
+    const quint64 before = publications;
+    const int burstUpdates = 200;
+    QElapsedTimer burst;
+    burst.start();
+    for (int round = 1; round <= burstUpdates; ++round) {
+      repository.expectDetail(2001, 40000 + round, repository.accountKey(), repository.sessionGeneration());
+      deliverVerifiedFixture(&repository, {{"_cmd", "2_1_R"}, {"p", detail(2001, 9000 + round)}});
+      QCoreApplication::processEvents();
+      // A realistic response cadence: one event-loop turn per update.
+      QThread::msleep(1);
+    }
+    const qint64 burstMs = burst.elapsed();
+    std::fprintf(stderr, "BURST_RAW: start=%llu end=%llu publications=%llu\n",
+                 static_cast<unsigned long long>(before),
+                 static_cast<unsigned long long>(projection.snapshot()->publication),
+                 static_cast<unsigned long long>(projection.snapshot()->publication - before));
+    const quint64 revisionAfterBurst = repository.recordVersion(2001).key.detailMemoryRevision;
+    // Wait for the merged publication that carries the newest version, and read
+    // its accumulated changed-id set from that exact snapshot.
+    quint64 mergedPublication = 0;
+    QSet<qint64> mergedChanges;
+    bool mergedFull = false;
+    ok &= require(until([&] {
+      const auto snapshot = projection.snapshot();
+      if (!snapshot || snapshot->publication <= before ||
+          snapshot->recordVersions.value(2001).key.detailMemoryRevision < revisionAfterBurst) return false;
+      mergedPublication = snapshot->publication;
+      mergedChanges = snapshot->changedDetails;
+      mergedFull = snapshot->membershipChanged;
+      return true;
+    }, 5000), "a merged publication carrying the newest version reached the projection");
+    const quint64 published = mergedPublication - before;
+    // A detail-only publication carries the accumulated ids; a membership
+    // publication carries every list record, which is a superset of the delta.
+    const bool mergedBurst = published > 0 && published * 4 <= quint64(burstUpdates) &&
+        (mergedChanges.contains(2001) || mergedFull);
+    if (!mergedBurst) {
+      std::fprintf(stderr,
+          "BURST_STATE: published=%llu updates=%d changedIds=%lld contains2001=%d full=%d\n",
+          static_cast<unsigned long long>(published), burstUpdates,
+          static_cast<long long>(mergedChanges.size()), int(mergedChanges.contains(2001)),
+          int(mergedFull));
+    }
+    ok &= require(mergedBurst,
+                  "a detail burst republished the list per response or lost a changed version");
+    std::fprintf(stdout,
+        "publisher burst: updates=%d publications=%llu elapsedMs=%lld changedIds=%lld full=%d\n",
+        burstUpdates, static_cast<unsigned long long>(published),
+        static_cast<long long>(burstMs), static_cast<long long>(mergedChanges.size()),
+        int(mergedFull));
+  }
   std::puts(ok ? "PASS: Repository -> raw leases -> fact cache -> Worker -> projection integration" : "FAIL: analysis cache integration");
   return ok ? 0 : 1;
 }
