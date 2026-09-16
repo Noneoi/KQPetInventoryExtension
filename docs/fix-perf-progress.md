@@ -682,3 +682,47 @@ in-flight join downloads: 2
 - `docs/fix-perf-progress.md`（本文件，逐项状态与证据）、`docs/fix-perf-report.md`（结论/根因/风险）。
 - 未执行：推送、合并、发布；未在真实账号做压力发包或额外写入。
 
+
+---
+
+## 实机反馈修复（2026-09-16，部署 `2.0.0-c28ca996b1d3-20260916T233245Z`）
+
+### A. `实例 1728 派生准备失败：one derivation key was reused with different calculation seed`
+
+现场数据（用户客户端缓存，只读分析）：`details/1728.json` 为 `complete:true` 且带 `r=7549` 无 `ri`；
+`inventory.json` 同名实例带 `ri=7549` 无 `r`；两者 `fr`、`_metaRaceId`、`lv` 相同。
+
+根因：`petRaceId()`（`r` 优先，否则 `ri`）视两种写法为同一族值，`calculationOverlayDiffers()` 只比较
+解析后的种族，因此“列表只带 `ri` → 详情带 `r`”不会推进记录键；但 `sameCalculationSeed()` 逐个比较
+原始字段 `id/r/ri`，于是同一个记录键在两次请求里被判为**不同计算种子**，`PetDerivationCache::request()`
+以 `InvalidRequest` 拒绝该实例（界面提示派生准备失败），而此前按旧种子算出的养成事实仍挂在旧键上供
+后续命中——比报错更隐蔽的是一份按旧输入得到的事实。
+
+同一不变式的第二处：`PetRepository::applyDetailCache()` 对已知原文一律沿用旧键，即使重载改变了
+`complete`/`sourceKnown` 或 `calculationOverlayDiffers()` 覆盖的字段，也会把新输入发布到旧版本号下。
+
+修法（提交 `e39dc0e`、`ec1cad3`）：
+1. `sameCalculationSeed()` 只比较计算实际读取的字段（resolved `raceId`、`fr`、`lv`、`_metaRaceId`、
+   `metadataSlotMaxLevel`、`detailAvailable`），不再比较同一身份的别名写法；真正变化的输入（如等级）
+   仍会被拒绝。
+2. `applyDetailCache()` 仅在完整性与来源证据、计算相关字段投影都不变时才沿用旧键。
+
+回归（先失败后通过）：`tests/pet_derivation_cache_smoke.cpp::raceAliasSeedEquivalence()` 构造同一记录
+键的“列表形状（仅 `ri`）”与“详情形状（`r`）”，断言后者必须是 `CacheHit`；修改前
+`validation-logs/fix-seed-alias-prefix.log` FAIL，修改后 `fix-seed-alias-run2.log` 通过。
+全套 `validation-logs/fix-seed-alias-full-ctest.log` 72/72。
+
+### B. `1039_3_0 / 1039_4_0 响应被拒绝或结果类型错误`
+
+现场：只读（未核实来源）会话下刷新兑换次数，商店类命令更新成功，只有两个 `null` 扩展命令
+（`1039_3_0` 回归每日任务等级配置、`1039_4_0` 回归特惠商城）被判失败；账号缓存里这两个活动
+始终没有落库，与“从未被接受”一致；客户端离线数据中也没有这两个命令的真实回包样本
+（`tests/fixtures`、仓库文档、客户端目录均已检索）。
+
+判定路径：`shop_exchange_controller.cpp` 只读分支 `!successfulReply(packet)`，即响应带非空 `$`
+或带 `r` 且不为 1。
+
+本轮改动（提交 `661a00c`）：**不放宽判定**，但把原因显式化——`replyRejectionReason()` 区分
+`$`/`r`/非整数/缺成功标志，`boundedPayload()` 截取 512 字符，两者同时进入 GUI 状态文本与诊断日志
+（`reply rejected command=… reason=… payload=…`）。需要用户再点一次“刷新兑换次数”取回真实回包形状，
+再按证据修解析；在拿到证据前按任务书不得猜测放宽成功判定（否则会把错误响应当成有效观察写库）。
