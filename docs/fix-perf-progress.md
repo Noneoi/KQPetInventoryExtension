@@ -350,34 +350,53 @@ QSaveFile 写入窗口内）；已用“取消发生在保存开始前”的用�
 
 ### A. 取消后再次移动（`pet_move_controller_smoke`）
 
-状态 `Blocked`。本机 3 次运行均为 14 条失败且逐条一致（`t5-move-run1..3.log`），首个失败为
+状态：`Verified`（根因已在生产代码中最小修复，14 条失败全部消失，全套 72 项通过）
+
+修改前基线：3 次运行均为 14 条失败且逐条一致（`t5-move-run1..3.log`），首个失败为
 “full-pack replacement result is incorrect”。
 
-已定位的首个根因（现场输出 `t5-move-trace.log`）：
+根因（现场输出 `t5a-baseline-run1.log`、`t5a-instrumented*.log`）：
 
-```text
-PROMPT 2 rev=18 eligible=2
-STATUS rev=18 detailReq=1 pendingReads=0: 正在保存实例 3 的必要详情；保存成功前不会提交移动请求……
-STATUS rev=18 detailReq=1 pendingReads=1: 正在保存移动意图；确认写入磁盘后才会调用宿主……
-STATUS rev=19 detailReq=1 pendingReads=0: 意图保存期间列表或会话已失效，未提交请求。
-```
+1. 首个失败现场（首次复现）：
+   ```text
+   PROMPT 2 rev=20 eligible=2
+   STATUS rev=20 detailReq=1 pendingReads=0: 正在保存实例 3 的必要详情；保存成功前不会提交移动请求……
+   STATUS rev=20 detailReq=1 pendingReads=1: 正在保存移动意图；确认写入磁盘后才会调用宿主……
+   [REV1487] id=1 knownOrig=0 prevComplete=0 prevPersisted=0 curEmpty=0 eqRoster=1 added= changed= removed=
+   STATUS rev=21 detailReq=1 pendingReads=0: 意图保存期间列表或会话已失效，未提交请求。
+   ```
+   即 `PetRepository::applyDetailCache()`（磁盘详情读取完成路径）对**逐字节等同**的重发
+   无条件 `++inventoryRevision_`，使写意图落盘完成时的 `movePreflightStillValid()` 判定失败。
+2. 用 `movePreflightStillValid()` 现场打印逐条核对剩余 4 条失败（`t5a-instrumented5..7.log`）：
+   全部为 `auth/account/epoch/storage=1`、仅 `rev=captured+1`，触发点仍是该磁盘重载；差异仅
+   限于被名册副本遮蔽的原始字段（`changed=_position`、`removed=inFormation`）。
 
-即：替换选择被列表变化作废后，控制器确实按预期重新执行了前置检查并再次提示（PROMPT 2，符合
-“redo preflight”），但在这之后一次**详情缓存读取的完成**让 `inventoryRevision()` 从 18 变到 19
-（`pet_repository.cpp:1487` 在详情发布路径无条件 `++inventoryRevision_`，605 行则在 facts 变化时
-自增），于是写意图落盘完成时的 `movePreflightStillValid()` 判定失败，移动以 NotSent 结束。
-后续 13 条失败（关系/阵型限制、超时不重发、held-writer 夹具、歧义提交、切号隔离等）都发生在
-这一首次分叉之后，属同一现场的后继失败，尚未逐条独立核实。
+修复（`src/extension/pet_repository.cpp`，`applyDetailCache()`）：发布前记录消费者可读的三项
+事实——名册副本 `rosterBriefBefore`、合并视图 `mergedBefore`（`detailFor()`，即
+`PetMovePolicy::restriction()`/分析种子实际读取的对象）、以及记录的 `complete`/`sourceKnown`
+证据；只有在其中任一项确实变化（或该实例不在名册中）时才 `++inventoryRevision_`。原字段
+级比较（`rawObjectBefore != input.object`）经实测过严：名册拥有的 `_position` 等字段差异对
+`detailFor()` 不可见，故最终条件不含原对象。
 
-未做修改的原因：`movePreflightStillValid()` 使用的宽口径 `inventoryRevision` 同时覆盖了
-会改变“是否允许移动”的阵型/部署变化；把它换成更窄的列表版本会削弱写前置校验，
-而“详情读取只在真正改变已知事实时才自增”需要先证明其与所有移动许可输入的等价性。
-两者都属于状态机安全语义变更，按任务书要求保持 Blocked，不提交未经证明的改动。
+回归测试（先失败后通过）：
+- 新增 `tests/repository_smoke.cpp::diskDetailReloadRegression`：登录 → 首次部分观测被
+  “only-if-missing”落盘 → 第 2 次相同部分观测触发写被取代（Superseded），仓库转而执行
+  “Load that original now”，断言该次磁盘重载既未改变 `backpackPet()` 也未改动事实修订。
+  修改前：`t5a-prefix-final.log` → `revisionAfterLists=5 revisionAfterReload=6`，
+  `FAIL: identical disk detail facts unnecessarily invalidated the fact revision`。
+  修改后：`t5a-fix-repository.log` → `5 → 5`，退出码 0。
+- `pet_move_controller_smoke`：14 → 0 条失败（`t5a-move-after-fix-run1/2.log`），并连跑 3 次
+  与仓库回归同结果（`t5a-move-final-run1..3.log`、`t5a-repository-final-run1..3.log`）。
+- 全套：`t5a-full-ctest.log` → 72/72 通过（这是本工作流首份全绿记录；T0 基线为 5 项失败）。
 
-下一动作：确认“移动许可”依赖的输入集合（成员关系、序列、阵型/部署、账号会话）；据此选择
-(a) 写前置改用成员/序列版本 + 显式阵型复核，或 (b) 详情发布改为仅在事实变化时自增；
-两者都需要对 `eligibleReplacementIds()`/`PetMovePolicy::restriction()` 的输入做等价性验证，
-再逐条复跑 14 项失败。
+等价性论证与残余风险：`inventoryRevision()` 的消费者是移动写前置、分析输入戳
+（`asset_analysis_controller`）、发布器（`inventory_publisher`）与快照存储。前两者读取
+`briefFor()`/`detailFor()` 与记录键（`PetRecordKey`/`detailMemoryRevision`）；磁盘重载对已
+知原记录保留原键，其派生/重算由记录可用性驱动而非事实修订。因此“名册副本 + 合并视图 +
+完整性/来源证据均不变”时不再自增，不会让可见事实或分析输入变新；`complete`/`sourceKnown`
+变化仍必然自增（保持“不把未知当已知”的既有语义，`repository_smoke.cpp:591` 的
+“new detail facts must invalidate”断言仍通过）。残余风险：直接读取原对象（`rawRecordHandle`
+的 `object()`）且只关心被名册遮蔽字段的消费者不会收到事实修订变化，但其可见内容未变。
 
 ---
 

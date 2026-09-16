@@ -1441,6 +1441,15 @@ void PetRepository::applyDetailCache(const QJsonObject& object, const PendingRea
   if (knownOriginal && (!previous.persisted || previous.contentDigest != digest)) {
     finish(false, QStringLiteral("本地文件已变化，不能用不同内容覆盖已知详情版本")); return;
   }
+  // Everything a consumer can read before this reload publishes: the roster
+  // copy, the merged detail view every reader and the move policy use, and the
+  // record's completeness/source evidence. A reload that reproduces all of them
+  // has observed nothing new.
+  const bool rosterPresent = warehouse_.contains(pending.instanceId) ||
+      backpack_.contains(pending.instanceId);
+  const QJsonObject rosterBriefBefore = warehouse_.contains(pending.instanceId)
+      ? warehouse_.value(pending.instanceId) : backpack_.value(pending.instanceId);
+  const QJsonObject mergedBefore = detailFor(pending.instanceId);
   if (schema == 4 && object.value(QStringLiteral("trust")).toString() == QStringLiteral("read-only-observation"))
     detail.insert(QStringLiteral("_unverifiedObservation"), true);
   detail = PetDetailCatalog::instance().enrichMetadata(detail);
@@ -1484,7 +1493,14 @@ void PetRepository::applyDetailCache(const QJsonObject& object, const PendingRea
   savedMemoryRevisions_.insert(id, input.key.detailMemoryRevision); detailSavedTimes_.insert(id, savedAt);
   if (warehouse_.contains(id)) warehouse_.insert(id, brief);
   else if (backpack_.contains(id)) backpack_.insert(id, brief);
-  ++inventoryRevision_;
+  // This reload can land while a move intent is still being journaled (or while
+  // an analysis input is being stamped). Bumping the fact revision for a
+  // publication that changes nothing any consumer can read would abort that
+  // confirmed write as "list or session changed" without any change: keep the
+  // bump for genuinely new facts, drop it for an exact republication.
+  if (!rosterPresent || rosterBriefBefore != brief || mergedBefore != detailFor(id) ||
+      previous.complete != input.complete || previous.sourceKnown != input.sourceKnown)
+    ++inventoryRevision_;
   announceRaw(id);
   if (!cacheReadCurrent(pending)) { finish(false, QStringLiteral("详情发布期间会话已变化"), StorageStatus::Superseded); return; }
   emit detailChanged(id);

@@ -512,6 +512,78 @@ bool asynchronousReadRegression(const QString& root, bool switchAccount) {
   return ok;
 }
 
+// T5-A: a partial list observation must not overwrite the original that an
+// earlier verified session left on disk, so the repository reloads that
+// original (pet_repository.cpp: "Load that original now while keeping the newly
+// observed compact list fields"). The reload republishes exactly the brief, the
+// raw record and the merged view the roster already holds; bumping the fact
+// revision for it invalidates a move preflight whose intent write is still
+// queued, so the confirmed move ends as "list or session changed" although
+// nothing observable changed.
+bool diskDetailReloadRegression(const QString& root) {
+  bool ok = true;
+  const QString dataRoot = QDir(root).filePath(QStringLiteral("disk-detail-reload"));
+  const QString account = QStringLiteral("disk-reload-A");
+  const qint64 instance = 44;
+  const QJsonObject partialPet{{QStringLiteral("id"), instance},
+                               {QStringLiteral("r"), 7152},
+                               {QStringLiteral("lv"), 100}};
+  StorageService storage(dataRoot);
+  PetRepository repository(nullptr, &storage,
+                           QDir(root).filePath(QStringLiteral("no-legacy-source")));
+  login(&repository, account);
+  const auto deliverLists = [&](quint64 generation) {
+    repository.beginListRefresh(generation, repository.accountKey(),
+                                repository.sessionGeneration());
+    deliverVerifiedFixture(&repository,
+                           {{QStringLiteral("_cmd"), QStringLiteral("2_1_10")},
+                            {QStringLiteral("pl"), QJsonArray{partialPet}},
+                            {QStringLiteral("pps"), QJsonArray{QStringLiteral("44")}},
+                            {QStringLiteral("ppc"), 12}});
+    repository.expectListPart(QStringLiteral("2_1_S"), generation,
+                              repository.accountKey(),
+                              repository.sessionGeneration());
+    deliverVerifiedFixture(&repository,
+                           {{QStringLiteral("_cmd"), QStringLiteral("2_1_S")},
+                            {QStringLiteral("es"), QJsonArray{}},
+                            {QStringLiteral("ns"), QJsonArray{}},
+                            {QStringLiteral("rb"), QJsonArray{}}});
+  };
+  // First observation is persisted as the account's only-if-missing original.
+  deliverLists(700);
+  ok &= require(waitForRepositoryIdle(&repository) && repository.hasCachedDetail(instance),
+                "disk detail reload fixture could not persist the first observation");
+  const QJsonObject petBeforeReload = repository.backpackPet(instance);
+  const quint64 revisionBeforeReload = repository.inventoryRevision();
+  // The same partial observation now meets that original, so the write is
+  // superseded and the repository reloads the file instead.
+  deliverLists(701);
+  const quint64 revisionAfterLists = repository.inventoryRevision();
+  ok &= require(repository.backpackIds() == QList<qint64>{instance} &&
+                    !petBeforeReload.isEmpty(),
+                "disk detail reload fixture did not keep the instance in the backpack");
+  ok &= require(waitForRepositoryIdle(&repository),
+                "disk detail reload did not drain real I/O");
+  const QJsonObject petAfterReload = repository.backpackPet(instance);
+  const quint64 revisionAfterReload = repository.inventoryRevision();
+  std::fprintf(stderr,
+               "DISK-RELOAD id=%lld loaded=%d unchanged=%d revisionBeforeReload=%llu "
+               "revisionAfterLists=%llu revisionAfterReload=%llu\n",
+               static_cast<long long>(instance), int(repository.hasCachedDetail(instance)),
+               int(petBeforeReload == petAfterReload),
+               static_cast<unsigned long long>(revisionBeforeReload),
+               static_cast<unsigned long long>(revisionAfterLists),
+               static_cast<unsigned long long>(revisionAfterReload));
+  ok &= require(repository.hasCachedDetail(instance),
+                "the persisted original was not loaded after a partial list observation");
+  ok &= require(petBeforeReload == petAfterReload,
+                "the superseded-write reload changed the details it was supposed to republish");
+  ok &= require(revisionAfterReload == revisionAfterLists,
+                "identical disk detail facts unnecessarily invalidated the fact revision");
+  ok &= require(revisionAfterReload >= revisionBeforeReload, "fact revision moved backwards");
+  return ok;
+}
+
 bool pagedMigrationRegression(const QString& root) {
   bool ok = true;
   const QString dataRoot = QDir(root).filePath(QStringLiteral("migration-target"));
@@ -767,6 +839,7 @@ int main(int argc, char* argv[]) {
   ok &= persistenceAdmissionRegression(temporary.path());
   ok &= asynchronousReadRegression(temporary.path(), false);
   ok &= asynchronousReadRegression(temporary.path(), true);
+  ok &= diskDetailReloadRegression(temporary.path());
   ok &= pagedMigrationRegression(temporary.path());
   if (!ok) return 1;
   std::fprintf(stdout, "PASS: account/instance cache with durable observation trust\n");
