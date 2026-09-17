@@ -2,11 +2,11 @@
 
 氪奇 Pro 的非官方 Windows 扩展，提供精灵列表与详情、培养分析、指定精灵兑换查询、日常活动和账号资产汇总。通过外置启动器与进程内 Qt DLL 工作，原版客户端 EXE 保持原样。
 
-当前仓库为 **2.0.0 源码**。已有开发构建通过 14 项定向回归；真实客户端交互由用户手动验证。二进制的具体版本、源码摘要和测试结果以对应产物的 identity 与报告为准。
+当前仓库为 **2.0.0 源码**。已有开发构建通过完整 Release 回归（72 项）；真实客户端交互由用户手动验证。二进制的具体版本、源码摘要和测试结果以对应产物的 identity 与报告为准。
 
 ## 安装与升级（推荐）
 
-在 [v2.0.0-preview.1 发行页](https://github.com/Noneoi/KQPetInventoryExtension/releases/tag/v2.0.0-preview.1) 下载名称含 **copy-ready** 的复制即用 ZIP。
+在 [v2.0.0-preview.2 发行页](https://github.com/Noneoi/KQPetInventoryExtension/releases/tag/v2.0.0-preview.2) 下载名称含 **copy-ready** 的复制即用 ZIP。
 
 1. 关闭正在运行的氪奇客户端。
 2. 解压下载的压缩包。
