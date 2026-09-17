@@ -58,6 +58,20 @@ QString boundedPayload(const QJsonObject& packet) {
                              : QString::fromUtf8(bytes.left(512)) + QStringLiteral("…");
 }
 
+// A negative result code is a server refusal, not a malformed response: the
+// activity exists but this account may not query it (return-player activities
+// are gated by the official unlock flag). It carries no usable counters, so it
+// is reported as "not applicable" and never stored.
+bool serverRefusal(const QJsonObject& packet, qint64* code) {
+  qint64 result = 0;
+  if (packet.contains(QStringLiteral("$")) && !packet.value(QStringLiteral("$")).isNull()) return false;
+  if (!packet.contains(QStringLiteral("r"))) return false;
+  if (!PacketContracts::checkedInteger(packet.value(QStringLiteral("r")), &result)) return false;
+  if (result >= 0) return false;
+  if (code) *code = result;
+  return true;
+}
+
 bool validShopGroup(const QJsonObject& shop) {
   // Captured siN objects also contain unrelated progress and reward metadata.
   // Validate the consumed per-item counters without interpreting that metadata.
@@ -432,7 +446,16 @@ void ShopExchangeController::continueRequests() {
 }
 
 void ShopExchangeController::startNextActivityRead() {
-  if (!running_ || materialsOnly_ || !pendingCommands_.isEmpty() || activityReads_.isEmpty()) return;
+  if (!running_ || materialsOnly_ || !pendingCommands_.isEmpty()) return;
+  // Activities the server refused for this session are dropped from the queue
+  // instead of being asked again on every refresh: eligibility cannot change
+  // before the next session, and repeating the query only produced a warning.
+  while (!activityReads_.isEmpty() && notApplicableActivities_.contains(activityReads_.first().sourceKey)) {
+    const auto skipped = activityReads_.takeFirst();
+    emit statusChanged(QStringLiteral("%1 当前不适用（服务器已拒绝），本次跳过")
+                           .arg(skipped.sourceName));
+  }
+  if (activityReads_.isEmpty()) return;
   activeActivity_ = activityReads_.takeFirst();
   const auto request = activeActivity_.request;
   const auto command = request.value(QStringLiteral("command")).toString();
@@ -604,11 +627,25 @@ void ShopExchangeController::handleDecodedEnvelope(const InboundEnvelope& envelo
     QJsonObject observation;
     bool updated = false;
     if (!successfulReply(packet)) {
+      qint64 refusalCode = 0;
       const QString reason = replyRejectionReason(packet);
-      DiagnosticLogger::warning(QStringLiteral("response"),
-                                QStringLiteral("read-only reply rejected command=%1 reason=%2 payload=%3")
-                                    .arg(command, reason, boundedPayload(packet)));
-      warnings.append(QStringLiteral("%1响应被拒绝或结果类型错误（%2）").arg(command, reason));
+      if (activityResponse && serverRefusal(packet, &refusalCode)) {
+        // The official unlock flag gates this activity and the account does not
+        // satisfy it, so the server refuses the query. Nothing is stored and the
+        // same session will not ask again; the wording says so instead of
+        // reporting a parse failure on every refresh.
+        notApplicableActivities_.insert(activeActivity_.sourceKey, activeActivity_.sourceName);
+        DiagnosticLogger::info(QStringLiteral("response"),
+                               QStringLiteral("activity not applicable command=%1 code=%2")
+                                   .arg(command).arg(refusalCode));
+        warnings.append(QStringLiteral("%1 当前不适用（服务器返回 %2）")
+                            .arg(activeActivity_.sourceName).arg(refusalCode));
+      } else {
+        DiagnosticLogger::warning(QStringLiteral("response"),
+                                  QStringLiteral("read-only reply rejected command=%1 reason=%2 payloadBytes=%3")
+                                      .arg(command, reason).arg(QJsonDocument(packet).toJson(QJsonDocument::Compact).size()));
+        warnings.append(QStringLiteral("%1响应被拒绝或结果类型错误（%2）").arg(command, reason));
+      }
     }
     else if (activityResponse)
       updated = acceptActivityPacket(packet,&warnings,false);
@@ -635,7 +672,22 @@ void ShopExchangeController::handleDecodedEnvelope(const InboundEnvelope& envelo
   if (activityResponse) {
     QStringList warnings;
     const bool updated = successfulReply(packet) && acceptActivityPacket(packet,&warnings,true);
-    if (!successfulReply(packet)) warnings.append(activeActivity_.sourceName + QStringLiteral("查询被拒绝"));
+    if (!successfulReply(packet)) {
+      qint64 refusalCode = 0;
+      if (serverRefusal(packet, &refusalCode)) {
+        notApplicableActivities_.insert(activeActivity_.sourceKey, activeActivity_.sourceName);
+        DiagnosticLogger::info(QStringLiteral("response"),
+                               QStringLiteral("activity not applicable command=%1 code=%2")
+                                   .arg(command).arg(refusalCode));
+        warnings.append(QStringLiteral("%1 当前不适用（服务器返回 %2）")
+                            .arg(activeActivity_.sourceName).arg(refusalCode));
+      } else {
+        DiagnosticLogger::warning(QStringLiteral("response"),
+                                  QStringLiteral("activity reply rejected command=%1 reason=%2")
+                                      .arg(command, replyRejectionReason(packet)));
+        warnings.append(activeActivity_.sourceName + QStringLiteral("查询被拒绝"));
+      }
+    }
     completeRequest(command,updated,warnings); return;
   }
   if (!materialsOnly_) unverifiedPackets_.remove(command);
@@ -790,6 +842,9 @@ void ShopExchangeController::changeSession(const QString& account, quint64 gener
   account_ = account;
   sessionGeneration_ = generation;
   freshness_.bindSession(account_, sessionGeneration_);
+  // Eligibility for the return-player activities is read per session, so a new
+  // session may query them again.
+  notApplicableActivities_.clear();
   packet_ = {};
   hasPacket_ = false;
   materialCounts_.clear();

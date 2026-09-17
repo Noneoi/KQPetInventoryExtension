@@ -281,6 +281,56 @@ int main(int argc,char** argv) {
       timedStatus.contains(QStringLiteral("超时")) && timedStatus.contains(QStringLiteral("留待下次")),
       "partial activity timeout lost history, a successful sibling or its explicit status");
 
+  // A negative result code is a server refusal: the activity exists but this
+  // account may not read it (the official unlock flag gates return-player
+  // activities). It carries no counters, so the previous observation must
+  // survive, the status must name the code instead of reporting a parse
+  // failure, and that source must not be asked again in the same session.
+  {
+    const int beforeFirst = sent.size();
+    ok &= require(controller.requestInfo() && sent.size() == beforeFirst + 2,
+        "refusal fixture did not start its base requests");
+    baseReplies(controller);
+    ok &= require(until([&] { return sent.size() == beforeFirst + 3; }) &&
+        sent[beforeFirst + 2].command == kShared &&
+        QJsonDocument::fromJson(sent[beforeFirst + 2].parameters.toUtf8()).object()
+                .value(QStringLiteral("i")).toInt() == 10,
+        "refusal fixture did not reach the first activity read");
+    const auto keptBefore = stateData(controller,kA);
+    const int keptUsed = observeActivityShopGood(sourceGood(kA),controller.packet()).used;
+    deliver(controller,{{QStringLiteral("_cmd"),kShared},{QStringLiteral("r"),-2}});    ok &= require(until([&] { return sent.size() == beforeFirst + 4; }) &&
+        sent[beforeFirst + 3].command == kShared &&
+        QJsonDocument::fromJson(sent[beforeFirst + 3].parameters.toUtf8()).object()
+                .value(QStringLiteral("i")).toInt() == 9,
+        "a refused group stopped the remaining independent activity groups");
+    deliver(controller,response(kShared,2));
+    ok &= require(until([&] { return sent.size() == beforeFirst + 5; }) &&
+        sent[beforeFirst + 4].command == kSimple,
+        "a refused group stopped the independent simple activity");
+    deliver(controller,response(kSimple,4));
+    ok &= require(until([&] { return !controller.isRunning(); }) &&
+        status.contains(QStringLiteral("不适用")) && status.contains(QStringLiteral("-2")),
+        "a server refusal was reported as a parse failure");
+    ok &= require(stateData(controller,kA) == keptBefore &&
+        observeActivityShopGood(sourceGood(kA),controller.packet()).used == keptUsed,
+        "a refused activity overwrote its previous observation");
+    const int beforeSecond = sent.size();
+    ok &= require(controller.requestInfo() && sent.size() == beforeSecond + 2,
+        "second refresh did not start after a refusal");
+    baseReplies(controller);
+    ok &= require(until([&] { return sent.size() == beforeSecond + 3; }) &&
+        QJsonDocument::fromJson(sent[beforeSecond + 2].parameters.toUtf8()).object()
+                .value(QStringLiteral("i")).toInt() == 9,
+        "a server-refused activity was queried again in the same session");
+    deliver(controller,response(kShared,5));
+    ok &= require(until([&] { return sent.size() == beforeSecond + 4; }) &&
+        sent[beforeSecond + 3].command == kSimple,"refusal retry flow lost the simple activity");
+    deliver(controller,response(kSimple,6));
+    ok &= require(until([&] { return !controller.isRunning(); }) &&
+        observeActivityShopGood(sourceGood(kA),controller.packet()).used == keptUsed,
+        "the second refresh changed a refused activity's stored observation");
+  }
+
   ok &= require(until([&] { return controller.pendingStorageCount() == 0 && historicalReader.pendingStorageCount() == 0 &&
       timed.pendingStorageCount() == 0; }) && waitForRepositoryIdle(&repository),"fixture storage did not settle");
   catalogs.close();

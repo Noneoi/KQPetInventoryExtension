@@ -103,6 +103,12 @@ private:
   void observeGroup(const QString& group);
   void publishFreshness();
   struct ActivityReadRequest { QString sourceKey, sourceName; QJsonObject request; };
+  // Server-refused activities (negative result code, e.g. a return-player
+  // activity the account does not qualify for). They carry no data, must never
+  // be cached, and the same session cannot change their eligibility, so they are
+  // not re-queried on every refresh and are reported as "not applicable"
+  // instead of a parse failure.
+  QHash<QString, QString> notApplicableActivities_;
   void collectActivityReads();
   void continueRequests();
   void startNextActivityRead();
