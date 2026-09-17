@@ -748,3 +748,23 @@ in-flight join downloads: 2
 修改后通过（`fix-1039-refusal-run6.log`）；全套 `fix-1039-full-ctest.log` 72/72。
 部署：`2.0.0-596c356033f4-20260917T031331Z` 已同时部署到
 `D:\奥奇传说\氪奇Pro-V1.1.4` 与桌面副本（`KQPetReleaseCheck --resolve` ok，原版程序未改动）。
+
+### C. 为什么修复“装上却看不到”（部署路径被启动器回滚）
+
+现象：部署 `2.0.0-596c356033f4-…` 后，用户按平时方式启动，客户端仍报旧文案
+`1039_3_0响应被拒绝或结果类型错误`（无 `（r=-2）`）。
+
+根因：用户平时用的是 `启动精灵工作台.cmd` → `KQPetQuickStart\start.ps1`。该脚本以**随包携带**的
+`KQPetQuickStart\package\package.json` 为准：只要当前 `active.json` 与包内版本不一致，它就调用
+`deploy.ps1` **重新安装包内版本**再启动。两个客户端的包内版本一直是 `2.0.0-27d97c90b307-20260913T111817Z`，
+因此每次启动都会把手工部署的修复版回滚（现场：`active=2.0.0-27d97c90b307…`、
+`previousReleaseId=2.0.0-596c356033f4…`）。
+
+处理：把两个客户端的 `KQPetQuickStart\package` 换成当前修复版包（旧包改名为
+`package-09-13-backup` 保留），随后用**真实启动路径** `start.ps1 -PrepareOnly` 复验：
+两边 `active.json` 均为 `2.0.0-596c356033f4-20260917T031331Z`，
+`KQPetRuntime\releases\<该版本>\KQPetInventory.dll` 与包内副本均为
+`DB1A7337CAEAEA4EAB7CB0D97515D2E03A38DFDA5002405A803DB553BE5FA5CB`。
+
+教训（后续必须遵守）：**任何部署都要同时更新 `KQPetQuickStart\package`**，否则下一次双击启动就会
+回滚；验收也应以 `start.ps1 -PrepareOnly` 后的 `active.json`/DLL 哈希为准，而不是只看 `deploy.ps1` 的输出。
