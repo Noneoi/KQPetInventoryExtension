@@ -29,3 +29,4 @@ __pycache__/
 *.exp
 *.tmp
 /dist2/
+/dist3/
