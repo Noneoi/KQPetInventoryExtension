@@ -78,7 +78,7 @@ int main(int argc,char** argv) {
   ok &= check(light && light->known && light->materials.size() == 2 && essence && essence->known && essence->count == 200 &&
       findMaterial(light,4,2076)->count == 100 && find(value,QStringLiteral("astrolabe_breakthrough")),
       "unlit node essence must aggregate once per node, omit currencies and retain a separate breakthrough task");
-  for (const auto& era : {QStringLiteral("神运"),QStringLiteral("星迹"),QStringLiteral("启元")}) {
+  for (const auto& era : {QStringLiteral("神运"),QStringLiteral("星迹")}) {
     auto eraMetadata = m;
     eraMetadata.insert(QStringLiteral("pets"),QJsonObject{{QStringLiteral("7001"),
         QJsonObject{{QStringLiteral("name"),QStringLiteral("[%1]测试精灵").arg(era)}}}});
@@ -93,6 +93,27 @@ int main(int argc,char** argv) {
     ok &= check(!find(earlier,QStringLiteral("astrolabe_breakthrough")) && !find(earlier,QStringLiteral("astrolabe_select")),
         "a non-Lingchu raw breakthrough flag must not produce a post-breakthrough equipment task");
   }
+  auto qiyuanMetadata = m;
+  qiyuanMetadata.insert(QStringLiteral("pets"),QJsonObject{{QStringLiteral("7001"),
+      QJsonObject{{QStringLiteral("name"),QStringLiteral("[启元]测试精灵")}}}});
+  auto qiyuan = calculatePetCultivationRequirements(p,qiyuanMetadata,state);
+  ok &= check(!find(qiyuan,QStringLiteral("astrolabe_light")) && !find(qiyuan,QStringLiteral("astrolabe_breakthrough")) &&
+      !find(qiyuan,QStringLiteral("sacred")),
+      "QiYuan pets must not receive astrolabe or sacred cultivation tasks");
+  auto shenzhiMetadata = m;
+  shenzhiMetadata.insert(QStringLiteral("pets"),QJsonObject{{QStringLiteral("7001"),
+      QJsonObject{{QStringLiteral("name"),QStringLiteral("[神职]测试精灵")}}}});
+  auto shenzhi = calculatePetCultivationRequirements(p,shenzhiMetadata,state);
+  ok &= check(!find(shenzhi,QStringLiteral("badge_level_1")) && !find(shenzhi,QStringLiteral("sacred")) &&
+      !find(shenzhi,QStringLiteral("astrolabe_light")),
+      "ShenZhi pets must not receive badge, sacred or astrolabe tasks");
+  auto otherMetadata = m;
+  otherMetadata.insert(QStringLiteral("pets"),QJsonObject{{QStringLiteral("7001"),
+      QJsonObject{{QStringLiteral("name"),QStringLiteral("[其他]测试精灵")}}}});
+  auto otherEra = calculatePetCultivationRequirements(p,otherMetadata,state);
+  ok &= check(!find(otherEra,QStringLiteral("badge_level_1")) && !find(otherEra,QStringLiteral("sacred")) &&
+      !find(otherEra,QStringLiteral("astrolabe_light")),
+      "Other-era pets must not receive later-era cultivation tasks");
   auto unknownEraMetadata = m; unknownEraMetadata.remove(QStringLiteral("pets"));
   auto unknownEra = calculatePetCultivationRequirements(p,unknownEraMetadata,state);
   ok &= check(!find(unknownEra,QStringLiteral("astrolabe_breakthrough")) && find(unknownEra,QStringLiteral("astrolabe_light")),

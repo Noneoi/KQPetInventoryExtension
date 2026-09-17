@@ -2,6 +2,7 @@
 #include "pet_detail_analyzer.h"
 
 #include "pet_detail_catalog.h"
+#include "../domain/pet_era.h"
 #include "pet_identity.h"
 #include "inventory_read_view.h"
 
@@ -169,7 +170,14 @@ PetDetailViewModel PetDetailAnalyzer::analyze(const QJsonObject& pet,
       splitSequence(pet.value(QStringLiteral("ip")).toString(), QLatin1Char('#'));
   const QStringList energies =
       splitSequence(pet.value(QStringLiteral("gps")).toString(), QLatin1Char('#'));
-  for (int index = 0; index < talentValues.size() && index < propertyNames.size(); ++index) {
+  const auto systems = systemsForEra(parsePetEraName(result.era));
+  const int talentLanes[8] = {0,1,2,3,4,5,6,7};
+  const int modernLanes[6] = {0,7,8,9,10,11};
+  const int* lanes = systems.sixTalentLanes ? modernLanes : talentLanes;
+  const int laneCount = systems.sixTalentLanes ? 6 : 8;
+  for (int n = 0; n < laneCount; ++n) {
+    const int index = lanes[n];
+    if (index >= talentValues.size() || index >= propertyNames.size()) continue;
     const int value = talentValues.at(index).toInt();
     if (value <= 0) continue;
     const int energy = index < energies.size() ? energies.at(index).toInt() : 0;
@@ -191,7 +199,7 @@ PetDetailViewModel PetDetailAnalyzer::analyze(const QJsonObject& pet,
                                 ? QString::number(fullParts.value(QStringLiteral("iv")).toInt())
                                 : QStringLiteral("—");
 
-  for (const QString& slot : splitSequence(pet.value(QStringLiteral("badge")).toString(),
+  if (systems.badge) for (const QString& slot : splitSequence(pet.value(QStringLiteral("badge")).toString(),
                                            QLatin1Char('|'))) {
     const QStringList parts = splitSequence(slot, QLatin1Char('#'));
     if (parts.isEmpty()) continue;
@@ -210,7 +218,7 @@ PetDetailViewModel PetDetailAnalyzer::analyze(const QJsonObject& pet,
     result.badges.append(badge);
   }
 
-  const QString sacredSequence = pet.value(QStringLiteral("shenjue")).toString();
+  const QString sacredSequence = systems.sacred ? pet.value(QStringLiteral("shenjue")).toString() : QString();
   if (!sacredSequence.isEmpty()) {
     const QStringList parts = sacredSequence.split(QLatin1Char('|'));
     const QStringList define = parts.value(0).split(QLatin1Char('#'));
@@ -228,7 +236,8 @@ PetDetailViewModel PetDetailAnalyzer::analyze(const QJsonObject& pet,
                               result.sacred.stage == result.sacred.maxStage;
   }
 
-  for (const QString& chain : splitSequence(pet.value(QStringLiteral("astrolabe")).toString(),
+  if (systems.astrolabe) {
+    for (const QString& chain : splitSequence(pet.value(QStringLiteral("astrolabe")).toString(),
                                             QLatin1Char('|'))) {
     for (const QString& slot : splitSequence(chain, QLatin1Char('#'))) {
       const QStringList fields = slot.split(QLatin1Char(':'));
@@ -254,10 +263,11 @@ PetDetailViewModel PetDetailAnalyzer::analyze(const QJsonObject& pet,
       if (star.selected) ++result.astrolabe.selectedCount;
       result.astrolabe.stars.append(star);
     }
+    }
+    result.astrolabe.breakthrough = pet.value(QStringLiteral("astrolabebr")).toBool();
   }
-  result.astrolabe.breakthrough = pet.value(QStringLiteral("astrolabebr")).toBool();
 
-  for (const QString& slot : splitSequence(pet.value(QStringLiteral("sgs")).toString(),
+  if (systems.stargod) for (const QString& slot : splitSequence(pet.value(QStringLiteral("sgs")).toString(),
                                            QLatin1Char('#'))) {
     const QStringList fields = slot.split(QLatin1Char(':'));
     const int defineId = fields.value(0).toInt();
@@ -281,7 +291,7 @@ PetDetailViewModel PetDetailAnalyzer::analyze(const QJsonObject& pet,
     result.stargods.append(entry);
   }
 
-  for (const QJsonValue& value : pet.value(QStringLiteral("sgsp")).toArray()) {
+  if (systems.stargod) for (const QJsonValue& value : pet.value(QStringLiteral("sgsp")).toArray()) {
     const int defineId = stargodId(value);
     if (defineId <= 0) continue;
     const QJsonObject item = catalog.stargod(defineId);

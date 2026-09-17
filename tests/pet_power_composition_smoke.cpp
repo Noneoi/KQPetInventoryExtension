@@ -44,7 +44,7 @@ int main(int argc,char** argv) {
       v.stargodAcquisitionKnown && v.stargodAcquisitionGap==0 && v.missingRedStars==0 &&
       v.changeableOwnedRed && !v.changeableRed && !v.isHighest && v.stargodLevelMissingSlots==2,
       "slot upgrades, missing purchases and unused owned red changeable must be distinct");
-  ok &= require(v.components.size()==11 && v.stargodDetails.size()==3 && v.stargodDetails[0].slot==1 &&
+  ok &= require(v.components.size()==6 && v.stargodDetails.size()==3 && v.stargodDetails[0].slot==1 &&
       v.stargodDetails[1].slot==2 && v.stargodDetails[2].changeable,"detail rows must preserve actual slot positions");
   p.insert("sgs","11:8#20:8#80:8:80"); v=calculatePetBattlePower(p,m);
   ok &= require(v.current==3600 && v.isHighest && v.adjustmentGain>0 && v.redStargodFull,
@@ -90,11 +90,21 @@ int main(int argc,char** argv) {
     const auto eraMetadata=petPowerMetadataFromCatalog(p,8,m.stargods,metadata().astrolabe,
         {{"456",QJsonObject{{"era",era},{"jobs","7"},{"stargodSlotMaxLevel",8}}}});
     const bool lingchu=era==QStringLiteral("灵初");
+    const bool hasAstrolabe=era==QStringLiteral("灵初")||era==QStringLiteral("神运")||era==QStringLiteral("星迹");
     v=calculatePetBattlePower(p,eraMetadata);
+    const int expectedHighest = lingchu ? 3600 : hasAstrolabe ? 3450 : 3150;
+    QStringList keys; for (const auto& row : v.components) keys.append(row.key);
+    QStringList expectedKeys;
+    for (const auto& key : {QStringLiteral("lv"),QStringLiteral("iv"),QStringLiteral("pl"),QStringLiteral("sgv"),
+                            QStringLiteral("ep"),QStringLiteral("gsv"),QStringLiteral("lav"),QStringLiteral("lsv"),
+                            QStringLiteral("bsv"),QStringLiteral("asv"),QStringLiteral("sjv")})
+      if (eraHasComponent(parsePetEraName(era), key)) expectedKeys.append(key);
     ok &= require(v.breakthroughApplicabilityKnown && v.breakthroughApplicable==lingchu &&
+        v.astrolabeApplicable==hasAstrolabe &&
         v.astrolabeBonus==(lingchu?150:0) && v.astrolabeTargetBonus==(lingchu?150:0) &&
-        v.hasHighest && v.highest==(lingchu?3600:3450) && v.current==v.highest && v.isHighest,
-        "non-Lingchu era gained breakthrough power or authoritative era lost to stale cached Lingchu metadata");
+        v.hasHighest && v.highest==expectedHighest && v.current==v.highest && v.isHighest &&
+        keys==expectedKeys,
+        "era-gated astrolabe leaked into a generation that does not have the system");
     p.remove("astrolabebr"); v=calculatePetBattlePower(p,eraMetadata);
     ok &= require(lingchu ? !v.completionKnown : v.completionKnown && v.hasHighest && v.isHighest && !v.breakthroughKnown,
         "non-Lingchu cultivation required an inapplicable breakthrough response field");
@@ -106,8 +116,8 @@ int main(int argc,char** argv) {
   auto unknownEra=petPowerMetadataFromCatalog(p,8,metadata().stargods,metadata().astrolabe,
       {{"456",QJsonObject{{"era",QStringLiteral("未知时代")},{"stargodSlotMaxLevel",8}}}});
   v=calculatePetBattlePower(p,unknownEra);
-  ok &= require(!v.breakthroughApplicabilityKnown && !v.breakthroughApplicable && !v.hasHighest && !v.isHighest &&
-      v.astrolabeBonus==0 && v.astrolabeTargetBonus==0,"unknown authoritative era inherited Lingchu breakthrough from a cached or live name");
+  ok &= require(!v.breakthroughApplicable && v.astrolabeBonus==0 && v.astrolabeTargetBonus==0,
+      "unknown authoritative era inherited Lingchu astrolabe");
   ok &= require(resolvePetEra({{"r",456},{"_metaEra",QStringLiteral("灵初")}},
       {{"456",QJsonObject{{"name",QStringLiteral("皮肤名称")},{"sign",QStringLiteral("启元,星迹,神运")}}}})==PetEra::ShenYun &&
       resolvePetEra({{"r",456},{"n",QStringLiteral("[灵初]皮肤")}},{{"456",QJsonObject{{"sign",QString()}}}})==PetEra::Other &&
@@ -117,6 +127,43 @@ int main(int argc,char** argv) {
       resolvePetEra({{"r",456},{"n",QStringLiteral("名字里有灵初")}})==PetEra::Unknown &&
       resolvePetEra({{"r",456},{"_metaRaceId",999},{"_metaEra",QStringLiteral("灵初")}})==PetEra::Unknown,
       "malformed name prefixes, substrings or another race's cached era granted breakthrough");
+  ok &= require(resolvePetEra({{"r",1}},{{"1",QJsonObject{{"sign",QStringLiteral("神职,超神,神属,传说")}}}})==PetEra::ChuanShuo &&
+      resolvePetEra({{"r",1}},{{"1",QJsonObject{{"sign",QStringLiteral("神属")}}}})==PetEra::ShenShu &&
+      resolvePetEra({{"r",1}},{{"1",QJsonObject{{"sign",QStringLiteral("神职,超神,神属")}}}})==PetEra::ShenZhi &&
+      petEraDisplayName(PetEra::ChuanShuo)==QStringLiteral("传说"),
+      "cumulative sign must take the latest chronological era, not string order");
+  p=pet(); p.insert("ip","100#0#0#0#0#0#0#120#100#120#100#100"); p.insert("gps","2#1#1#1#1#1#1#3#2#3#2#2");
+  p.insert("lv",120);
+  auto gifted=p.value("czdlv").toObject(); gifted.insert("iv",972); p.insert("czdlv",gifted);
+  auto giftedMeta=petPowerMetadataFromCatalog(p,8,m.stargods,m.astrolabe,
+      {{"456",QJsonObject{{"jobs","22"},{"sign",QStringLiteral("神职")},{"maxLevel",120},{"stargodSlotMaxLevel",8}}}});
+  v=calculatePetBattlePower(p,giftedMeta);
+  {
+    QStringList keys; bool ivChecked=false, plNamed=false, hasGsv=false, hasAsv=false;
+    for (const auto& row : v.components) {
+      keys.append(row.key);
+      if (row.key==QStringLiteral("iv")) {
+        ivChecked = row.explanation.contains(QStringLiteral("本地复算 972")) &&
+            row.explanation.contains(QStringLiteral("与回包一致"));
+      }
+      if (row.key==QStringLiteral("pl")) plNamed = row.label==QStringLiteral("潜能");
+      if (row.key==QStringLiteral("gsv")) hasGsv = true;
+      if (row.key==QStringLiteral("asv")) hasAsv = true;
+    }
+    ok &= require(ivChecked && plNamed && !hasGsv && !hasAsv &&
+            keys==QStringList({QStringLiteral("lv"),QStringLiteral("iv"),QStringLiteral("pl"),
+                               QStringLiteral("sgv"),QStringLiteral("ep")}),
+        "official gift formula must verify czdlv.iv and hide systems the era does not have");
+  }
+  p.insert("cps","12:6");
+  auto plMeta=giftedMeta; plMeta.maxLevel=120;
+  v=calculatePetBattlePower(p,plMeta);
+  {
+    bool plChecked=false;
+    for (const auto& row : v.components) if (row.key==QStringLiteral("pl"))
+      plChecked = row.explanation.contains(QStringLiteral("本地复算 240"));
+    ok &= require(plChecked, "proficient formula trunc(level/maxLevel*40*pLevel) must reconstruct 240");
+  }
   if (argc>1) {
     QFile f(QString::fromLocal8Bit(argv[1]));
     if (f.open(QIODevice::ReadOnly)) {

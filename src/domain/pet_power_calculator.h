@@ -13,6 +13,9 @@ struct PetPowerMetadata {
   QJsonArray jobs;
   PetEra era = PetEra::Unknown;
   bool eraResolved = false;
+  int maxLevel = 0;
+  bool godJob = false;
+  bool legend = false;
   QJsonObject stargod(int id) const { return stargods.value(QString::number(id)).toObject(); }
 };
 PetBattlePowerState calculatePetBattlePower(const QJsonObject& pet, const PetPowerMetadata& metadata);

@@ -161,14 +161,8 @@ QString PetMetadataView::resolvedJobs(const QJsonObject& petObject) const {
 }
 
 QString PetMetadataView::resolvedEra(const QJsonObject& petObject) const {
-  switch (resolvePetEra(petObject,petDefinitions())) {
-    case PetEra::LingChu: return QStringLiteral("灵初");
-    case PetEra::ShenYun: return QStringLiteral("神运");
-    case PetEra::XingJi: return QStringLiteral("星迹");
-    case PetEra::QiYuan: return QStringLiteral("启元");
-    case PetEra::Other: return QStringLiteral("其它");
-    case PetEra::Unknown: break;
-  }
+  const QString resolved = petEraDisplayName(resolvePetEra(petObject,petDefinitions()));
+  if (!resolved.isEmpty()) return resolved;
   const QString snapshot = petObject.value(QStringLiteral("_metaEra")).toString().trimmed();
   if (!snapshot.isEmpty()) return snapshot;
   const QStringList names = {resolvedOriginalName(petObject),
@@ -319,6 +313,30 @@ QJsonObject PetMetadataView::badge(int defineId) const {
 
 QString PetMetadataView::sacredEquipmentName(int defineId) const {
   return mappedName("sacredEquipment", defineId, QStringLiteral("神源兽"));
+}
+
+QString PetMetadataView::sourceBeastName(int defineId) const {
+  return mappedName("sourceBeasts", defineId, QStringLiteral("源兽"));
+}
+
+QJsonObject PetMetadataView::sourceBeast(int defineId) const {
+  return item("sourceBeasts", defineId);
+}
+
+QString PetMetadataView::legendStoneName(int defineId) const {
+  return mappedName("legendStones", defineId, QStringLiteral("传说石"));
+}
+
+QJsonObject PetMetadataView::legendStone(int defineId) const {
+  return item("legendStones", defineId);
+}
+
+QString PetMetadataView::proficientName(int defineId) const {
+  return mappedName("proficiencies", defineId, QStringLiteral("潜能"));
+}
+
+QJsonObject PetMetadataView::proficient(int defineId) const {
+  return item("proficiencies", defineId);
 }
 
 QString PetMetadataView::astrolabeName(int defineId) const {

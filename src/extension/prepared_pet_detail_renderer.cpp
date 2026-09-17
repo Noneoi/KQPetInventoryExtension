@@ -1,5 +1,6 @@
 #include "prepared_pet_detail_renderer.h"
 #include "stargod_ring_object.h"
+#include <QSet>
 
 namespace {
 QString escaped(const QString& text) { return text.toHtmlEscaped(); }
@@ -154,9 +155,14 @@ QString PreparedPetDetailRenderer::render(const PreparedPetDetailHandle& detail,
   if (fetching) header += QStringLiteral("<p class='muted'>正在获取最新详情……</p>");
   if (!detail->sourceVerified) header += QStringLiteral("<p class='muted'>当前内容为缓存或只读观察，来源尚未核实。</p>");
   if (detail->visualMismatch) header += QStringLiteral("<p class='muted'>形态已变化，培养信息待最新详情确认。</p>");
-  QString navigation;
-  for (int section = 0; section <= int(DetailSection::CarryRelations); ++section)
-    navigation += link(DetailSection(section), 0, sectionName(DetailSection(section))) + QStringLiteral("　");
+  QString navigation = link(DetailSection::Overview, 0, sectionName(DetailSection::Overview)) + QStringLiteral("　");
+  QSet<int> seen;
+  for (const auto& page : detail->pages) {
+    if (seen.contains(int(page.section))) continue;
+    seen.insert(int(page.section));
+    if (!page.problem.startsWith(QStringLiteral("该时代没有")))
+      navigation += link(page.section, 0, sectionName(page.section)) + QStringLiteral("　");
+  }
   QString body = header + QStringLiteral("<p>%1</p><h3>战斗力</h3><table width='100%'>").arg(navigation);
   const auto& power = detail->battlePower;
   body += row(QStringLiteral("官方当前 / 官方极限"), number(power.hasServerCurrent, power.serverCurrent) + " / " + number(power.hasExtreme, power.extreme));
@@ -164,16 +170,17 @@ QString PreparedPetDetailRenderer::render(const PreparedPetDetailHandle& detail,
   const bool known = detail->detailKnown && power.completionKnown && detail->cultivationRequirements.completeKnown;
   body += row(QStringLiteral("培养状态"), known ? (power.isHighest && detail->cultivationRequirements.complete ? QStringLiteral("已达至高（升无可升）") : QStringLiteral("尚有培养空间，见精灵分析")) : QStringLiteral("部分分析数据待补齐"));
   body += QStringLiteral("</table>");
-  if (!power.componentGaps.isEmpty()) {
-    body += QStringLiteral("<p>");
-    for (const auto& gap : power.componentGaps) body += escaped(gap.label) + QStringLiteral(" +%1　").arg(gap.gap);
-    body += QStringLiteral("</p>");
+  if (!detail->talent.isEmpty()) {
+    body += QStringLiteral("<h3>天赋</h3>");
+    for (const auto& value : detail->talent) body += QStringLiteral("<p>%1：%2</p>").arg(escaped(value.label),escaped(value.text));
   }
-  body += QStringLiteral("<h3>天赋</h3>");
-  for (const auto& value : detail->talent) body += QStringLiteral("<p>%1：%2</p>").arg(escaped(value.label),escaped(value.text));
-  body += QStringLiteral("<h3>神源兽</h3>") + fields(detail->sacred);
+  if (!detail->proficient.isEmpty()) body += QStringLiteral("<h3>潜能</h3>") + fields(detail->proficient);
+  if (!detail->equipment.isEmpty()) body += QStringLiteral("<h3>源兽装备</h3>") + fields(detail->equipment);
+  if (!detail->legendStone.isEmpty()) body += QStringLiteral("<h3>传说石</h3>") + fields(detail->legendStone);
+  if (!detail->sacred.isEmpty()) body += QStringLiteral("<h3>神源兽</h3>") + fields(detail->sacred);
   bool starHeading = false;
   for (const auto& page : detail->pages) {
+    if (page.problem.startsWith(QStringLiteral("该时代没有"))) continue;
     const bool stars = page.section == DetailSection::EquippedStargods || page.section == DetailSection::StargodBackpack;
     if (stars && !starHeading) { body += QStringLiteral("<h3>星神</h3>"); starHeading = true; }
     body += stars ? QStringLiteral("<p><b>%1</b></p>").arg(page.section == DetailSection::EquippedStargods ? QStringLiteral("已装备星神") : QStringLiteral("对应背包的星神")) : QStringLiteral("<h3>%1</h3>").arg(sectionName(page.section));

@@ -90,12 +90,12 @@ QString componentTable(const QList<PetBattlePowerComponent>& components) {
   QString html = QStringLiteral("<table width='100%' cellspacing='0'><tr><th width='25%'>构成</th>"
       "<th>本地当前</th><th>官方极限<br>分项</th><th>至高<br>分项</th><th>尚缺<br>战斗力</th></tr>");
   for (const auto& component : components) {
-    const QString unavailable = QStringLiteral("不适用");
+    if (!component.applicable) continue;
     html += QStringLiteral("<tr><td><b>%1</b></td><td>%2</td><td>%3</td><td>%4</td><td>%5</td></tr>")
-        .arg(escaped(component.label), component.applicable ? number(component.currentKnown, component.current) : unavailable,
-             component.applicable ? number(component.extremeKnown, component.extreme) : unavailable,
-             component.applicable ? number(component.highestKnown, component.highest) : unavailable,
-             component.applicable ? gain(component.gapKnown, component.gap) : unavailable);
+        .arg(escaped(component.label), number(component.currentKnown, component.current),
+             number(component.extremeKnown, component.extreme),
+             number(component.highestKnown, component.highest),
+             gain(component.gapKnown, component.gap));
   }
   return html + QStringLiteral("</table>");
 }

@@ -1,5 +1,5 @@
 #include "pet_detail_renderer.h"
-
+#include "../domain/pet_era.h"
 
 #include <QHash>
 #include <QJsonArray>
@@ -29,11 +29,10 @@ QString battlePowerAnalysisHtml(const PetDetailViewModel& model) {
       ? (state.isHighest && sacredFull ? QStringLiteral("已具备至高培养条件") : QStringLiteral("仍有可提升项目"))
       : QStringLiteral("数据未齐，暂不能判定升无可升"));
   for (const auto& component : state.components) {
-    QString text = component.applicable
-        ? QStringLiteral("当前 %1 / 官方极限分项 %2 / 至高分项 %3 / 尚缺 %4")
+    if (!component.applicable) continue;
+    QString text = QStringLiteral("当前 %1 / 官方极限分项 %2 / 至高分项 %3 / 尚缺 %4")
               .arg(powerNumber(component.currentKnown, component.current), powerNumber(component.extremeKnown, component.extreme),
-                   powerNumber(component.highestKnown, component.highest), powerNumber(component.gapKnown, component.gap))
-        : QStringLiteral("不适用");
+                   powerNumber(component.highestKnown, component.highest), powerNumber(component.gapKnown, component.gap));
     if (!component.explanation.isEmpty()) text += QStringLiteral("<br><span class='muted'>%1</span>").arg(PetDetailRenderer::text(component.explanation));
     rows += PetDetailRenderer::row(component.label, text);
   }
@@ -308,12 +307,14 @@ QString PetDetailRenderer::render(const PetDetailViewModel& model,
           .arg(model.raceId)
           .arg(model.level)
           .arg(warning);
-  const QString body = identitySection(identityRows, imageHtml, options.compactIdentity) + talentHtml(model.talent) +
-                       relationshipHtml(model.relationships) + badgeHtml(model.badges) +
-                       sacredHtml(model.sacred) + astrolabeHtml(model.astrolabe, model.battlePower) +
-                       stargodHtml(model.stargods, model.stargodBackpack,
-                                   model.battlePower) +
-                       battlePowerAnalysisHtml(model);
+  const auto systems = systemsForEra(parsePetEraName(model.era));
+  QString body = identitySection(identityRows, imageHtml, options.compactIdentity) + talentHtml(model.talent) +
+                       relationshipHtml(model.relationships);
+  if (systems.badge) body += badgeHtml(model.badges);
+  if (systems.sacred) body += sacredHtml(model.sacred);
+  if (systems.astrolabe) body += astrolabeHtml(model.astrolabe, model.battlePower);
+  if (systems.stargod) body += stargodHtml(model.stargods, model.stargodBackpack, model.battlePower);
+  body += battlePowerAnalysisHtml(model);
   return document(header, body);
 }
 

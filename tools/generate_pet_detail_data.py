@@ -130,6 +130,8 @@ def parse_pets(root: Path) -> dict[str, dict]:
                 "groupRaceId": parse_int(args[42]),
                 "sign": sign,
                 "astrolabeBreakCosts": breakthrough_costs,
+                # PetDictionaryDataItem.create(param31) → maxLevel.
+                "maxLevel": parse_int(args[30], 0),
                 # PetDictionaryDataItem.create(param64).  The official getter
                 # falls back to level 6 when this value is not positive.
                 "stargodSlotMaxLevel": max(6, parse_int(args[63], 6)),
@@ -383,6 +385,70 @@ def parse_money(root: Path) -> dict[str, dict]:
     return parse_named_constructors(root, "MoneyData*.as", "Money")
 
 
+def parse_source_beasts(root: Path) -> dict[str, dict]:
+    path = find_one(root, "E4PV2_EInfos.as")
+    result: dict[str, dict] = {}
+    for args in iter_call_args(path.read_text(encoding="utf-8-sig"), "new E4PV2_EInfo("):
+        if len(args) < 2:
+            raise ValueError("official source-beast constructor changed")
+        identifier = str(strict_int(args[0], "source beast id", 1))
+        name = json.loads(args[1]) if args[1].startswith('"') else ""
+        if not isinstance(name, str) or not name or identifier in result:
+            raise ValueError("official source-beast name table is invalid")
+        item: dict = {"name": name}
+        if len(args) > 3 and args[3].startswith('"'):
+            attr = json.loads(args[3])
+            if isinstance(attr, str) and attr:
+                item["attr"] = attr
+        result[identifier] = item
+    if len(result) < 20:
+        raise ValueError("official source-beast table is missing")
+    return result
+
+
+def parse_legend_stones(root: Path) -> dict[str, dict]:
+    path = find_one(root, "LgsConfig.as")
+    source = path.read_text(encoding="utf-8-sig")
+    result: dict[str, dict] = {}
+    for match in re.finditer(
+        r'\{\s*"id"\s*:\s*(\d+)\s*,\s*"name"\s*:\s*"([^"]+)"(?P<body>.*?)(?=\n\s*\},\{\s*"id"|\n\s*\}\];)',
+        source,
+        re.S,
+    ):
+        identifier = match.group(1)
+        item: dict = {"name": match.group(2)}
+        levels: dict[str, dict] = {}
+        for level, desc in re.findall(r'"level"\s*:\s*(\d+)\s*,\s*"desc"\s*:\s*"([^"]*)"', match.group("body")):
+            levels[level] = {"desc": desc}
+        if levels:
+            item["levels"] = levels
+        result[identifier] = item
+    if len(result) < 18:
+        raise ValueError("official legend-stone table is missing")
+    return result
+
+
+def parse_proficiencies(root: Path) -> dict[str, dict]:
+    matches = sorted(root.rglob("*xmlProficientInfoClass.bin"))
+    if not matches:
+        raise FileNotFoundError("cannot find proficient XML below unpack root")
+    xml = matches[-1].read_text(encoding="utf-8", errors="replace")
+    result: dict[str, dict] = {}
+    for raw in re.finditer(r"<proinfo\b([^>]*)>", xml):
+        attrs = dict(re.findall(r'(\w+)="([^"]*)"', raw.group(1)))
+        identifier = attrs.get("id", "")
+        name = attrs.get("name", "")
+        if not identifier.isdigit() or not name or identifier in result:
+            raise ValueError("official proficient table is invalid")
+        item: dict = {"name": name}
+        if attrs.get("desc"):
+            item["desc"] = attrs["desc"]
+        result[identifier] = item
+    if len(result) < 20:
+        raise ValueError("official proficient table is missing")
+    return result
+
+
 def parse_sacred_sources(source_path: Path) -> dict[str, str]:
     result = {}
     for args in iter_call_args(source_path.read_text(encoding="utf-8-sig"), "new Equipment4PetItem("):
@@ -513,6 +579,9 @@ def main() -> None:
         "stargods": stargods,
         "items": parse_items(root),
         "money": parse_money(root),
+        "sourceBeasts": parse_source_beasts(root),
+        "legendStones": parse_legend_stones(root),
+        "proficiencies": parse_proficiencies(root),
     }
     args.output.parent.mkdir(parents=True, exist_ok=True)
     args.output.write_text(
@@ -523,7 +592,9 @@ def main() -> None:
         f"generated {args.output}: pets={len(catalog['pets'])}, "
         f"badges={len(catalog['badges'])}, sacred={len(catalog['sacredEquipment'])}, "
         f"astrolabe={len(catalog['astrolabe'])}, stargods={len(catalog['stargods'])}, "
-        f"items={len(catalog['items'])}, money={len(catalog['money'])}"
+        f"items={len(catalog['items'])}, money={len(catalog['money'])}, "
+        f"sourceBeasts={len(catalog['sourceBeasts'])}, legendStones={len(catalog['legendStones'])}, "
+        f"proficiencies={len(catalog['proficiencies'])}"
     )
 
 

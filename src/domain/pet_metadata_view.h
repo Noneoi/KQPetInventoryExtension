@@ -17,6 +17,12 @@ public:
   QString badgeName(int defineId) const;
   QJsonObject badge(int defineId) const;
   QString sacredEquipmentName(int defineId) const;
+  QString sourceBeastName(int defineId) const;
+  QJsonObject sourceBeast(int defineId) const;
+  QString legendStoneName(int defineId) const;
+  QJsonObject legendStone(int defineId) const;
+  QString proficientName(int defineId) const;
+  QJsonObject proficient(int defineId) const;
   QString astrolabeName(int defineId) const;
   QJsonObject astrolabe(int defineId) const;
   QJsonObject stargod(int defineId) const;

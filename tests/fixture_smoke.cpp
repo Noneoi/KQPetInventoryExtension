@@ -224,7 +224,8 @@ int main(int argc, char* argv[]) {
       PetDetailAnalyzer::analyze(cultivatedPet, &repository);
   ok &= require(cultivated.talent.levelName == QStringLiteral("超凡入圣") &&
                     cultivated.talent.normalLines.size() == 1 &&
-                    cultivated.talent.doubleEnergyLines.size() == 1 &&
+                    cultivated.talent.doubleEnergyLines.isEmpty() &&
+                    cultivated.talent.normalLines.constFirst().contains(QStringLiteral("生命 100")) &&
                     cultivated.sacred.equipped && cultivated.sacred.star == 9 &&
                     cultivated.sacred.stage == 6,
                 "talent or sacred-beast analysis did not produce semantic state");

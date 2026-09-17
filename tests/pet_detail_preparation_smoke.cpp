@@ -13,7 +13,11 @@ FrozenDetailInputs fixture(QJsonObject extra = {}, QString era = QStringLiteral(
   metadata->root = {{QStringLiteral("pets"),QJsonObject{{QStringLiteral("7001"),QJsonObject{{QStringLiteral("name"),QStringLiteral("[%1]测试精灵").arg(era)}}}}},
       {QStringLiteral("sacredStarPlans"),QJsonObject{{QStringLiteral("2"),QJsonObject{{QStringLiteral("maxLevel"),10}}}}},
       {QStringLiteral("sacredStagePlans"),QJsonObject{{QStringLiteral("6"),QJsonObject{{QStringLiteral("maxLevel"),7}}}}},
-      {QStringLiteral("stargods"),QJsonObject{{QStringLiteral("80"),QJsonObject{{QStringLiteral("name"),QStringLiteral("红色星神")},{QStringLiteral("quality"),6},{QStringLiteral("changeable"),false}}}}}};
+      {QStringLiteral("stargods"),QJsonObject{{QStringLiteral("80"),QJsonObject{{QStringLiteral("name"),QStringLiteral("红色星神")},{QStringLiteral("quality"),6},{QStringLiteral("changeable"),false}}}}},
+      {QStringLiteral("sourceBeasts"),QJsonObject{{QStringLiteral("5"),QJsonObject{{QStringLiteral("name"),QStringLiteral("命元树")},{QStringLiteral("attr"),QStringLiteral("生命")}}}}},
+      {QStringLiteral("legendStones"),QJsonObject{{QStringLiteral("15"),QJsonObject{{QStringLiteral("name"),QStringLiteral("破击传说石")},
+          {QStringLiteral("levels"),QJsonObject{{QStringLiteral("2"),QJsonObject{{QStringLiteral("desc"),QStringLiteral("破击+1%")}}}}}}}}},
+      {QStringLiteral("proficiencies"),QJsonObject{{QStringLiteral("9"),QJsonObject{{QStringLiteral("name"),QStringLiteral("涅槃重生")},{QStringLiteral("desc"),QStringLiteral("升级效果：每提升一级，重生概率增加1%或2%")}}}}}};
   QJsonArray stars; for (int i = 0; i < 140; ++i) stars.append(80); stars[70] = QJsonObject{{QStringLiteral("unsupported"),80}};
   QJsonObject object{{QStringLiteral("id"),QStringLiteral("101")},{QStringLiteral("r"),7001},{QStringLiteral("n"),QStringLiteral("选中精灵")},
       {QStringLiteral("lv"),100},{QStringLiteral("zdl"),7},{QStringLiteral("gt"),6},{QStringLiteral("ip"),QStringLiteral("100##300")},
@@ -44,6 +48,10 @@ std::unique_ptr<PreparedPetDetail> finish(PetDetailPreparation& task, int* maxim
   return {};
 }
 QString joined(const QVector<DetailField>& fields) { QString text; for (const auto& f : fields) text += f.label + QLatin1Char('=') + f.text + QLatin1Char(';'); return text; }
+bool hasSection(const PreparedPetDetail& detail, DetailSection section) {
+  for (const auto& page : detail.pages) if (page.section == section) return true;
+  return false;
+}
 }
 int main(int argc, char** argv) {
   QCoreApplication app(argc,argv); bool ok = true;
@@ -51,16 +59,18 @@ int main(int argc, char** argv) {
   ok &= check(model && model->pages.size() == 6 && model->battlePower.current == 424242 && model->sourceVerified,"overview did not reuse the supplied facts or lost sections");
   if (model) {
     const auto talent = joined(model->talent), sacred = joined(model->sacred);
-    ok &= check(talent.contains(QStringLiteral("单星能=生命 100")) && !talent.contains(QStringLiteral("物防=300")) && !talent.contains(QStringLiteral("物攻=")) &&
+    ok &= check(talent.contains(QStringLiteral("单星能=生命 100")) && !talent.contains(QStringLiteral("物防 300")) && !talent.contains(QStringLiteral("物攻=")) &&
         talent.contains(QStringLiteral("速度 待确认")) && talent.contains(QStringLiteral("天赋战斗力/满天赋战斗力=")),"compact talent shifted original property positions or exposed hidden legacy properties");
     ok &= check(sacred.contains(QStringLiteral("0/10 星（未满星）")) && sacred.contains(QStringLiteral("0/7 阶（未满阶）")),"zero sacred levels became maximum levels");
+    ok &= check(model->proficient.isEmpty() && model->equipment.isEmpty() && model->legendStone.isEmpty(),
+        "Lingchu overview showed replaced proficient, source-beast or legend-stone systems");
     ok &= check(model->pages[1].entries[0].name == QStringLiteral("星轮状态") && model->pages[1].entries[0].fields[0].state == DetailKnowledge::Unknown &&
         model->pages[1].entries[1].selected && !model->pages[1].entries[1].activated && model->pages[1].entries[2].activated &&
         model->pages[1].entries[0].fields[1].text == QStringLiteral("1"),"astrolabe selected/activated or independent breakthrough known state was lost");
     ok &= check(model->pages[2].entries.size() == 3 && model->pages[2].entries[0].changeable,"special changeable/empty equipped slots were discarded");
     ok &= check(model->pages[3].totalItems == 140 && model->pages[3].entries.size() == 64 && model->pages[3].hasNext(),"backpack overview is not naturally paged");
   }
-  for (const auto& era : {QStringLiteral("神运"),QStringLiteral("星迹"),QStringLiteral("启元")}) {
+  for (const auto& era : {QStringLiteral("神运"),QStringLiteral("星迹")}) {
     PetDetailPreparation earlier(fixture({{QStringLiteral("astrolabebr"),true},
         {QStringLiteral("astrolabe"),QStringLiteral("350:1:1#351:1:0")},
         {QStringLiteral("n"),QStringLiteral("[灵初]误导的皮肤名字")}},era),DetailSection::Astrolabe);
@@ -72,6 +82,46 @@ int main(int argc, char** argv) {
         joined(earlierDetail->pages[0].entries[0].fields).contains(QStringLiteral("选中数量=1")),
         "non-Lingchu details exposed breakthrough or lost node counters after omitting its status field");
   }
+  PetDetailPreparation qiyuanAstrolabe(fixture({}, QStringLiteral("启元")), DetailSection::Astrolabe);
+  const auto qiyuanDetail = finish(qiyuanAstrolabe);
+  ok &= check(qiyuanDetail && qiyuanDetail->pages.isEmpty() && qiyuanDetail->sacred.isEmpty() &&
+      !qiyuanDetail->talent.isEmpty(),
+      "QiYuan details still prepared an astrolabe page");
+  PetDetailPreparation qiyuanOverview(fixture({}, QStringLiteral("启元")));
+  const auto qiyuanPages = finish(qiyuanOverview);
+  ok &= check(qiyuanPages && qiyuanPages->sacred.isEmpty() && qiyuanPages->proficient.isEmpty() &&
+      !qiyuanPages->equipment.isEmpty() && !qiyuanPages->legendStone.isEmpty() &&
+      hasSection(*qiyuanPages, DetailSection::Badges) &&
+      hasSection(*qiyuanPages, DetailSection::EquippedStargods) &&
+      !hasSection(*qiyuanPages, DetailSection::Astrolabe),
+      "QiYuan overview hid source-beast/legend-stone or still showed astrolabe/sacred");
+  PetDetailPreparation shenzhiOverview(fixture({
+      {QStringLiteral("cps"),QStringLiteral("9:10")},
+      {QStringLiteral("eps"),QStringLiteral("5|2000|6|0,5|2000|6|0,5|2000|6|0")}}, QStringLiteral("神职")));
+  const auto shenzhiPages = finish(shenzhiOverview);
+  ok &= check(shenzhiPages && shenzhiPages->sacred.isEmpty() && shenzhiPages->legendStone.isEmpty() &&
+      joined(shenzhiPages->proficient).contains(QStringLiteral("涅槃重生 · 10 级")) &&
+      joined(shenzhiPages->equipment).contains(QStringLiteral("命元树 · 6 星")) &&
+      hasSection(*shenzhiPages, DetailSection::EquippedStargods) &&
+      !hasSection(*shenzhiPages, DetailSection::Badges) &&
+      !hasSection(*shenzhiPages, DetailSection::Astrolabe),
+      "ShenZhi overview hid proficient/equipment or still showed later-era systems");
+  PetDetailPreparation legendOverview(fixture({
+      {QStringLiteral("lss"),QStringLiteral("15:2:1:0,5:2:1:0")}}, QStringLiteral("传说")));
+  const auto legendPages = finish(legendOverview);
+  ok &= check(legendPages && legendPages->proficient.isEmpty() &&
+      !legendPages->equipment.isEmpty() &&
+      joined(legendPages->legendStone).contains(QStringLiteral("破击传说石 · 2 级")),
+      "Legend-era overview hid legend stones or still showed proficient");
+  PetDetailPreparation otherTalent(fixture({{QStringLiteral("ip"),QStringLiteral("100##300")},
+      {QStringLiteral("gps"),QStringLiteral("2#1#3")}}, QStringLiteral("其他")));
+  const auto otherPages = finish(otherTalent);
+  const auto otherTalentText = otherPages ? joined(otherPages->talent) : QString();
+  ok &= check(otherPages && otherPages->sacred.isEmpty() &&
+      !hasSection(*otherPages, DetailSection::Badges) &&
+      !hasSection(*otherPages, DetailSection::Astrolabe) &&
+      otherTalentText.contains(QStringLiteral("物防 300")),
+      "Other-era details hid eight-lane talent or showed later-era pages");
   PetDetailPreparation lingchuAstrolabe(fixture({{QStringLiteral("astrolabebr"),false}}),DetailSection::Astrolabe);
   const auto lingchuDetail = finish(lingchuAstrolabe);
   ok &= check(lingchuDetail && joined(lingchuDetail->pages[0].entries[0].fields).contains(QStringLiteral("突破=未突破")),

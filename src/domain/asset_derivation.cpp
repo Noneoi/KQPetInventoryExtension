@@ -32,7 +32,9 @@ QJsonObject AssetDerivation::analysisInputFields(const QJsonObject& brief, const
   static const QStringList detailFields{
       QStringLiteral("zdl"), QStringLiteral("xzdl"), QStringLiteral("czdlv"), QStringLiteral("mzdlv"),
       QStringLiteral("sgs"), QStringLiteral("sgsp"), QStringLiteral("badge"), QStringLiteral("shenjue"),
-      QStringLiteral("astrolabe"), QStringLiteral("astrolabebr"), QStringLiteral("stargodSlotMaxLevel")};
+      QStringLiteral("astrolabe"), QStringLiteral("astrolabebr"), QStringLiteral("stargodSlotMaxLevel"),
+      QStringLiteral("ip"), QStringLiteral("gps"), QStringLiteral("cps"),
+      QStringLiteral("eps"), QStringLiteral("lss")};
   static const QStringList fields{
       QStringLiteral("id"), QStringLiteral("r"), QStringLiteral("ri"), QStringLiteral("fr"),
       QStringLiteral("n"), QStringLiteral("customName"), QStringLiteral("lv"), QStringLiteral("g"),
@@ -41,7 +43,9 @@ QJsonObject AssetDerivation::analysisInputFields(const QJsonObject& brief, const
       QStringLiteral("_metaAttributes"), QStringLiteral("_metaJobs"), QStringLiteral("_metaEra"), QStringLiteral("_metaRaceId"),
       QStringLiteral("zdl"), QStringLiteral("xzdl"), QStringLiteral("czdlv"), QStringLiteral("mzdlv"),
       QStringLiteral("sgs"), QStringLiteral("sgsp"), QStringLiteral("badge"), QStringLiteral("shenjue"),
-      QStringLiteral("astrolabe"), QStringLiteral("astrolabebr"), QStringLiteral("stargodSlotMaxLevel")};
+      QStringLiteral("astrolabe"), QStringLiteral("astrolabebr"), QStringLiteral("stargodSlotMaxLevel"),
+      QStringLiteral("ip"), QStringLiteral("gps"), QStringLiteral("cps"),
+      QStringLiteral("eps"), QStringLiteral("lss")};
   QJsonObject result;
   for (const auto& key : fields) {
     if (detailFields.contains(key) && detail.contains(QStringLiteral("id"))) {

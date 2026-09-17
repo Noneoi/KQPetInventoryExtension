@@ -76,6 +76,9 @@ quint64 preparedPetDetailRetainedBytes(const PreparedPetDetail& detail) {
   bytes += fieldBytes(identity.level);
   for (const auto& text : identity.imageCandidateNames) bytes += textBytes(text);
   for (const auto& item : detail.talent) bytes += fieldBytes(item);
+  for (const auto& item : detail.proficient) bytes += fieldBytes(item);
+  for (const auto& item : detail.equipment) bytes += fieldBytes(item);
+  for (const auto& item : detail.legendStone) bytes += fieldBytes(item);
   for (const auto& item : detail.sacred) bytes += fieldBytes(item);
   bytes += quint64(detail.cultivationRequirements.items.capacity()) * sizeof(PetCultivationRequirement);
   for (const auto& item : detail.cultivationRequirements.items) {
@@ -118,6 +121,7 @@ struct PetDetailPreparation::Impl {
   bool sectionInitialized = false;
   int activatedCount = 0, selectedCount = 0;
   bool activatedCountKnown = false, selectedCountKnown = false;
+  PetEraSystems systems;
   bool astrolabeBreakthroughApplicable = false;
   QString encoded;
   QJsonArray array;
@@ -157,8 +161,9 @@ struct PetDetailPreparation::Impl {
     for (const auto& name : {"n","customName","r","ri","fr","lv","rt","_metaOriginalName","_metaAttributes","_metaJobs","_metaEra","_metaRaceId"})
       if (!identity.contains(QString::fromLatin1(name)) && !value(name).isUndefined()) identity.insert(QString::fromLatin1(name), value(name));
     auto& out = *result;
-    astrolabeBreakthroughApplicable = eraHasAstrolabeBreakthrough(resolvePetEra(
-        identity, input.metadata->root.value(QStringLiteral("pets")).toObject()));
+    const auto era = resolvePetEra(identity, input.metadata->root.value(QStringLiteral("pets")).toObject());
+    astrolabeBreakthroughApplicable = eraHasAstrolabeBreakthrough(era);
+    systems = systemsForEra(era);
     out.version.facts = input.facts->key; out.version.summaryRevision = input.summaryRevision;
     out.sourceVerified = input.sourceVerified && input.raw->sourceKnown && input.facts->facts.asset.observationVerified;
     out.visualMismatch = value("_visualMismatch").toBool() || (input.raw->complete && petRaceId(input.raw->object()) > 0 && petRaceId(input.raw->object()) != input.facts->facts.asset.raceId);
@@ -173,10 +178,30 @@ struct PetDetailPreparation::Impl {
     id.attributes = metadata.resolvedAttributes(identity); id.jobs = metadata.resolvedJobs(identity); id.era = metadata.resolvedEra(identity);
     id.level = numeric(QStringLiteral("等级"), value("lv")); id.visualKey = petVisualKey(identity);
     id.imageCandidateNames = {id.name,id.customName,id.originalName,metadata.petName(id.raceId)}; id.imageCandidateNames.removeAll(QString()); id.imageCandidateNames.removeDuplicates();
-    prepareTalent(); prepareSacred();
-    const QVector<DetailSection> sections = requested == DetailSection::Overview
-        ? QVector<DetailSection>{DetailSection::Badges,DetailSection::Astrolabe,DetailSection::EquippedStargods,DetailSection::StargodBackpack,DetailSection::SummonRelations,DetailSection::CarryRelations}
-        : QVector<DetailSection>{requested};
+    prepareTalent();
+    if (systems.proficient) prepareProficient();
+    if (systems.equipment) prepareEquipment();
+    if (systems.legendStone) prepareLegendStone();
+    if (systems.sacred) prepareSacred();
+    const auto sectionAvailable = [&](DetailSection section) {
+      if (section == DetailSection::Badges) return systems.badge;
+      if (section == DetailSection::Astrolabe) return systems.astrolabe;
+      if (section == DetailSection::EquippedStargods || section == DetailSection::StargodBackpack) return systems.stargod;
+      return true;
+    };
+    QVector<DetailSection> sections;
+    if (requested == DetailSection::Overview) {
+      if (sectionAvailable(DetailSection::Badges)) sections.append(DetailSection::Badges);
+      if (sectionAvailable(DetailSection::Astrolabe)) sections.append(DetailSection::Astrolabe);
+      if (sectionAvailable(DetailSection::EquippedStargods)) {
+        sections.append(DetailSection::EquippedStargods);
+        sections.append(DetailSection::StargodBackpack);
+      }
+      sections.append(DetailSection::SummonRelations);
+      sections.append(DetailSection::CarryRelations);
+    } else if (sectionAvailable(requested)) {
+      sections.append(requested);
+    }
     for (auto section : sections) {
       DetailPage p; p.section = section; p.pageIndex = requested == DetailSection::Overview ? 0 : requestedPage;
       if (requested == DetailSection::CarryRelations) p.pageSize = limits.maximumExpandedCarryItems;
@@ -197,7 +222,12 @@ struct PetDetailPreparation::Impl {
     QStringList single, dual, unpowered, other;
     // ip/gps share the original 12-position property ordering. Hidden legacy
     // properties must never shift the six properties retained in this view.
-    for (const int i : {0,7,8,9,10,11}) {
+    const int lanes[8] = {0,1,2,3,4,5,6,7};
+    const int modern[6] = {0,7,8,9,10,11};
+    const int* indices = systems.sixTalentLanes ? modern : lanes;
+    const int laneCount = systems.sixTalentLanes ? 6 : 8;
+    for (int n = 0; n < laneCount; ++n) {
+      const int i = indices[n];
       const auto f = numeric(names[i],part(talents,i)); qint64 energy = 0;
       const QString text = names[i] + QStringLiteral(" ") + f.text;
       // Official PetGift.setStars treats an explicitly empty gps as no star
@@ -218,6 +248,107 @@ struct PetDetailPreparation::Impl {
     const auto maximum = numeric({},value("mzdlv").toObject().value(QStringLiteral("iv")));
     fields.append(field(QStringLiteral("天赋战斗力/满天赋战斗力"),current.text + QStringLiteral("/") + maximum.text,
                         current.state == DetailKnowledge::Known && maximum.state == DetailKnowledge::Known ? DetailKnowledge::Known : DetailKnowledge::Unknown));
+  }
+  DetailField powerPair(const QString& label, const char* key) {
+    const auto current = numeric({}, value("czdlv").toObject().value(QLatin1String(key)));
+    const auto maximum = numeric({}, value("mzdlv").toObject().value(QLatin1String(key)));
+    return field(label, current.text + QStringLiteral("/") + maximum.text,
+                 current.state == DetailKnowledge::Known && maximum.state == DetailKnowledge::Known
+                     ? DetailKnowledge::Known : DetailKnowledge::Unknown);
+  }
+  void prepareProficient() {
+    auto& fields = result->proficient;
+    if (!result->detailKnown) { fields.append(field(QStringLiteral("状态"),QStringLiteral("详情待确认"),DetailKnowledge::Unknown)); return; }
+    const auto raw = value("cps");
+    if (raw.isUndefined()) { fields.append(field(QStringLiteral("状态"),QStringLiteral("待确认"),DetailKnowledge::Unknown)); }
+    else if (!raw.isString() || raw.toString().size() > limits.maximumTextUnits) {
+      fields.append(field(QStringLiteral("状态"),QStringLiteral("潜能字段无效"),DetailKnowledge::Invalid));
+    } else {
+      const auto text = raw.toString();
+      if (text.isEmpty() || text == QStringLiteral("0:0")) fields.append(field(QStringLiteral("状态"),QStringLiteral("未激活潜能")));
+      else {
+        const auto values = parts(text, QLatin1Char(':'), 2);
+        qint64 id = 0, level = 0;
+        const bool idKnown = number(part(values,0), &id, 0);
+        const bool levelKnown = number(part(values,1), &level, 0, 10);
+        if (!idKnown) fields.append(field(QStringLiteral("潜能"), QStringLiteral("待确认"), DetailKnowledge::Unknown));
+        else {
+          QString textValue = metadata.proficientName(int(id));
+          if (levelKnown) textValue += QStringLiteral(" · %1 级").arg(level);
+          fields.append(field(QStringLiteral("潜能"), textValue));
+          const auto desc = metadata.proficient(int(id)).value(QStringLiteral("desc")).toString();
+          if (!desc.isEmpty()) fields.append(field(QStringLiteral("效果"), desc));
+        }
+        if (!levelKnown) fields.append(field(QStringLiteral("等级"), QStringLiteral("待确认"), DetailKnowledge::Unknown));
+      }
+    }
+    fields.append(powerPair(QStringLiteral("潜能战斗力/满潜能战斗力"), "pl"));
+  }
+  void prepareEquipment() {
+    auto& fields = result->equipment;
+    if (!result->detailKnown) { fields.append(field(QStringLiteral("状态"),QStringLiteral("详情待确认"),DetailKnowledge::Unknown)); return; }
+    const auto raw = value("eps");
+    if (raw.isUndefined()) { fields.append(field(QStringLiteral("状态"),QStringLiteral("待确认"),DetailKnowledge::Unknown)); }
+    else if (!raw.isString() || raw.toString().size() > limits.maximumTextUnits) {
+      fields.append(field(QStringLiteral("状态"),QStringLiteral("源兽装备字段无效"),DetailKnowledge::Invalid));
+    } else {
+      const auto text = raw.toString();
+      if (text.isEmpty() || text == QStringLiteral("0,0,0")) fields.append(field(QStringLiteral("状态"),QStringLiteral("未装备源兽")));
+      else {
+        const auto segments = parts(text, QLatin1Char(','), 8);
+        int shown = 0;
+        for (int i = 0; i < segments.size(); ++i) {
+          const auto slot = parts(segments[i], QLatin1Char('|'), 4);
+          qint64 id = 0, star = 0;
+          const bool idKnown = number(part(slot,0), &id, 0);
+          const bool starKnown = number(part(slot,2), &star, 0, 6);
+          QString textValue;
+          if (idKnown && id == 0 && (!starKnown || star <= 1)) textValue = QStringLiteral("空");
+          else if (idKnown && starKnown) {
+            textValue = QStringLiteral("%1 · %2 星").arg(metadata.sourceBeastName(int(id))).arg(star);
+            const auto attr = metadata.sourceBeast(int(id)).value(QStringLiteral("attr")).toString();
+            if (!attr.isEmpty()) textValue += QStringLiteral("（%1）").arg(attr);
+          } else textValue = segments[i].isEmpty() ? QStringLiteral("待确认") : segments[i];
+          fields.append(field(QStringLiteral("源兽槽 %1").arg(i + 1), textValue,
+                              idKnown && starKnown ? DetailKnowledge::Known : DetailKnowledge::Unknown));
+          ++shown;
+        }
+        if (shown == 0) fields.append(field(QStringLiteral("状态"),QStringLiteral("未装备源兽")));
+      }
+    }
+    fields.append(powerPair(QStringLiteral("源兽战斗力/满源兽战斗力"), "ep"));
+  }
+  void prepareLegendStone() {
+    auto& fields = result->legendStone;
+    if (!result->detailKnown) { fields.append(field(QStringLiteral("状态"),QStringLiteral("详情待确认"),DetailKnowledge::Unknown)); return; }
+    const auto raw = value("lss");
+    if (raw.isUndefined()) { fields.append(field(QStringLiteral("状态"),QStringLiteral("待确认"),DetailKnowledge::Unknown)); }
+    else if (!raw.isString() || raw.toString().size() > limits.maximumTextUnits) {
+      fields.append(field(QStringLiteral("状态"),QStringLiteral("传说石字段无效"),DetailKnowledge::Invalid));
+    } else {
+      const auto text = raw.toString();
+      if (text.isEmpty()) fields.append(field(QStringLiteral("状态"),QStringLiteral("未装备传说石")));
+      else {
+        const auto segments = parts(text, QLatin1Char(','), 8);
+        for (int i = 0; i < segments.size(); ++i) {
+          const auto slot = parts(segments[i], QLatin1Char(':'), 4);
+          qint64 id = 0, level = 0;
+          const bool idKnown = number(part(slot,0), &id, 0);
+          const bool levelKnown = number(part(slot,1), &level, 0, 5);
+          QString textValue;
+          if (idKnown && id == 0) textValue = QStringLiteral("空");
+          else if (idKnown && levelKnown) {
+            textValue = QStringLiteral("%1 · %2 级").arg(metadata.legendStoneName(int(id))).arg(level);
+            const auto desc = metadata.legendStone(int(id)).value(QStringLiteral("levels")).toObject()
+                .value(QString::number(int(level))).toObject().value(QStringLiteral("desc")).toString();
+            if (!desc.isEmpty()) textValue += QStringLiteral("（%1）").arg(desc);
+          } else textValue = segments[i].isEmpty() ? QStringLiteral("待确认") : segments[i];
+          fields.append(field(QStringLiteral("传说石槽 %1").arg(i + 1), textValue,
+                              idKnown && levelKnown ? DetailKnowledge::Known : DetailKnowledge::Unknown));
+        }
+      }
+    }
+    fields.append(powerPair(QStringLiteral("传说石战斗力/满传说石战斗力"), "lsv"));
   }
   void prepareSacred() {
     auto& fields = result->sacred; const auto raw = value("shenjue");

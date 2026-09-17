@@ -76,6 +76,9 @@ struct PreparedPetDetail {
   PetBattlePowerState battlePower;
   PetCultivationRequirements cultivationRequirements;
   QVector<DetailField> talent;
+  QVector<DetailField> proficient;
+  QVector<DetailField> equipment;
+  QVector<DetailField> legendStone;
   QVector<DetailField> sacred;
   QVector<DetailPage> pages;
   quint64 chargedBytes = 0;

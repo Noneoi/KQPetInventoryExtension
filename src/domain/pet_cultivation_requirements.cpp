@@ -255,7 +255,12 @@ struct Builder {
     }
   }
   PetCultivationRequirements run() {
-    badges(); sacred(); astrolabe(); stargods(); remainingComponents();
+    const auto systems = systemsForEra(resolvePetEra(pet, metadata.value(QStringLiteral("pets")).toObject()));
+    if (systems.badge) badges();
+    if (systems.sacred) sacred();
+    if (systems.astrolabe) astrolabe();
+    if (systems.stargod) stargods();
+    remainingComponents();
     result.completeKnown = statesKnown && power.completionKnown;
     // Adjustment of already-owned stars is useful guidance but does not mean
     // the pet lacks cultivation resources or falls short of owned supreme power.

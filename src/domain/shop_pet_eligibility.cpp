@@ -31,7 +31,7 @@ bool nonnegativeInteger(const QString& text, int* value) {
 ComponentState powerGap(const PetBattlePowerState& power, const QString& key) {
   for (const auto& component : power.components) {
     if (component.key != key) continue;
-    if (!component.applicable) return ComponentState::Unknown;
+    if (!component.applicable) return ComponentState::Full;
     if (!component.currentKnown || !component.extremeKnown) return ComponentState::Unknown;
     return component.current < component.extreme ? ComponentState::Useful : ComponentState::Full;
   }
@@ -268,8 +268,9 @@ ShopPetDerived deriveShopPetWithPower(const QJsonObject& pet, bool hasFullDetail
   result.hasFullDetail = hasFullDetail;
   result.hasData = !pet.isEmpty();
   if (!hasFullDetail || !result.hasData) return result;
+  const auto systems = systemsForEra(resolvePetEra(pet, metadata.pets));
   const auto sacred = pet.value(QStringLiteral("shenjue"));
-  result.sacredStateRequired = !sacred.isUndefined() && (!sacred.isString() || !sacred.toString().isEmpty());
+  result.sacredStateRequired = systems.sacred && !sacred.isUndefined() && (!sacred.isString() || !sacred.toString().isEmpty());
   const auto requiresState = [&pet,&power](const QString& field,const QString& component) {
     const auto raw = pet.value(field);
     if (!raw.isUndefined() && (!raw.isString() || !raw.toString().isEmpty())) return true;
@@ -277,19 +278,27 @@ ShopPetDerived deriveShopPetWithPower(const QJsonObject& pet, bool hasFullDetail
         ((value.currentKnown && value.current > 0) || (value.highestKnown && value.highest > 0))) return true;
     return false;
   };
-  result.badgeStateRequired = requiresState(QStringLiteral("badge"),QStringLiteral("bsv"));
-  result.astrolabeStateRequired = requiresState(QStringLiteral("astrolabe"),QStringLiteral("asv"));
+  result.badgeStateRequired = systems.badge && requiresState(QStringLiteral("badge"),QStringLiteral("bsv"));
+  result.astrolabeStateRequired = systems.astrolabe && requiresState(QStringLiteral("astrolabe"),QStringLiteral("asv"));
   result.components[0] = powerGap(power, QStringLiteral("lv"));
   result.components[1] = goldStargods(power);
   result.components[2] = oneRedStargod(power);
-  const auto badges = badgeStates(pet,metadata.badges);
-  result.components[3] = badges.level;
-  result.components[4] = badges.awaken;
+  if (systems.badge) {
+    const auto badges = badgeStates(pet,metadata.badges);
+    result.components[3] = badges.level;
+    result.components[4] = badges.awaken;
+  } else {
+    result.components[3] = result.components[4] = ComponentState::Full;
+  }
   result.components[5] = powerGap(power, QStringLiteral("iv"));
-  const auto astrolabe = astrolabeStates(pet,metadata.astrolabe);
-  result.components[6] = astrolabe.all;
-  result.components[12] = astrolabe.ordinary;
-  result.components[13] = astrolabeBreakthrough(pet,metadata,astrolabe);
+  if (systems.astrolabe) {
+    const auto astrolabe = astrolabeStates(pet,metadata.astrolabe);
+    result.components[6] = astrolabe.all;
+    result.components[12] = astrolabe.ordinary;
+    result.components[13] = astrolabeBreakthrough(pet,metadata,astrolabe);
+  } else {
+    result.components[6] = result.components[12] = result.components[13] = ComponentState::Full;
+  }
   result.components[9] = oneChangeableRedStargod(power);
   result.components[11] = allRedStargods(power);
   result.changeableSlotKnown = power.stargodSlotsKnown;
@@ -302,25 +311,29 @@ ShopPetDerived deriveShopPetWithPower(const QJsonObject& pet, bool hasFullDetail
     foundChangeable = true;
   }
   result.changeableLevelKnown = result.changeableLevelKnown && foundChangeable && result.changeableLevel > 0;
-  // The same sacred equipment sequence supplies both component states.
-  const SacredEquipmentLevels levels = sacredEquipmentLevels(pet);
-  if (levels.valid) {
-    const int maximumStar = PetMetadataView::sacredPlanMaximum(metadata.sacredStarPlans, levels.starPlan);
-    const int maximumStage = PetMetadataView::sacredPlanMaximum(metadata.sacredStagePlans, levels.stagePlan);
-    if (maximumStar > 0 && levels.star <= maximumStar)
-      result.components[7] = levels.star < maximumStar
-          ? ShopCultivationState::Useful : ShopCultivationState::Full;
-    if (maximumStage > 0 && levels.stage <= maximumStage)
-      result.components[8] = levels.stage < maximumStage
-          ? ShopCultivationState::Useful : ShopCultivationState::Full;
-    if (maximumStage > 0 && levels.stage == maximumStage) result.components[10] = ShopCultivationState::Full;
-    else if (maximumStage > 0 && levels.stage < maximumStage) {
-      const auto definition = metadata.sacredStagePlans.value(QString::number(levels.stagePlan)).toObject();
-      const auto cost = definition.value(QStringLiteral("levels")).toObject().value(QString::number(levels.stage))
-          .toObject().value(QStringLiteral("equipmentCount"));
-      qint64 equipmentCount = 0;
-      if (DomainNumeric::checkedInteger(cost,&equipmentCount,0,std::numeric_limits<int>::max()))
-        result.components[10] = equipmentCount == 0 ? ShopCultivationState::Useful : ShopCultivationState::Full;
+  if (!systems.sacred) {
+    result.components[7] = result.components[8] = result.components[10] = ComponentState::Full;
+  } else {
+    // The same sacred equipment sequence supplies both component states.
+    const SacredEquipmentLevels levels = sacredEquipmentLevels(pet);
+    if (levels.valid) {
+      const int maximumStar = PetMetadataView::sacredPlanMaximum(metadata.sacredStarPlans, levels.starPlan);
+      const int maximumStage = PetMetadataView::sacredPlanMaximum(metadata.sacredStagePlans, levels.stagePlan);
+      if (maximumStar > 0 && levels.star <= maximumStar)
+        result.components[7] = levels.star < maximumStar
+            ? ShopCultivationState::Useful : ShopCultivationState::Full;
+      if (maximumStage > 0 && levels.stage <= maximumStage)
+        result.components[8] = levels.stage < maximumStage
+            ? ShopCultivationState::Useful : ShopCultivationState::Full;
+      if (maximumStage > 0 && levels.stage == maximumStage) result.components[10] = ShopCultivationState::Full;
+      else if (maximumStage > 0 && levels.stage < maximumStage) {
+        const auto definition = metadata.sacredStagePlans.value(QString::number(levels.stagePlan)).toObject();
+        const auto cost = definition.value(QStringLiteral("levels")).toObject().value(QString::number(levels.stage))
+            .toObject().value(QStringLiteral("equipmentCount"));
+        qint64 equipmentCount = 0;
+        if (DomainNumeric::checkedInteger(cost,&equipmentCount,0,std::numeric_limits<int>::max()))
+          result.components[10] = equipmentCount == 0 ? ShopCultivationState::Useful : ShopCultivationState::Full;
+      }
     }
   }
   if (stats) stats->cultivationComponentsDerived += result.components.size();
