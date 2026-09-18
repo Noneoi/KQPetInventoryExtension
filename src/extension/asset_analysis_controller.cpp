@@ -6,7 +6,7 @@
 #include "routine_overview_catalog.h"
 #include <QPointer>
 #include "account_resource_view.h"
-#include "recommendation_engine.h"
+#include "../domain/recommendation_engine.h"
 #include "routine_overview_controller.h"
 #include "shop_exchange_catalog.h"
 #include "shop_exchange_controller.h"

@@ -4,7 +4,7 @@
 #include "pet_identity.h"
 #include "pet_move_policy.h"
 #include "pet_power_calculator.h"
-#include "recommendation_engine.h"
+#include "../src/domain/recommendation_engine.h"
 #include "shop_limit_facts.h"
 #include "pet_analysis_facts.h"
 #include "quota_test_support.h"

@@ -1,6 +1,6 @@
 #include "account_resource_view.h"
-#include "recommendation_engine.h"
-#include "shop_actionability.h"
+#include "../src/application/recommendation_adapter.h"
+#include "../src/application/shop_legacy_adapters.h"
 #include "quota_test_support.h"
 #include "pet_detail_catalog.h"
 

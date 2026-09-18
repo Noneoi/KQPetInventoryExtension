@@ -145,6 +145,27 @@ int legacySmoke(QApplication& application) {
 
   AssetAnalysisWindow window(&controller);
   auto* model = window.findChild<AssetAnalysisModel*>();
+  // The window fills its model through the event loop, so that first population
+  // arrives after the constructor returns. Counting resets from here would
+  // measure the window's own startup rather than what the detail changes below
+  // trigger, which is what this check is about. Drain until the model has been
+  // quiet for three passes, with a cap so a genuine reset storm still fails.
+  {
+    int settleResets = 0;
+    const QMetaObject::Connection settleWatch = model
+        ? QObject::connect(model, &QAbstractItemModel::modelReset, &application,
+                           [&settleResets]() { ++settleResets; })
+        : QMetaObject::Connection();
+    QElapsedTimer settle;
+    settle.start();
+    for (int quiet = 0; quiet < 3 && settle.elapsed() < 5000;) {
+      const int before = settleResets;
+      QCoreApplication::processEvents(QEventLoop::AllEvents, 20);
+      QThread::msleep(5);
+      quiet = settleResets == before ? quiet + 1 : 0;
+    }
+    if (settleWatch) QObject::disconnect(settleWatch);
+  }
   int modelResets = 0;
   if (model)
     QObject::connect(model, &QAbstractItemModel::modelReset, &application,
@@ -163,8 +184,19 @@ int legacySmoke(QApplication& application) {
   ok &= require(controller.dirtyPetIds().size() == 1000 &&
                     detailSignals == 1000 && dirtyMs < 1000,
                 "dirty ID insertion or duplicate suppression regressed");
-  ok &= require(controller.analysisRunCount() == runsBeforeDetails &&
-                    modelResets == 0 && model && model->rowCount() == 2000,
+  // Four independent conditions: without the observed values a failure here
+  // says nothing about whether an analysis actually ran or the model merely
+  // finished populating late.
+  const quint64 runsAfterDetails = controller.analysisRunCount();
+  const int modelRows = model ? model->rowCount() : -1;
+  const bool backgroundQuiet = runsAfterDetails == runsBeforeDetails &&
+      modelResets == 0 && model && modelRows == 2000;
+  if (!backgroundQuiet) {
+    std::fprintf(stderr, "DIAG: analysisRuns %llu -> %llu, modelResets %d, rows %d\n",
+                 static_cast<unsigned long long>(runsBeforeDetails),
+                 static_cast<unsigned long long>(runsAfterDetails), modelResets, modelRows);
+  }
+  ok &= require(backgroundQuiet,
                 "background details triggered analysis or table model rebuild");
 
   AssetAnalysisModel analysisModel;

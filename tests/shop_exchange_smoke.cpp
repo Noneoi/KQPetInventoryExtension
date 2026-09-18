@@ -1,6 +1,6 @@
 #include "shop_exchange_catalog.h"
 #include "shop_exchange_controller.h"
-#include "shop_pet_eligibility.h"
+#include "../src/application/shop_legacy_adapters.h"
 #include "pet_repository.h"
 #include "protocol_test_support.h"
 #include "storage_service.h"

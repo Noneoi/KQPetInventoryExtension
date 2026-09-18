@@ -2,7 +2,7 @@
 
 #include "pet_power_calculator.h"
 #include "packet_contract.h"
-#include "recommendation_engine.h"
+#include "../domain/recommendation_engine.h"
 #include "pet_detail_catalog.h"
 #include "pet_identity.h"
 #include "pet_repository.h"
@@ -10,7 +10,7 @@
 #include "routine_overview_controller.h"
 #include "shop_exchange_catalog.h"
 #include "shop_exchange_controller.h"
-#include "shop_pet_eligibility.h"
+#include "../domain/shop_pet_eligibility.h"
 #include "../domain/pet_metadata_view.h"
 
 #include <QJsonArray>

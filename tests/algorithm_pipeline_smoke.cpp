@@ -1,7 +1,7 @@
 #include "quota_test_support.h"
 #include "compiled_shop_catalog.h"
 #include "prepared_shop_conditions.h"
-#include "recommendation_engine.h"
+#include "../src/application/recommendation_adapter.h"
 #include "pet_detail_catalog.h"
 #include "../src/domain/shop_limit_facts.h"
 

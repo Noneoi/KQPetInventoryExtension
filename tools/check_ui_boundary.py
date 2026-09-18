@@ -36,9 +36,7 @@ PORTS = {
 # sources. Their contents/includes are recursively checked, never trusted blind.
 VALUE_HELPERS = {
     "src/extension/asset_analysis_types.h", "src/extension/asset_analysis_version.h",
-    "src/extension/asset_snapshot_comparator.h", "src/extension/recommendation_types.h",
-    "src/extension/pet_identity.h", "src/extension/pet_move_policy.h",
-    "src/extension/pet_detail_view_model.h", "src/extension/pet_facts_ui.h",
+    "src/extension/recommendation_types.h", "src/extension/pet_facts_ui.h",
     "src/extension/build_info.h",
 }
 FORBIDDEN_APIS = {
@@ -245,7 +243,7 @@ def self_test(project: Path):
     for source in [
         '#include "pet_detail_catalog.h"', '#include <pet_repository.h>',
         '#include "../application/application_runtime.h"', '#include "pet_refresh_controller.h"',
-        '#include "shop_pet_eligibility.h"', '#include SECRET_HEADER',
+        '#include "shop_exchange_catalog.h"', '#include SECRET_HEADER',
         'auto x=ShopExchangeCatalog::instance();', 'PetDetailAnalyzer::analyze(value);',
         'calculatePetBattlePower(raw);', 'auto s="escaped\\\""; PetRepository* repository;',
     ]:
