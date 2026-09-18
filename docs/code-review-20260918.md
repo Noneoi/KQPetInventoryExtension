@@ -1,6 +1,6 @@
 # 代码评审与修复记录 2026-09-18
 
-对应预览构建 `2.0.0-8204cc59d74c-20260918T113521Z`，完整 Release 回归 72/72 通过。
+对应预览构建 `2.0.0-421e66b1beef-20260918T122129Z`，完整 Release 回归 72/72 通过。
 
 本次是一轮全量通审：先出分级清单，再逐项修复。记录同时保留了两处**误判**及其暴露方式，因为它们说明了这个仓库里哪几类改动最容易出错。
 
@@ -88,6 +88,22 @@ CMake 里摘掉 5 个遗留详情管线源文件，对应文件已从工作树�
 把三处 `displayName` 统一成共享的 `petDisplayName` 时改变了语义。表格列和精灵窗口一直**故意**显示服务器名 `n` 而不是玩家昵称，仓库列也只用「精英 / 普通」短标签而非完整仓库名。`pet_table_model_smoke` 里专门有一条断言在守这个不变量（"nickname replaced the server name or stopped matching search"），测试当场失败。
 
 三处实现长得一样不代表它们该是同一个函数。现在这几处都留了注释，写明「这里故意不用共享版本」及其原因。
+
+### 误判三：`src/extension` 与 `src/domain` 的同名头文件
+
+`src/extension/` 下有十个只有两行的转发头。其中七个转发到 `src/domain/` 里的**同名**头文件，删掉后 `#include "x.h"` 会自然落到 domain 版本上，行为不变。另外三个不是：
+
+| 头文件 | 实际转发到 |
+| --- | --- |
+| `src/extension/recommendation_engine.h` | `src/application/recommendation_adapter.h` |
+| `src/extension/shop_actionability.h` | `src/application/shop_legacy_adapters.h` |
+| `src/extension/shop_pet_eligibility.h` | `src/application/shop_legacy_adapters.h` |
+
+这三个的文件名和 `src/domain/` 里的头文件**撞名但内容不同**。删掉它们，`#include "recommendation_engine.h"` 不会报「找不到头文件」——它会静默改为命中 domain 版本，然后在几十行之后炸成一串「`RecommendationEngine` 不是类或命名空间名称」。`tests/algorithm_pipeline_smoke.cpp`、`tests/recommendation_smoke.cpp`、`tests/shop_exchange_smoke.cpp` 三个目标因此编译失败。
+
+> 在这个仓库里，`src/extension` 和 `src/domain` 有十处同名头文件，而多数目标两个目录都在 include 路径上。裸名 `#include` 命中哪一个取决于目录顺序，删掉一个「看起来多余」的转发头不会产生缺失头文件的错误，只会换一个目标悄悄命中。
+
+这三个头文件已恢复，并在文件里写明了它们不是冗余转发。真正的清理是消除文件名冲突（重命名 domain 侧，或把裸名引用改成显式相对路径），那需要单独一轮改动和回归。
 
 ## 五、验证
 
