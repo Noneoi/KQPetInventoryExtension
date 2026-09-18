@@ -32,7 +32,10 @@ FrozenDetailInputs fixture(QJsonObject extra = {}, QString era = QStringLiteral(
   facts->facts.battlePower.current = 424242; facts->facts.battlePower.hasCurrent = true;
   FrozenDetailInputs input; input.raw = raw; input.facts = facts; input.brief = raw->brief; input.summaryRevision = 1; input.metadata = metadata; input.sourceVerified = true; return input;
 }
-std::unique_ptr<PreparedPetDetail> finish(PetDetailPreparation& task, int* maximumBatch = nullptr) {
+// roster carries the account's own location fields for every related pet, or
+// nothing at all when the account does not hold them (present = false).
+std::unique_ptr<PreparedPetDetail> finish(PetDetailPreparation& task, int* maximumBatch = nullptr,
+                                          QJsonObject roster = {}, bool present = true) {
   std::atomic_bool cancelled{false};
   for (int count = 0; count < 10000; ++count) {
     const auto step = task.step(cancelled);
@@ -41,7 +44,13 @@ std::unique_ptr<PreparedPetDetail> finish(PetDetailPreparation& task, int* maxim
     if (step == DetailStep::NeedSummaries) {
       const auto ids = task.requestedSummaries(); if (maximumBatch) *maximumBatch = qMax(*maximumBatch,int(ids.size()));
       QVector<DetailRelatedSummary> summaries;
-      for (auto id : ids) summaries.append({id,5,true,{{QStringLiteral("id"),QString::number(id)},{QStringLiteral("n"),QStringLiteral("摘要%1").arg(id)},{QStringLiteral("lv"),88},{QStringLiteral("zdl"),QStringLiteral("bad")}}});
+      for (auto id : ids) {
+        if (!present) { summaries.append({id,0,false,{}}); continue; }
+        QJsonObject fields{{QStringLiteral("id"),QString::number(id)},{QStringLiteral("n"),QStringLiteral("摘要%1").arg(id)},
+            {QStringLiteral("lv"),88},{QStringLiteral("zdl"),QStringLiteral("bad")}};
+        for (auto it = roster.begin(); it != roster.end(); ++it) fields.insert(it.key(),it.value());
+        summaries.append({id,5,true,fields});
+      }
       if (!task.provideSummaries(summaries)) return {};
     }
   }
@@ -223,8 +232,34 @@ int main(int argc, char** argv) {
   PetDetailPreparation foldedCarry(fixture({{QStringLiteral("cepi"),QStringLiteral("9001")},{QStringLiteral("acps"),carryRelations}}));
   const auto folded = finish(foldedCarry);
   ok &= check(folded && folded->pages.last().hasCarryCandidates && !folded->pages.last().carryCandidatesExpanded &&
-      folded->pages.last().entries.size() == 1 && folded->pages.last().entries[0].group == QStringLiteral("正在被携带") &&
-      folded->version.related.size() == 1,"collapsed carry candidates were resolved eagerly or hid the current carried pet");
+      folded->pages.last().entries.size() == 1 && folded->pages.last().entries[0].group == DetailRelationGroup::carriedEnvoy() &&
+      folded->pages.last().relationsApplicable && folded->pages.last().carryCandidateCount == 143 &&
+      folded->pages.last().contractCarrierRole && !folded->pages.last().contractEnvoyRole &&
+      folded->version.related.size() == 1,"collapsed carry candidates were resolved eagerly, lost their count, role or hid the current carried pet");
+  // A carried pet reports where this account keeps it, under its own original
+  // name, so the reader can tell two identically renamed pets apart.
+  PetDetailPreparation locatedCarry(fixture({{QStringLiteral("cepi"),QStringLiteral("9001")}}),DetailSection::CarryRelations);
+  const auto located = finish(locatedCarry,nullptr,
+      {{QStringLiteral("_location"),QStringLiteral("warehouse")},{QStringLiteral("_warehouseGroup"),QStringLiteral("elite")},
+       {QStringLiteral("_metaOriginalName"),QStringLiteral("神使原名")}});
+  ok &= check(located && located->pages[0].entries.size() == 1 &&
+      located->pages[0].entries[0].ownership == DetailOwnership::WarehouseElite &&
+      located->pages[0].entries[0].relatedInstanceId == 9001 &&
+      located->pages[0].entries[0].originalName == QStringLiteral("神使原名"),
+      "a held related pet lost its roster location, instance or original name");
+  PetDetailPreparation absentCarry(fixture({{QStringLiteral("cepi"),QStringLiteral("9001")}}),DetailSection::CarryRelations);
+  const auto absent = finish(absentCarry,nullptr,{},false);
+  ok &= check(absent && absent->pages[0].entries.size() == 1 &&
+      absent->pages[0].entries[0].ownership == DetailOwnership::Missing,
+      "a related pet outside this account's rosters was reported as held");
+  // An envoy is only on the carried side: it gets no candidate list and no
+  // carrier role, so its page must not offer the contracting half.
+  PetDetailPreparation envoy(fixture({{QStringLiteral("crpis"),QJsonArray{QStringLiteral("9100")}}}),DetailSection::CarryRelations);
+  const auto envoyDetail = finish(envoy);
+  ok &= check(envoyDetail && envoyDetail->pages[0].relationsApplicable && envoyDetail->pages[0].contractEnvoyRole &&
+      !envoyDetail->pages[0].contractCarrierRole && envoyDetail->pages[0].entries.size() == 1 &&
+      envoyDetail->pages[0].entries[0].group == DetailRelationGroup::carrierOwner(),
+      "a carried envoy was offered the contracting side or lost its carriers");
   int carryBatch = 0;
   PetDetailPreparation expandedCarry(fixture({{QStringLiteral("cepi"),QStringLiteral("9001")},{QStringLiteral("acps"),carryRelations}}),DetailSection::CarryRelations);
   const auto expanded = finish(expandedCarry,&carryBatch);
@@ -243,7 +278,33 @@ int main(int argc, char** argv) {
   ok &= check(t && t->pages[0].entries.size() == 8 && t->pages[0].state == DetailKnowledge::Invalid &&
       t->pages[0].entries[0].name == QStringLiteral("摘要1064") && t->pages[0].entries[6].state == DetailKnowledge::Invalid,"invalid relationship IDs were resolved, reordered, or later relation page was lost");
   PetDetailPreparation zeroRelation(fixture({{QStringLiteral("sepi"),0}}),DetailSection::SummonRelations); const auto none = finish(zeroRelation);
-  ok &= check(none && none->pages[0].state == DetailKnowledge::Known && none->pages[0].totalItems == 0,"explicit no-relation sentinel became an invalid identity or missing field");
+  ok &= check(none && none->pages[0].state == DetailKnowledge::Known && none->pages[0].totalItems == 0 &&
+      !none->pages[0].relationsApplicable,"explicit no-relation sentinel became an invalid identity, missing field or a visible empty section");
+  // The client reports -1 for every relation a pet does not take part in. That
+  // is a complete answer, so neither section may claim an unreadable instance.
+  PetDetailPreparation sentinelRelations(fixture({{QStringLiteral("sepi"),-1},{QStringLiteral("sdpi"),-1},
+      {QStringLiteral("srpi"),-1},{QStringLiteral("srri"),-1},{QStringLiteral("cepi"),-1},
+      {QStringLiteral("crpis"),QJsonArray{}},{QStringLiteral("acps"),QJsonArray{}}}));
+  const auto sentinel = finish(sentinelRelations);
+  ok &= check(sentinel && sentinel->pages.size() == 6 &&
+      sentinel->pages[4].section == DetailSection::SummonRelations && sentinel->pages[4].totalItems == 0 &&
+      sentinel->pages[4].entries.isEmpty() && sentinel->pages[4].state == DetailKnowledge::Known &&
+      !sentinel->pages[4].relationsApplicable &&
+      sentinel->pages[5].section == DetailSection::CarryRelations && sentinel->pages[5].totalItems == 0 &&
+      sentinel->pages[5].entries.isEmpty() && !sentinel->pages[5].hasCarryCandidates &&
+      sentinel->pages[5].carryCandidateCount == 0 && !sentinel->pages[5].relationsApplicable &&
+      !sentinel->pages[5].contractCarrierRole && !sentinel->pages[5].contractEnvoyRole,
+      "official -1 no-relation sentinels became invalid relation rows or kept an unrelated section visible");
+  // A pet with no relation fields at all is outside both systems as well.
+  PetDetailPreparation withoutRelations(fixture()); const auto plain = finish(withoutRelations);
+  ok &= check(plain && plain->pages.size() == 6 && !plain->pages[4].relationsApplicable && !plain->pages[5].relationsApplicable,
+      "a pet without any relation field still reported an applicable relation section");
+  // A real summoner keeps its section, so hiding is never applied too widely.
+  PetDetailPreparation summoner(fixture({{QStringLiteral("srpi"),QStringLiteral("8100")},{QStringLiteral("srri"),7001}}),DetailSection::SummonRelations);
+  const auto summonerDetail = finish(summoner);
+  ok &= check(summonerDetail && summonerDetail->pages[0].relationsApplicable && summonerDetail->pages[0].totalItems == 1 &&
+      summonerDetail->pages[0].entries[0].group == DetailRelationGroup::summoner(),
+      "a present summoner relation was hidden or lost its group");
   PetDetailPreparation fallbackRelation(fixture({{QStringLiteral("sepi"),0},{QStringLiteral("sdpi"),QStringLiteral("8001")}}),DetailSection::SummonRelations); const auto fallback = finish(fallbackRelation);
   ok &= check(fallback && fallback->pages[0].totalItems == 1 && fallback->version.related[0].instanceId == 8001,"secondary summon instance fallback was lost");
   PetDetailPreparation conflictingRelation(fixture({{QStringLiteral("sepi"),QStringLiteral("8001")},{QStringLiteral("sppl"),QJsonObject{{QStringLiteral("id"),QStringLiteral("8002")},{QStringLiteral("n"),QStringLiteral("conflicting embedded")}}}}),DetailSection::SummonRelations); const auto conflict = finish(conflictingRelation);

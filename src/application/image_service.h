@@ -30,7 +30,6 @@ struct ImageServiceOptions {
   int maximumWaiting = 64;
   int maximumDownloads = 2;
   int timeoutMilliseconds = 10000;
-  int backoffMilliseconds = 30000; // Compatibility option; disk failures now require explicit retry.
 };
 
 struct ImageRequest {

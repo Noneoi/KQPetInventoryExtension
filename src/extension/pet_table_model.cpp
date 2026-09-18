@@ -37,6 +37,8 @@ QString battlePowerText(const PetBattlePowerState& state) {
 
 QString positionText(const QJsonObject& pet, PetTableModel::Location location) {
   if (location == PetTableModel::Location::Warehouse) {
+    // The tab already says "warehouse", so this column carries only the short
+    // group label. It is deliberately not petWarehouseGroupName().
     return pet.value(QStringLiteral("_warehouseGroup")).toString() ==
                    QStringLiteral("elite")
                ? QStringLiteral("精英")
@@ -76,7 +78,10 @@ qint64 checkedInstanceId(const QJsonObject& pet) {
   return qMax<qint64>(0, nonnegativeInteger(pet.value(QStringLiteral("id"))));
 }
 
-QString displayName(const QJsonObject& pet) {
+// This column shows what the server called the pet, so that searching by the
+// server name keeps working. It is deliberately not petDisplayName(), which
+// prefers the player's own nickname.
+QString serverName(const QJsonObject& pet) {
   const QString name = pet.value(QStringLiteral("n")).toString();
   return name.isEmpty() ? QStringLiteral("未返回名称") : name;
 }
@@ -240,7 +245,7 @@ void PetTableModel::derive(Row& row, const QJsonObject& source, bool force, QLis
   }
   if (namesChanged) {
     const int raceId = petRaceId(pet);
-    cache.display[DisplayNameColumn] = displayName(pet);
+    cache.display[DisplayNameColumn] = serverName(pet);
     const QString original = catalog.resolvedOriginalName(pet);
     cache.display[OriginalNameColumn] = original.isEmpty() ? QStringLiteral("待确认") : original;
     cache.nameToolTip = original.isEmpty() || original == cache.display[0] ? cache.display[0]

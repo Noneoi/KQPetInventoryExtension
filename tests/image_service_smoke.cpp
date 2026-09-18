@@ -127,7 +127,6 @@ int main(int argc, char* argv[]) {
   ImageServiceOptions options;
   options.dataRoot = directory.path();
   options.timeoutMilliseconds = 200;
-  options.backoffMilliseconds = 30000;
   const QString base = QStringLiteral("http://127.0.0.1:%1").arg(server.serverPort());
   for (const auto& name : {"one", "two", "bad", "large", "oversize", "slow", "redirect", "full"})
     options.verifiedUrls.insert(QString::fromLatin1(name), base + QLatin1Char('/') + QString::fromLatin1(name));

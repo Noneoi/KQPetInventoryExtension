@@ -29,7 +29,7 @@ QChar initialForGbkCode(int code) {
   return code <= 55289 ? result : QChar();
 }
 
-QChar pinyinInitial(QChar character) {
+QChar computePinyinInitial(QChar character) {
   // GBK range boundaries are only an approximation and misclassify a few
   // commonly used name characters. Keep explicit corrections deterministic
   // so searches and highlighted ranges use the same initial.
@@ -52,6 +52,18 @@ QChar pinyinInitial(QChar character) {
   Q_UNUSED(character);
 #endif
   return {};
+}
+
+// Every keystroke re-derives the initials of every visible name, and the same
+// few hundred characters keep coming back. The cache is thread-local so it
+// needs no lock and cannot be shared across threads by accident.
+QChar pinyinInitial(QChar character) {
+  thread_local QHash<char16_t, QChar> memo;
+  const auto found = memo.constFind(character.unicode());
+  if (found != memo.constEnd()) return found.value();
+  const QChar initial = computePinyinInitial(character);
+  memo.insert(character.unicode(), initial);
+  return initial;
 }
 
 PetSearchText initialsWithPositions(const QString& text) {

@@ -94,9 +94,11 @@ private:
   void rebuildPageButtons(int pageCount);
   void updateSortDirectionState();
   void showDetail(const QJsonObject& pet);
+  void showRelatedPetDetail(qint64 instanceId);
+  void refreshRelatedPetDetail();
+  void closeRelatedPetDetail();
   void showAnalysis(const std::shared_ptr<const PreparedPetDetail>& detail,
                     qint64 instanceId, const QString& name);
-  QString displayName(const QJsonObject& pet) const;
   static qint64 rowId(QTableWidget* table, int row);
   void updateMoveButtons();
   void updateWorkbenchPanels();
@@ -158,10 +160,19 @@ private:
   QPushButton* refreshMaterials_ = nullptr;
   QLabel* materialInventoryStatus_ = nullptr;
   QLabel* status_ = nullptr;
+  // Related-pet popup. It holds its own detail subscription so opening it never
+  // replaces the selected pet's detail in the main panel.
+  QPointer<QDialog> relatedDialog_;
+  PetImageBrowser* relatedView_ = nullptr;
+  QLabel* relatedTitle_ = nullptr;
+  qint64 relatedId_ = 0;
+  std::shared_ptr<const PreparedPetDetail> renderedRelatedDetail_;
   qint64 currentId_ = 0;
   qint64 pendingFocusId_ = 0;
   qint64 renderedDetailId_ = 0;
   std::shared_ptr<const PreparedPetDetail> renderedPreparedDetail_;
+  QString renderedDetailImagePath_;
+  bool renderedDetailNarrow_ = false;
   std::shared_ptr<const PreparedPetDetail> renderedAnalysisDetail_;
   QDateTime analysisObservedAt_;
   MaterialInventorySnapshot cultivationMaterials_;
@@ -172,6 +183,7 @@ private:
   int currentRaceId_ = 0;
   QString currentVisualKey_;
   int backpackPage_ = 0;
+  int backpackPageCount_ = -1;
   bool detailBatchPaused_ = false;
   bool detailBatchRunning_ = false;
   int detailCompleted_ = 0;

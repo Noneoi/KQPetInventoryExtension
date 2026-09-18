@@ -7,6 +7,7 @@
 #include <cstring>
 #include "client_target.h"
 #include "remote_module.h"
+#include "command_line.h"
 #include "data_root_config.h"
 #include "target_check.h"
 #include "startup_channel.h"
@@ -14,6 +15,7 @@
 #include "version.h"
 
 namespace {
+using kqpet::launcher::quoteArgument;
 using kqpet::startup::Channel;
 using kqpet::startup::State;
 std::wstring canonical(const std::wstring& path) {
@@ -24,18 +26,6 @@ std::wstring canonical(const std::wstring& path) {
 bool samePath(const std::wstring& a, const std::wstring& b) {
   const auto first = canonical(a), second = canonical(b);
   return !first.empty() && !second.empty() && !_wcsicmp(first.c_str(), second.c_str());
-}
-std::wstring quoteArgument(const std::wstring& input) {
-  std::wstring output = L"\"";
-  std::size_t slashes = 0;
-  for (wchar_t c : input) {
-    if (c == L'\\') { ++slashes; continue; }
-    if (c == L'\"') { output.append(slashes * 2 + 1, L'\\'); output += c; }
-    else { output.append(slashes, L'\\'); output += c; }
-    slashes = 0;
-  }
-  output.append(slashes * 2, L'\\');
-  return output + L"\"";
 }
 void showError(const std::wstring& text) {
   MessageBoxW(nullptr, text.c_str(), L"KQPet 扩展启动状态", MB_OK | MB_ICONWARNING);

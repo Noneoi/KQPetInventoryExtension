@@ -35,7 +35,6 @@ public:
                       int role = Qt::DisplayRole) const override;
 
   void setRecommendations(const QList<ActionRecommendation>& recommendations);
-  const ActionRecommendation* recommendationAt(int row) const;
 
 private:
   QList<ActionRecommendation> recommendations_;

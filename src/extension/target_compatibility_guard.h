@@ -57,7 +57,8 @@ public:
   // the extension calls into Qt or constructs any extension business object.
   static TargetCompatibilityReport evaluate();
   // Read-only resolution in a mapped PE image. Supplying its extent also
-  // permits offline regression tests without loading or running a client.
+  // permits offline regression tests without loading or running a client
+  // (tests/target_profile_smoke.cpp is the only caller).
   static CompatibilityEndpoint resolveEndpoint(const void* image,
                                                 std::size_t mappedSize,
                                                 const TargetEndpointProfile& profile);

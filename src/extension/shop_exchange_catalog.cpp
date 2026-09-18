@@ -422,10 +422,6 @@ QList<ShopExchangeGood> ShopExchangeCatalog::onlineGoods(const QDate& date) cons
   return result;
 }
 
-QJsonObject ShopExchangeCatalog::itemObject(const QJsonObject& packet, const ShopExchangeGood& good) {
-  return shopItemObject(packet, good);
-}
-
 int ShopExchangeCatalog::usedCount(const QJsonObject& packet, const ShopExchangeGood& good) {
   return shopUsedCount(packet, good);
 }

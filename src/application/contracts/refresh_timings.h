@@ -1,7 +1,9 @@
 #pragma once
 // Application command/preferences value. GUI has no controller dependency.
 struct RefreshTimings {
-  int automaticIntervalMs = 60000; // Legacy preference only; automatic querying is disabled.
+  // Stored for settings compatibility only. Nothing schedules a read because
+  // time passed: every query follows a manual refresh or a pet selection.
+  int automaticIntervalMs = 60000;
   int listRequestGapMs = 1000;
   int listTimeoutMs = 10000;
   int detailRequestGapMs = 1000;

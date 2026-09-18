@@ -23,14 +23,12 @@ public:
 
   using Sender = std::function<bool(const QString&, const QString&, const QString&)>;
   using FlashInvoker = std::function<bool(const QString&, const QString&)>;
-  using WriteSender = std::function<SubmissionOutcome(const QString&, const QString&, const QString&)>;
   using WriteFlashInvoker = std::function<SubmissionOutcome(const QString&, const QString&)>;
 
   explicit PetRefreshController(PetRepository* repository, QObject* parent = nullptr);
   ~PetRefreshController() override;
   void setSender(Sender sender);
   void setFlashInvoker(FlashInvoker invoker);
-  void setWriteSender(WriteSender sender) { writeSender_ = std::move(sender); }
   void setWriteFlashInvoker(WriteFlashInvoker invoker) { writeFlashInvoker_ = std::move(invoker); }
   void setAsyncSender(AsyncSender sender) { asyncSender_ = std::move(sender); }
   MoveOutcome lastMoveOutcome() const { return lastMoveOutcome_; }
@@ -107,7 +105,6 @@ private:
   void sendWarehouseListRequest();
   void finishListPart(const QString& command, bool succeeded, const QString& reason = {});
   void maybeFinishListRefresh();
-  void scheduleAutomaticRefresh();
   void loadTimings();
   void saveTimings();
   QJsonObject timingsObject() const;
@@ -172,7 +169,6 @@ private:
   PetRepository* repository_ = nullptr;
   Sender sender_;
   FlashInvoker flashInvoker_;
-  WriteSender writeSender_;
   WriteFlashInvoker writeFlashInvoker_;
   AsyncSender asyncSender_;
   QHash<quint64, PendingDispatch> pendingDispatches_;
@@ -205,7 +201,6 @@ private:
   quint64 sessionGeneration_ = 0;
   quint64 nextRequestGeneration_ = 0;
 
-  QTimer automaticTimer_;
   QTimer listGapTimer_;
   QTimer backpackTimeoutTimer_;
   QTimer warehouseTimeoutTimer_;

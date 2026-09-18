@@ -32,7 +32,7 @@ struct Memory {
   int inflightEvents = 0, outstanding = 0;
   quint64 saved = 0, dropped = 0, failed = 0, admissionFailures = 0;
   bool attached = false, closing = false;
-  std::wstring lastCode, report, path, run;
+  std::wstring lastCode, report, run;
   std::string salt;
 };
 // Retained until process exit, including when a final disk write outlives Core.
@@ -160,7 +160,7 @@ void consume(const std::shared_ptr<IoState>& io, QObject* root, bool final) {
       {
         std::lock_guard<std::mutex> guard(m.mutex);
         m.pendingBytes -= reserved; m.inflightEvents -= static_cast<int>(batch.size());
-        m.saved += saved; m.failed += failed; m.path = io->store->currentPath().toStdWString();
+        m.saved += saved; m.failed += failed;
         if (!code.isEmpty()) m.lastCode = code.toStdWString();
       }
       consumed += reserved;
@@ -288,4 +288,3 @@ QString DiagnosticLogger::diagnosticText() {
   for (const auto& e : m.recent) text += QString::fromUtf8(encode(e));
   return text;
 }
-QString DiagnosticLogger::logPath() { auto& m = memory(); std::lock_guard<std::mutex> guard(m.mutex); return q(m.path); }

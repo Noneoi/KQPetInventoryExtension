@@ -31,6 +31,27 @@ QString petProtocolName(const QJsonObject& pet) {
   return pet.value(QStringLiteral("n")).toString().trimmed();
 }
 
+QString petDisplayName(const QJsonObject& pet) {
+  const QString custom = pet.value(QStringLiteral("customName")).toString().trimmed();
+  if (!custom.isEmpty()) return custom;
+  const QString name = petProtocolName(pet);
+  if (!name.isEmpty()) return name;
+  const QString original = pet.value(QStringLiteral("_metaOriginalName")).toString().trimmed();
+  return original.isEmpty() ? QStringLiteral("未知精灵") : original;
+}
+
+QString petWarehouseGroupName(const QString& group) {
+  if (group == QStringLiteral("elite")) return QStringLiteral("精英仓库");
+  if (group == QStringLiteral("goodbye")) return QStringLiteral("告别仓库");
+  return QStringLiteral("普通仓库");
+}
+
+QString petLocationText(const QJsonObject& pet) {
+  if (pet.value(QStringLiteral("_location")).toString() == QStringLiteral("backpack"))
+    return QStringLiteral("背包");
+  return petWarehouseGroupName(pet.value(QStringLiteral("_warehouseGroup")).toString());
+}
+
 QString petVisualKey(const QJsonObject& pet) {
   const int raceId = petRaceId(pet);
   const int faceId = petFaceId(pet);

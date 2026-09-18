@@ -267,8 +267,6 @@ int WorkbenchWindow::creationCount(WorkbenchPage page) const {
 }
 void WorkbenchWindow::setTargetValidator(TargetValidator value) { validator_ = std::move(value); }
 void WorkbenchWindow::setTargetHandler(TargetHandler value) { targetHandler_ = std::move(value); }
-void WorkbenchWindow::setSearchHandler(PageHandler value) { searchHandler_ = std::move(value); }
-void WorkbenchWindow::setSessionResetHandler(PageHandler value) { resetHandler_ = std::move(value); }
 
 QWidget* WorkbenchWindow::ensurePage(WorkbenchPage page) {
   const int index = pageIndex(page);
@@ -356,14 +354,12 @@ void WorkbenchWindow::focusSearch() {
   QWidget* current = page(currentPage_);
   if (!current) current = ensurePage(currentPage_);
   if (!current) return;
-  if (searchHandler_) { searchHandler_(current); return; }
   for (QLineEdit* search : current->findChildren<QLineEdit*>()) {
     if (search->isVisible() && search->isEnabled()) { search->setFocus(); search->selectAll(); return; }
   }
 }
 
 void WorkbenchWindow::resetPage(QWidget* page) {
-  if (resetHandler_) { resetHandler_(page); return; }
   if (page->metaObject()->indexOfMethod("resetSessionContext()") >= 0) {
     QMetaObject::invokeMethod(page, "resetSessionContext", Qt::DirectConnection);
     return;

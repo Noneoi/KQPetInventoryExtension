@@ -22,6 +22,8 @@ struct PacketContract {
   PacketAccess access = PacketAccess::Passive;
   PacketSnapshotSemantics snapshot = PacketSnapshotSemantics::None;
   PacketCorrelationStrength correlation = PacketCorrelationStrength::PassiveObserved;
+  // Documentation carried with the contract table, filled positionally by
+  // PacketContracts::all(); not read at runtime.
   QString responseShape;
   QString evidenceReference;
 };

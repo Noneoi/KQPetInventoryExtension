@@ -37,7 +37,6 @@ public:
   bool mergeJsonObject = false;
 
   bool loading() const { return loading_; }
-  bool pendingWrite() const { return dirty_ || !writes_.isEmpty(); }
   int pendingWriteCount() const { return writes_.size() + (dirty_ ? 1 : 0); }
   int pendingCount() const { return reads_.size() + writes_.size() + (readWanted_ ? 1 : 0) + (dirty_ ? 1 : 0); }
   QString error() const { return error_; }

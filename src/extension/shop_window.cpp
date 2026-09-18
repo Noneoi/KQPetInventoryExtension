@@ -69,13 +69,7 @@ QTableWidgetItem* textItem(const QString& text, bool emphasize = false) {
   return item;
 }
 
-QString displayName(const QJsonObject& pet) {
-  QString name = pet.value(QStringLiteral("customName")).toString().trimmed();
-  if (name.isEmpty()) name = pet.value(QStringLiteral("n")).toString().trimmed();
-  if (name.isEmpty()) name = pet.value(QStringLiteral("_metaOriginalName")).toString().trimmed();
-  return name.isEmpty() ? QStringLiteral("未知精灵") : name;
-}
-
+// The backpack adds its grid position; everything else is the shared rule.
 QString locationText(const QJsonObject& pet) {
   if (pet.value(QStringLiteral("_location")).toString() == QStringLiteral("backpack")) {
     if (!pet.contains(QStringLiteral("_position"))) return QStringLiteral("背包");
@@ -83,9 +77,7 @@ QString locationText(const QJsonObject& pet) {
     return QStringLiteral("背包 第%1页第%2排")
         .arg(position / 12 + 1).arg(position % 12 / 6 + 1);
   }
-  return pet.value(QStringLiteral("_warehouseGroup")).toString() == QStringLiteral("elite")
-             ? QStringLiteral("精英仓库")
-             : QStringLiteral("普通仓库");
+  return petWarehouseGroupName(pet.value(QStringLiteral("_warehouseGroup")).toString());
 }
 
 QString html(const QString& text) { return text.toHtmlEscaped(); }
@@ -217,7 +209,7 @@ ShopWindow::ShopWindow(InventoryReadView* repository, QWidget* parent, PetImageC
     const QJsonObject pet = repository_->detailFor(currentInstanceId_);
     const PetMetadataView catalog(repository_->metadataSnapshot());
     ensureImageCache();
-    imageCache_->ensurePetImage(pet, {displayName(pet), catalog.resolvedOriginalName(pet),
+    imageCache_->ensurePetImage(pet, {petDisplayName(pet), catalog.resolvedOriginalName(pet),
         catalog.petName(petRaceId(pet))}, petDetail_->devicePixelRatioF(), true);
   });
   connect(petDetail_, &QTextBrowser::anchorClicked, this, [this](const QUrl& url) {
@@ -769,7 +761,7 @@ void ShopWindow::rebuildEligiblePetIndex() {
     for (const QJsonObject& pet : pets) {
       const qint64 id = petInstanceId(pet);
       if (id <= 0 || petRowCache_.contains(id)) continue;
-      CachedPetRow row; row.brief = PetFactsUi::rowSummary(pet); row.name = displayName(row.brief);
+      CachedPetRow row; row.brief = PetFactsUi::rowSummary(pet); row.name = petDisplayName(row.brief);
       row.backpack = row.brief.value(QStringLiteral("_location")).toString() == QStringLiteral("backpack");
       petRowCache_.insert(id,std::move(row));
       const int currentRace = petRaceId(pet);
@@ -988,7 +980,7 @@ ShopWindow::CachedPetRow& ShopWindow::cachedPetRow(qint64 id) {
   if (row.brief.isEmpty() && repository_) {
     auto brief = repository_->backpackPet(id);
     if (brief.isEmpty()) brief = repository_->warehousePet(id);
-    row.brief = PetFactsUi::rowSummary(brief); row.name = displayName(row.brief);
+    row.brief = PetFactsUi::rowSummary(brief); row.name = petDisplayName(row.brief);
   }
   const auto facts = PetFactsUi::current(repository_,id);
   const auto& power = facts ? facts->facts.battlePower : PetBattlePowerState{};
@@ -1067,7 +1059,7 @@ void ShopWindow::showPetDetail(qint64 instanceId, bool requestLatest) {
     currentVisualKey_ = petVisualKey(pet);
     ensureImageCache();
     const QString imagePath = imageCache_ ? imageCache_->ensurePetImage(
-        pet, {displayName(pet), catalog.resolvedOriginalName(pet),
+        pet, {petDisplayName(pet), catalog.resolvedOriginalName(pet),
               catalog.petName(petRaceId(pet))}, petDetail_->devicePixelRatioF()) : QString();
     const ShopPetEligibility eligibility = eligibilityFor(instanceId);
     currentEligibility_.insert(instanceId,eligibility);
@@ -1079,7 +1071,7 @@ void ShopWindow::showPetDetail(qint64 instanceId, bool requestLatest) {
     const auto prepared = repository_->preparedDetail(1, instanceId);
     QString rendered = prepared ? PreparedPetDetailRenderer::render(prepared, imagePath,
         petDetail_->viewport()->width() < 440, pendingDetailId_ == instanceId)
-        : PreparedPetDetailRenderer::waiting(displayName(pet), repository_->detailPreparationError(1));
+        : PreparedPetDetailRenderer::waiting(petDisplayName(pet), repository_->detailPreparationError(1));
     const QDateTime savedAt = repository_->detailSavedAt(instanceId);
     const QString qualification = QStringLiteral(
         "<table width='100%' cellpadding='9' cellspacing='0' bgcolor='%1'><tr><td style='color:white;font-size:14px;'>"
@@ -1111,11 +1103,11 @@ void ShopWindow::updateCurrentDetail(qint64 instanceId) {
   if (pet.isEmpty()) return;
   const auto brief = PetFactsUi::rowSummary(pet);
   auto old = petRowCache_.find(instanceId);
-  const bool membershipOrOrderChanged = old == petRowCache_.end() || old->name != displayName(brief) ||
+  const bool membershipOrOrderChanged = old == petRowCache_.end() || old->name != petDisplayName(brief) ||
       petRaceId(old->brief) != petRaceId(brief) ||
       old->brief.value(QStringLiteral("_metaRaceId")) != brief.value(QStringLiteral("_metaRaceId")) ||
       old->brief.value(QStringLiteral("_location")) != brief.value(QStringLiteral("_location"));
-  if (old != petRowCache_.end()) { old->brief = brief; old->name = displayName(brief); old->values.clear(); }
+  if (old != petRowCache_.end()) { old->brief = brief; old->name = petDisplayName(brief); old->values.clear(); }
   currentEligibility_.remove(instanceId);
   if (membershipOrOrderChanged) { petIndexDirty_ = true; scheduleRebuild(); }
   if (!currentGood_.hasIdentity()) return;

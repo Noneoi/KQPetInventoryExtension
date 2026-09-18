@@ -23,7 +23,6 @@ public:
   using PageFactory = std::function<QWidget*(WorkbenchPage, QWidget*)>;
   using TargetValidator = std::function<bool(const NavigationTarget&)>;
   using TargetHandler = std::function<bool(QWidget*, const NavigationTarget&)>;
-  using PageHandler = std::function<void(QWidget*)>;
 
   explicit WorkbenchWindow(PageFactory factory, QWidget* parent = nullptr,
                            const WorkbenchOptions& options = {});
@@ -33,8 +32,6 @@ public:
   bool sidebarCollapsed() const { return collapsed_; }
   void setTargetValidator(TargetValidator validator);
   void setTargetHandler(TargetHandler handler);
-  void setSearchHandler(PageHandler handler);
-  void setSessionResetHandler(PageHandler handler);
   void setAvailableLogicalSize(const QSize& size);
 
 public slots:
@@ -69,8 +66,6 @@ private:
   PageFactory factory_;
   TargetValidator validator_;
   TargetHandler targetHandler_;
-  PageHandler searchHandler_;
-  PageHandler resetHandler_;
   WorkbenchOptions options_;
   WorkbenchSession session_;
   quint64 sessionRevision_ = 0;

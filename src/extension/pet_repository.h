@@ -48,7 +48,6 @@ public:
   QJsonObject warehousePet(qint64 instanceId) const;
   QList<qint64> backpackIds(int packType = 0) const;
   int backpackCapacity(int packType = 0) const;
-  bool preserveBackpackDetail(qint64 instanceId);
   quint64 preserveBackpackDetailAsync(qint64 instanceId);
   QList<qint64> warehouseIdsByDetailAge() const;
   bool hasCachedDetail(qint64 instanceId) const;
@@ -193,7 +192,6 @@ private:
   static QJsonObject inventoryBrief(const QJsonObject& pet, bool backpack);
   static bool calculationOverlayDiffers(const QJsonObject& before, const QJsonObject& after);
   static bool calculationProjectionMatchesRaw(const QJsonObject& raw, const QJsonObject& brief);
-  QJsonObject residentDetail(qint64 instanceId) const;
   bool admitRawRecords(const QList<RawPetRecordInput>& inputs, bool network);
   void reviseRawBrief(qint64 instanceId, const QJsonObject& brief, bool sourceKnown);
   void announceRaw(qint64 instanceId);

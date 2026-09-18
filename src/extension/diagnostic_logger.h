@@ -35,7 +35,6 @@ public:
   // No unsalted fallback; unavailable until IO obtains the installation salt.
   static QString maskedAccount(const QString& account);
   static QString diagnosticText();
-  static QString logPath();
 private:
   static void write(const wchar_t*, const std::wstring&, const std::wstring&, bool);
 };

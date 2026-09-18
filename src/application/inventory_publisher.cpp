@@ -132,7 +132,10 @@ void InventoryPublisher::setDetailService(PetDetailPreparationService* service, 
       QJsonObject brief = repository_->briefFor(id);
       QJsonObject fields;
       for (auto it = brief.constBegin(); it != brief.constEnd(); ++it)
-        if (it.key().startsWith("_meta") || QStringList{"id","r","ri","fr","n","customName","lv","zdl","xzdl"}.contains(it.key()))
+        // The roster location fields say whether this account holds the related
+        // pet and where, which its own relation rows report to the reader.
+        if (it.key().startsWith("_meta") ||
+            QStringList{"id","r","ri","fr","n","customName","lv","zdl","xzdl","_location","_warehouseGroup"}.contains(it.key()))
           fields.insert(it.key(), it.value());
       values.append({id, brief.isEmpty() ? 0 : summaryRevision(id, brief), !brief.isEmpty(), fields});
     }
@@ -155,7 +158,7 @@ void InventoryPublisher::setDetailService(PetDetailPreparationService* service, 
   });
 }
 void InventoryPublisher::selectDetail(int consumer, qint64 id) {
-  if (!detailService_ || consumer < 0 || consumer > 1) return;
+  if (!detailService_ || consumer < 0 || consumer >= kDetailConsumerCount) return;
   const DetailSelection selection{repository_->accountKey(), repository_->sessionGeneration(), id};
   if (id > 0 && detailSelections_.value(consumer) == selection && !detailErrors_.contains(consumer)) return;
   for (auto it = waitingDetails_.begin(); it != waitingDetails_.end();) {
@@ -254,7 +257,9 @@ void InventoryPublisher::detailDependenciesChanged(const QSet<qint64>& ids) {
 
 void InventoryPublisher::setDetailInterests(const QSet<qint64>& ids) {
   Q_ASSERT(thread() == QThread::currentThread());
-  if (ids.size() > 2) return;
+  // One instance per detail consumer at most. A larger set means the GUI and
+  // this publisher disagree about how many slots exist, so nothing is pinned.
+  if (ids.size() > kDetailConsumerCount) return;
   const auto changed = detailInterests_ | ids;
   detailInterests_ = ids;
   for (auto id : changed) requestPublication(false, id);

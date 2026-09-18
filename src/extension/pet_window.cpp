@@ -52,8 +52,22 @@
 
 #include <algorithm>
 #include <climits>
+#include <vector>
 
 namespace {
+
+// The pet window has always labelled a pet with the name the server sent, and
+// falls back to a visible placeholder rather than to the player's nickname.
+// That is deliberately not petDisplayName(), which prefers the nickname.
+QString serverName(const QJsonObject& pet) {
+  const QString name = pet.value(QStringLiteral("n")).toString();
+  return name.isEmpty() ? QStringLiteral("未返回名称") : name;
+}
+
+// The related-pet popup's own detail slot, beside 0 (selected pet) and 1 (shop).
+constexpr int kRelatedDetailConsumer = 2;
+static_assert(kRelatedDetailConsumer < kDetailConsumerCount,
+              "the related-pet popup needs its own detail consumer slot");
 
 class SearchHighlightDelegate final : public QStyledItemDelegate {
 public:
@@ -127,15 +141,19 @@ void resizeModelViewColumns(QTableView* table) {
   if (!table || !table->model()) return;
   const int count = table->model()->columnCount();
   const int available = qMax(0, table->viewport()->width());
-  if (!available || (count != 8 && count != 9)) return;
+  if (!available || count <= 0) return;
   // Fit the entire table to its own viewport. Long names keep their full text
   // in the tooltip, while every field and heading stays on screen.
   const int backpackWeights[]{176,176,76,110,48,42,128,56,78};
   const int warehouseWeights[]{192,192,76,110,48,42,128,78};
-  const int* weights = count == 9 ? backpackWeights : warehouseWeights;
+  // A column count this function does not know about still has to be laid out:
+  // an even split is not pretty, but it beats leaving default widths behind.
+  const std::vector<int> evenWeights(std::size_t(count), 100);
+  const int* weights = count == 9 ? backpackWeights
+      : count == 8 ? warehouseWeights : evenWeights.data();
   int totalWeight = 0;
   for (int column=0; column<count; ++column) totalWeight += weights[column];
-  const int powerColumn = PetTableModel::BattlePowerColumn;
+  const int powerColumn = count == 8 || count == 9 ? int(PetTableModel::BattlePowerColumn) : 0;
   const int powerWidth = qMin(qMax(available*weights[powerColumn]/totalWeight,
       table->fontMetrics().horizontalAdvance(QStringLiteral("99999 / 99999（至高）")) + 12),
       available/3);
@@ -165,7 +183,7 @@ private:
   QTableView* table_;
 };
 
-void configurePetTable(QTableView* table, bool) {
+void configurePetTable(QTableView* table) {
   table->setSelectionBehavior(QAbstractItemView::SelectRows);
   table->setSelectionMode(QAbstractItemView::SingleSelection);
   table->setStyleSheet(QStringLiteral(
@@ -199,7 +217,7 @@ QTableWidget* makeTable(QWidget* parent, bool backpack = false) {
   headers.append(QStringLiteral("位置"));
   table->setColumnCount(headers.size());
   table->setHorizontalHeaderLabels(headers);
-  configurePetTable(table, backpack);
+  configurePetTable(table);
   return table;
 }
 
@@ -221,22 +239,6 @@ void addSortChoices(QComboBox* box) {
   box->addItem(QStringLiteral("极限战斗力"), static_cast<int>(PetSortMode::ExtremePower));
   box->addItem(QStringLiteral("图鉴序列"), static_cast<int>(PetSortMode::CatalogSequence));
   box->addItem(QStringLiteral("获得时间"), static_cast<int>(PetSortMode::ObtainedAt));
-}
-
-QString gridPositionText(const QJsonObject& pet, const QString& location) {
-  if (location != QStringLiteral("backpack")) {
-    return pet.value(QStringLiteral("_warehouseGroup")).toString() ==
-                   QStringLiteral("elite")
-               ? QStringLiteral("精英")
-               : QStringLiteral("普通");
-  }
-  if (!pet.contains(QStringLiteral("_position")))
-    return QStringLiteral("待刷新");
-  const int index = qMax(0, pet.value(QStringLiteral("_position")).toInt());
-  const int page = index / 12 + 1;
-  const int positionOnPage = index % 12;
-  const int row = positionOnPage / 6 + 1;
-  return QStringLiteral("第%1页 第%2排").arg(page).arg(row);
 }
 
 }  // namespace
@@ -409,8 +411,8 @@ PetWindow::PetWindow(InventoryReadView* repository, QWidget* parent, PetImageCac
   eliteWarehouseProxy_->setSourceModel(eliteWarehouseModel_);
   warehouseTable_->setModel(warehouseProxy_);
   eliteWarehouseTable_->setModel(eliteWarehouseProxy_);
-  configurePetTable(warehouseTable_, false);
-  configurePetTable(eliteWarehouseTable_, false);
+  configurePetTable(warehouseTable_);
+  configurePetTable(eliteWarehouseTable_);
   warehouseTabs_->addTab(warehouseTable_, QStringLiteral("普通仓库"));
   warehouseTabs_->addTab(eliteWarehouseTable_, QStringLiteral("精英仓库"));
   warehouseLayout->addWidget(warehouseTabs_, 1);
@@ -436,12 +438,15 @@ PetWindow::PetWindow(InventoryReadView* repository, QWidget* parent, PetImageCac
     if (currentId_ <= 0) return;
     const QJsonObject pet = repository_->detailFor(currentId_);
     const PetMetadataView catalog(repository_->metadataSnapshot());
-    imageCache_->ensurePetImage(pet, {pet.value(QStringLiteral("n")).toString(), displayName(pet),
+    imageCache_->ensurePetImage(pet, {pet.value(QStringLiteral("n")).toString(), serverName(pet),
         catalog.petName(petRaceId(pet)), catalog.resolvedOriginalName(pet)}, detailView_->devicePixelRatioF(), true);
   });
   connect(detailView_, &QTextBrowser::anchorClicked, this, [this](const QUrl& url) {
+    if (!repository_) return;
+    qint64 related = 0;
+    if (PreparedPetDetailRenderer::petLink(url, &related)) { showRelatedPetDetail(related); return; }
     DetailSection section; int page = 0;
-    if (repository_ && PreparedPetDetailRenderer::pageLink(url, &section, &page)) {
+    if (PreparedPetDetailRenderer::pageLink(url, &section, &page)) {
       renderedDetailId_ = 0;
       repository_->requestDetailPage(0, section, page);
     }
@@ -476,7 +481,7 @@ PetWindow::PetWindow(InventoryReadView* repository, QWidget* parent, PetImageCac
     // Online refresh remains exclusively behind the existing pet/list actions.
     repository_->watchDetail(0, currentId_);
     showAnalysis(repository_->preparedDetail(0, currentId_), currentId_,
-                 displayName(repository_->detailFor(currentId_)));
+                 serverName(repository_->detailFor(currentId_)));
   });
   connect(analysisView_, &QTextBrowser::anchorClicked, this, [this](const QUrl& url) {
     if (!repository_ || currentId_ <= 0 || url.scheme() != QStringLiteral("kqanalysis")) return;
@@ -688,6 +693,7 @@ void PetWindow::resetSessionContext() {
     setMoveRunning(false);
     setListRefreshRunning(false);
     setStatus(QStringLiteral("会话已更新，请重新选择精灵。"));
+    closeRelatedPetDetail();
     showDetail({});
     detailView_->verticalScrollBar()->setValue(0);
     rawTree_->verticalScrollBar()->setValue(0);
@@ -905,11 +911,6 @@ void PetWindow::setMoveRunning(bool running) {
   updateMoveButtons();
 }
 
-QString PetWindow::displayName(const QJsonObject& pet) const {
-  const QString name = pet.value(QStringLiteral("n")).toString();
-  return name.isEmpty() ? QStringLiteral("未返回名称") : name;
-}
-
 void PetWindow::fillTable(QTableWidget* table, const QList<QJsonObject>& pets,
                           const QString& location) {
   const QSignalBlocker blocker(table);
@@ -931,7 +932,13 @@ void PetWindow::fillRow(QTableWidget* table, int row, const QJsonObject& pet,
       : pet.value(QStringLiteral("_warehouseGroup")).toString() == QStringLiteral("elite")
           ? eliteWarehouseModel_ : warehouseModel_;
   const int sourceRow = source->rowForInstanceId(id);
-  if (sourceRow < 0) return;
+  // A row whose model entry disappeared must not keep the previous pet's text
+  // and instance id, or clicking it would select a pet that is not shown.
+  if (sourceRow < 0) {
+    for (int column = 0; column < table->columnCount(); ++column)
+      if (QTableWidgetItem* stale = table->item(row, column)) { stale->setText({}); stale->setData(Qt::UserRole, 0); }
+    return;
+  }
   for (int column = 0; column < source->columnCount(); ++column) {
     const QModelIndex index = source->index(sourceRow, column);
     QTableWidgetItem* item = table->item(row, column);
@@ -1113,6 +1120,16 @@ void PetWindow::refreshViews(bool rebuildChoices) {
 }
 
 void PetWindow::rebuildPageButtons(int pageCount) {
+  if (pageCount == backpackPageCount_) {
+    // Same pagination as last time, so only the highlighted page can differ.
+    int page = 0;
+    for (int index = 0; index < backpackPages_->count(); ++index) {
+      if (auto* button = qobject_cast<QPushButton*>(backpackPages_->itemAt(index)->widget()))
+        button->setChecked(page++ == backpackPage_);
+    }
+    return;
+  }
+  backpackPageCount_ = pageCount;
   while (QLayoutItem* item = backpackPages_->takeAt(0)) {
     if (item->widget()) item->widget()->deleteLater();
     delete item;
@@ -1193,8 +1210,93 @@ void PetWindow::selectWarehouse(const QModelIndex& index) {
 
 void PetWindow::updateCurrentDetail(qint64 instanceId) {
   updateWarehouseRow(instanceId);
+  if (relatedId_ > 0 && instanceId == relatedId_) refreshRelatedPetDetail();
   if (instanceId == currentId_)
     showDetail(repository_->detailFor(instanceId));
+}
+
+// The popup runs on its own detail consumer, so the selected pet in the main
+// panel keeps its prepared detail while a related pet is being read.
+void PetWindow::showRelatedPetDetail(qint64 instanceId) {
+  if (!repository_ || instanceId <= 0) return;
+  QJsonObject pet = repository_->backpackPet(instanceId);
+  if (pet.isEmpty()) pet = repository_->warehousePet(instanceId);
+  if (pet.isEmpty()) {
+    setStatus(QStringLiteral("实例 %1 不在本账号的背包或仓库，没有可显示的详情。").arg(instanceId));
+    return;
+  }
+  if (!relatedDialog_) {
+    auto* dialog = new QDialog(this);
+    dialog->setObjectName(QStringLiteral("KQRelatedPetDetail"));
+    dialog->setWindowTitle(QStringLiteral("关联精灵详情"));
+    dialog->resize(560, 660);
+    auto* layout = new QVBoxLayout(dialog);
+    layout->setContentsMargins(8, 8, 8, 8);
+    relatedTitle_ = new QLabel(dialog);
+    relatedTitle_->setObjectName(QStringLiteral("KQRelatedPetDetailTitle"));
+    relatedTitle_->setWordWrap(true);
+    relatedTitle_->setTextInteractionFlags(Qt::TextSelectableByMouse);
+    layout->addWidget(relatedTitle_);
+    relatedView_ = new PetImageBrowser(dialog);
+    relatedView_->setObjectName(QStringLiteral("KQRelatedPetDetailView"));
+    relatedView_->setOpenLinks(false);
+    relatedView_->setOpenExternalLinks(false);
+    layout->addWidget(relatedView_, 1);
+    connect(relatedView_, &QTextBrowser::anchorClicked, this, [this](const QUrl& url) {
+      if (!repository_) return;
+      qint64 related = 0;
+      // A relation inside the popup retargets the same popup rather than
+      // opening an unbounded stack of windows.
+      if (PreparedPetDetailRenderer::petLink(url, &related)) { showRelatedPetDetail(related); return; }
+      DetailSection section; int page = 0;
+      if (relatedId_ > 0 && PreparedPetDetailRenderer::pageLink(url, &section, &page)) {
+        renderedRelatedDetail_.reset();
+        repository_->requestDetailPage(kRelatedDetailConsumer, section, page);
+      }
+    });
+    connect(dialog, &QDialog::finished, this, [this](int) { closeRelatedPetDetail(); });
+    relatedDialog_ = dialog;
+  }
+  relatedId_ = instanceId;
+  renderedRelatedDetail_.reset();
+  repository_->watchDetail(kRelatedDetailConsumer, instanceId);
+  refreshRelatedPetDetail();
+  relatedDialog_->show();
+  relatedDialog_->raise();
+  relatedDialog_->activateWindow();
+}
+
+void PetWindow::refreshRelatedPetDetail() {
+  if (!relatedDialog_ || !relatedView_ || !relatedTitle_ || !repository_ || relatedId_ <= 0) return;
+  QJsonObject pet = repository_->backpackPet(relatedId_);
+  if (pet.isEmpty()) pet = repository_->warehousePet(relatedId_);
+  const PetMetadataView catalog(repository_->metadataSnapshot());
+  const int raceId = petRaceId(pet);
+  QString name = pet.value(QStringLiteral("n")).toString();
+  if (name.isEmpty()) name = catalog.petName(raceId);
+  const QString originalName = catalog.resolvedOriginalName(pet);
+  relatedTitle_->setText(QStringLiteral("%1　原名 %2　实例 %3")
+      .arg(serverName(pet), originalName.isEmpty() ? QStringLiteral("待确认") : originalName)
+      .arg(relatedId_));
+  const QString imagePath = imageCache_
+      ? imageCache_->ensurePetImage(pet, {name, serverName(pet), catalog.petName(raceId), originalName},
+                                    relatedView_->devicePixelRatioF())
+      : QString();
+  const auto prepared = repository_->preparedDetail(kRelatedDetailConsumer, relatedId_);
+  if (prepared && prepared == renderedRelatedDetail_) return;
+  const QString html = prepared
+      ? PreparedPetDetailRenderer::render(prepared, imagePath, true)
+      : PreparedPetDetailRenderer::waiting(name, repository_->detailPreparationError(kRelatedDetailConsumer));
+  if (imageCache_) imageCache_->setDocumentImage(relatedView_, html, imagePath);
+  else relatedView_->setHtml(html);
+  renderedRelatedDetail_ = prepared;
+}
+
+void PetWindow::closeRelatedPetDetail() {
+  if (repository_ && relatedId_ > 0) repository_->watchDetail(kRelatedDetailConsumer, 0);
+  relatedId_ = 0;
+  renderedRelatedDetail_.reset();
+  if (relatedDialog_) relatedDialog_->hide();
 }
 
 void PetWindow::updateCurrentImage(const QString& visualKey, const QString& url) {
@@ -1213,6 +1315,7 @@ void PetWindow::showDetail(const QJsonObject& pet) {
     currentVisualKey_.clear();
     renderedDetailId_ = 0;
     renderedPreparedDetail_.reset();
+    renderedDetailImagePath_.clear();
     renderedAnalysisDetail_.reset();
     analysisObservedAt_ = {};
     ++analysisRenderGeneration_;
@@ -1236,10 +1339,17 @@ void PetWindow::showDetail(const QJsonObject& pet) {
     name = catalog.petName(raceId);
   const QString originalName = catalog.resolvedOriginalName(pet);
   const QString imagePath = imageCache_->ensurePetImage(
-      pet, {name, displayName(pet), catalog.petName(raceId), originalName}, detailView_->devicePixelRatioF());
+      pet, {name, serverName(pet), catalog.petName(raceId), originalName}, detailView_->devicePixelRatioF());
   const auto prepared = repository_->preparedDetail(0, id);
   const qint64 nextDetailId = id > 0 ? id : currentId_;
   showAnalysis(prepared, nextDetailId, name);
+  const bool narrow = detailView_->viewport()->width() < 440;
+  // Re-selecting the same row, or any refresh that produced the very same
+  // preparation, would otherwise rebuild and re-lay-out the whole document —
+  // visibly, because that resets the scroll position.
+  if (prepared && prepared == renderedPreparedDetail_ && renderedDetailId_ == nextDetailId &&
+      imagePath == renderedDetailImagePath_ && narrow == renderedDetailNarrow_)
+    return;
   const auto currentKey = repository_->recordVersion(nextDetailId).key;
   if (!prepared && renderedPreparedDetail_ && renderedDetailId_ == nextDetailId &&
       renderedPreparedDetail_->version.facts.record.account == currentKey.account &&
@@ -1255,10 +1365,12 @@ void PetWindow::showDetail(const QJsonObject& pet) {
                                      pendingDetailScrollId_ == nextDetailId
                                  ? pendingDetailScroll_
                                  : visibleScroll;
-  const auto rendered = prepared ? PreparedPetDetailRenderer::render(prepared, imagePath, detailView_->viewport()->width() < 440)
+  const auto rendered = prepared ? PreparedPetDetailRenderer::render(prepared, imagePath, narrow)
       : PreparedPetDetailRenderer::waiting(name, repository_->detailPreparationError(0));
   imageCache_->setDocumentImage(detailView_, rendered, imagePath);
   renderedPreparedDetail_ = prepared;
+  renderedDetailImagePath_ = imagePath;
+  renderedDetailNarrow_ = narrow;
   renderedDetailId_ = nextDetailId;
   const quint64 renderGeneration = ++detailRenderGeneration_;
   if (preserveScroll) {
@@ -1331,5 +1443,5 @@ void PetWindow::setCultivationMaterials(const MaterialInventorySnapshot& materia
       : materials.observedAt.isValid() ? QStringLiteral("更新于 %1").arg(materials.observedAt.toLocalTime().toString(QStringLiteral("yyyy-MM-dd HH:mm")))
                                       : QStringLiteral("材料数量未读取"));
   if (repository_ && currentId_ > 0) showAnalysis(repository_->preparedDetail(0,currentId_),currentId_,
-      displayName(repository_->detailFor(currentId_)));
+      serverName(repository_->detailFor(currentId_)));
 }

@@ -40,13 +40,16 @@ int main(int argc, char** argv) {
   QObject::connect(service.get(),&PetDetailPreparationService::relatedSummariesNeeded,service.get(),[&](quint64 task,const QVector<qint64>& ids) { QVector<DetailRelatedSummary> values; for (auto id : ids) values.append({id,summaryRevision,true,{{QStringLiteral("id"),QString::number(id)},{QStringLiteral("n"),QStringLiteral("related %1").arg(summaryRevision)}}}); service->provideRelatedSummaries(task,std::move(values)); });
   QObject::connect(service.get(),&PetDetailPreparationService::ready,service.get(),[&](int consumer,quint64,const PreparedPetDetailHandle& detail) { output[consumer] = detail; ++published; });
   const auto drain = [&](int target) { return wait([&] { compute.one(); return published >= target && service->stats().activeTasks == 0; }); };
-  ok &= check(service->request(0,{QStringLiteral("A"),1,101}).accepted && service->request(1,{QStringLiteral("A"),1,202}).accepted && !service->request(2,{QStringLiteral("A"),1,303}).accepted,"service did not enforce its two consumers");
-  ok &= check(drain(2) && output.size() == 2 && service->stats().selectedConsumers == 2,"two selected pages did not complete on the existing Compute loop");
+  ok &= check(service->request(0,{QStringLiteral("A"),1,101}).accepted && service->request(1,{QStringLiteral("A"),1,202}).accepted &&
+      service->request(2,{QStringLiteral("A"),1,303}).accepted && !service->request(kDetailConsumerCount,{QStringLiteral("A"),1,404}).accepted,
+      "service did not serve exactly its declared consumers");
+  ok &= check(drain(3) && output.size() == 3 && service->stats().selectedConsumers == 3,"three selected pages did not complete on the existing Compute loop");
+  service->release(2); output.remove(2);
   const auto beforeUnrelated = service->stats().postedSlices; service->summariesChanged({777777}); QCoreApplication::processEvents();
   ok &= check(service->stats().postedSlices == beforeUnrelated,"an unrelated summary invalidated visible details");
-  ++summaryRevision; service->summariesChanged({9001}); ok &= check(drain(4) && output[0]->version.relatedSummaryRevision == summaryRevision,"related summary changes did not invalidate both dependent views");
-  ++metadataRevision; service->invalidateMetadata(metadataRevision,{}); ok &= check(drain(6) && output[1]->version.facts.metadataRevision == metadataRevision,"metadata invalidation reused old detail facts");
-  service->requestPage(0,DetailSection::StargodBackpack,10); ok &= check(drain(7) && output[0]->pages.size() == 1 && output[0]->pages[0].entries.size() == 60,"late backpack page was truncated or unavailable");
+  ++summaryRevision; service->summariesChanged({9001}); ok &= check(drain(5) && output[0]->version.relatedSummaryRevision == summaryRevision,"related summary changes did not invalidate both dependent views");
+  ++metadataRevision; service->invalidateMetadata(metadataRevision,{}); ok &= check(drain(7) && output[1]->version.facts.metadataRevision == metadataRevision,"metadata invalidation reused old detail facts");
+  service->requestPage(0,DetailSection::StargodBackpack,10); ok &= check(drain(8) && output[0]->pages.size() == 1 && output[0]->pages[0].entries.size() == 60,"late backpack page was truncated or unavailable");
   DetailPage external = output[0]->pages[0]; const auto heldBytes = service->stats().retainedResultBytes;
   output.clear(); service->release(0); service->release(1); QCoreApplication::processEvents();
   ok &= check(service->stats().retainedResultBytes > 0 && service->stats().retainedResultBytes <= heldBytes && latestRaw.expired() && !latestFacts.expired(),"copied visible page lost its result/facts lease or retained raw JSON"); external = {};
@@ -115,6 +118,6 @@ int main(int argc, char** argv) {
   QObject::connect(&inlineService,&PetDetailPreparationService::inputsNeeded,&inlineService,[&](quint64 task,int,const DetailSelection& selection) { inlineService.provideInputs(task,input(selection)); });
   QObject::connect(&inlineService,&PetDetailPreparationService::failed,&inlineService,[&](int,quint64,DetailPreparationStatus status,const QString&) { executorRejected |= status == DetailPreparationStatus::ComputeUnavailable; });
   inlineService.request(0,{QStringLiteral("B"),1,1}); ok &= check(wait([&] { return executorRejected; }),"service executed detail preparation inline on Core");
-  if (ok) std::puts("PASS: shared two-consumer detail service, paging, related/meta invalidation, leased pages, 1000 replacements, epoch and nonwaiting shutdown");
+  if (ok) std::puts("PASS: shared multi-consumer detail service, paging, related/meta invalidation, leased pages, 1000 replacements, epoch and nonwaiting shutdown");
   return ok ? 0 : 1;
 }

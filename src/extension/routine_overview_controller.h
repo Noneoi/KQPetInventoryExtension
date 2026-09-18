@@ -38,7 +38,6 @@ public:
   QJsonObject cachedOpportunityPackets() const { return opportunityPackets_; }
   bool hasDailyPacket() const { return hasDailyPacket_; }
   bool hasRedPointPacket() const { return hasRedPointPacket_; }
-  bool hasObservedDailyPacket() const { return hasDailyPacket_; }
   void setObservationClock(ObservationClock clock);
   bool acceptPeriodValidityEvidence(const TrustedObservationValidity& evidence, QString* error = nullptr);
   bool checkFreshness();

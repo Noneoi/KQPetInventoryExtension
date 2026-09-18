@@ -109,7 +109,7 @@ struct PetDetailPreparationService::Impl {
     PreparedPetDetailHandle result;
     QSet<qint64> dependencies;
   };
-  std::array<Slot,2> consumers;
+  std::array<Slot,kDetailConsumerCount> consumers;
   std::shared_ptr<Work> active;
   DetailServiceStats counters;
   void schedule(int consumer) {
@@ -138,7 +138,7 @@ PetDetailPreparationService::~PetDetailPreparationService() { shutdown(); }
 DetailSubmission PetDetailPreparationService::request(int consumer, const DetailSelection& selection) {
   DetailSubmission result;
   if (impl_->state->closing.load()) { result.status = DetailPreparationStatus::Closing; return result; }
-  if (consumer < 0 || consumer >= 2 || selection.instanceId <= 0 || selection.account.isEmpty() || selection.account.size() > 1024 ||
+  if (consumer < 0 || consumer >= kDetailConsumerCount || selection.instanceId <= 0 || selection.account.isEmpty() || selection.account.size() > 1024 ||
       selection.account != impl_->account || selection.epoch != impl_->epoch) {
     result.error = QStringLiteral("invalid detail consumer, instance or session"); return result;
   }
@@ -154,7 +154,7 @@ DetailSubmission PetDetailPreparationService::request(int consumer, const Detail
 DetailSubmission PetDetailPreparationService::requestPage(int consumer, DetailSection section, int pageIndex) {
   DetailSubmission result;
   if (impl_->state->closing.load()) { result.status = DetailPreparationStatus::Closing; return result; }
-  if (consumer < 0 || consumer >= 2 || !impl_->consumers[consumer].id || !sectionValid(section) || pageIndex < 0 || pageIndex > 1000000 ||
+  if (consumer < 0 || consumer >= kDetailConsumerCount || !impl_->consumers[consumer].id || !sectionValid(section) || pageIndex < 0 || pageIndex > 1000000 ||
       ((section == DetailSection::Overview || section == DetailSection::CarryRelations) && pageIndex != 0)) { result.error = QStringLiteral("invalid detail page"); return result; }
   auto& slot = impl_->consumers[consumer]; slot.section = section; slot.pageIndex = pageIndex;
   impl_->schedule(consumer); result.requestId = slot.id; result.accepted = true; result.status = DetailPreparationStatus::Queued; emit stateChanged(); return result;
@@ -205,9 +205,9 @@ void PetDetailPreparationService::pump() {
   }
   if (!impl_->active) {
     int consumer = -1;
-    for (int i = 0; i < 2; ++i) { const int candidate = (impl_->nextConsumer + i) % 2; if (impl_->consumers[candidate].dirty) { consumer = candidate; break; } }
+    for (int i = 0; i < kDetailConsumerCount; ++i) { const int candidate = (impl_->nextConsumer + i) % kDetailConsumerCount; if (impl_->consumers[candidate].dirty) { consumer = candidate; break; } }
     if (consumer < 0) return;
-    auto& slot = impl_->consumers[consumer]; slot.dirty = false; impl_->nextConsumer = (consumer + 1) % 2;
+    auto& slot = impl_->consumers[consumer]; slot.dirty = false; impl_->nextConsumer = (consumer + 1) % kDetailConsumerCount;
     const quint64 reserve = slot.section == DetailSection::CarryRelations
         ? impl_->limits.preparation.expandedCarryResultBytes : impl_->limits.preparation.resultBytes;
     if (impl_->state->retained.load() + impl_->state->reserved.load() > impl_->limits.retainedResultBytes - reserve) {
@@ -288,10 +288,10 @@ void PetDetailPreparationService::releasedBudget() { if (!impl_->state->closing.
 void PetDetailPreparationService::invalidateMetadata(quint64 revision, const QByteArray& digest) {
   if (impl_->metadataRevision == revision && impl_->metadataDigest == digest) return;
   impl_->metadataRevision = revision; impl_->metadataDigest = digest;
-  for (int i = 0; i < 2; ++i) if (impl_->consumers[i].id) impl_->schedule(i);
+  for (int i = 0; i < kDetailConsumerCount; ++i) if (impl_->consumers[i].id) impl_->schedule(i);
 }
 void PetDetailPreparationService::summariesChanged(const QSet<qint64>& ids) {
-  for (int i = 0; i < 2; ++i) {
+  for (int i = 0; i < kDetailConsumerCount; ++i) {
     const auto& slot = impl_->consumers[i]; if (!slot.id) continue;
     bool affected = ids.contains(slot.selection.instanceId);
     for (auto id : ids) if (slot.dependencies.contains(id) || (impl_->active && impl_->active->consumer == i && impl_->active->dependencies.contains(id))) { affected = true; break; }
@@ -299,7 +299,7 @@ void PetDetailPreparationService::summariesChanged(const QSet<qint64>& ids) {
   }
 }
 void PetDetailPreparationService::release(int consumer) {
-  if (consumer < 0 || consumer >= 2) return;
+  if (consumer < 0 || consumer >= kDetailConsumerCount) return;
   if (impl_->active && impl_->active->consumer == consumer) impl_->active->cancelled->store(true);
   impl_->consumers[consumer] = {}; impl_->retry.start(0); emit stateChanged();
 }

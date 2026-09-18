@@ -143,7 +143,7 @@ PetDerivedFactsHandle InventoryProjection::derivedFactsFor(qint64 id) const {
 }
 void InventoryProjection::watchDetail(int consumer, qint64 id) {
   Q_ASSERT(thread() == QThread::currentThread());
-  if (consumer < 0 || consumer > 1) return;
+  if (consumer < 0 || consumer >= kDetailConsumerCount) return;
   if (id > 0 && !backpackRows_.contains(id) && !warehouseRows_.contains(id)) id = 0;
   if (detailInterests_.value(consumer) == id) return;
   if (id > 0) detailInterests_.insert(consumer, id); else detailInterests_.remove(consumer);
@@ -164,7 +164,7 @@ QString InventoryProjection::detailPreparationError(int consumer) const {
   return snapshot_ ? snapshot_->detailErrors.value(consumer) : QString{};
 }
 void InventoryProjection::requestDetailPage(int consumer, DetailSection section, int pageIndex) {
-  if (!snapshot_ || consumer < 0 || consumer > 1 || pageIndex < 0 || !detailInterests_.contains(consumer)) return;
+  if (!snapshot_ || consumer < 0 || consumer >= kDetailConsumerCount || pageIndex < 0 || !detailInterests_.contains(consumer)) return;
   emit detailPageRequested(snapshot_->account, snapshot_->sessionEpoch, consumer, section, pageIndex);
 }
 QString InventoryProjection::accountKey() const { return snapshot_ ? snapshot_->account : QString{}; }

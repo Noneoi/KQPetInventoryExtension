@@ -593,15 +593,6 @@ bool ShopExchangeController::requestCultivationMaterials() {
   return materialSent || sourceSent;
 }
 
-bool ShopExchangeController::updateCatalog() {
-  if (!catalogIo_ || !catalogIo_->requestOfficialUpdate(CatalogKind::Shop)) {
-    emit statusChanged(QStringLiteral("目录更新服务尚未就绪"));
-    return false;
-  }
-  emit statusChanged(QStringLiteral("正在后台读取官方兑换目录"));
-  return true;
-}
-
 void ShopExchangeController::handlePacket(const QString& method, const QString& payload) {
   QJsonObject packet;
   if (!PacketContracts::decodeObject(method, payload, &packet)) return;

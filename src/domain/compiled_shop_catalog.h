@@ -54,7 +54,6 @@ public:
   const QList<CompiledShopGood>& goods() const { return goods_; }
   const QList<qsizetype>& goodsForRace(int raceId) const;
   const QList<qsizetype>& allGoodIndexes() const { return allGoodIndexes_; }
-  const QHash<int, QList<qsizetype>>& raceIndex() const { return byRace_; }
   // Conservative logical retention including every race index/list capacity.
   // Updated incrementally by the builder; this getter performs no traversal.
   quint64 retainedBytes() const;

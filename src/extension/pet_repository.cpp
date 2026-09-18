@@ -24,14 +24,6 @@
 
 namespace {
 
-QString displayName(const QJsonObject& pet) {
-  const QString custom = pet.value(QStringLiteral("customName")).toString();
-  if (!custom.isEmpty()) return custom;
-  const QString name = pet.value(QStringLiteral("n")).toString();
-  if (!name.isEmpty()) return name;
-  return QStringLiteral("精灵 %1").arg(petRaceId(pet));
-}
-
 QString safeAccountName(const QString& account) {
   static const QRegularExpression safe(QStringLiteral("^[A-Za-z0-9_-]+$"));
   if (safe.match(account).hasMatch()) return account;
@@ -182,11 +174,13 @@ bool PetRepository::visualIdentityDiffers(const QJsonObject& detail,
   return !oldName.isEmpty() && !newName.isEmpty() && oldName != newName;
 }
 
+// Only a stable, reproducible order is needed here: every view re-sorts by its
+// own key, so a locale-aware name collation over the whole account would be
+// thrown away on each publication.
 QList<QJsonObject> PetRepository::sorted(const QHash<qint64, QJsonObject>& source) const {
   QList<QJsonObject> values = source.values();
   std::sort(values.begin(), values.end(), [](const QJsonObject& left, const QJsonObject& right) {
-    const int nameOrder = QString::localeAwareCompare(displayName(left), displayName(right));
-    return nameOrder == 0 ? petId(left) < petId(right) : nameOrder < 0;
+    return petId(left) < petId(right);
   });
   return values;
 }
@@ -245,13 +239,6 @@ QList<qint64> PetRepository::backpackIds(int packType) const {
 
 int PetRepository::backpackCapacity(int packType) const {
   return packCapacities_.value(packType, 0);
-}
-
-bool PetRepository::preserveBackpackDetail(qint64 instanceId) {
-  // A bool cannot wait for asynchronous durable storage. Keep this legacy
-  // query truthful; movement callers must use preserveBackpackDetailAsync.
-  return listObservationsAuthoritativeForWrite() && isDetailPersisted(instanceId) &&
-         rawRecordResident(instanceId);
 }
 
 quint64 PetRepository::preserveBackpackDetailAsync(qint64 instanceId) {
@@ -476,7 +463,9 @@ bool PetRepository::parseWarehouse(const QJsonObject& packet) {
     for (const QJsonObject& pet : candidate.pets) {
       const qint64 id = petId(pet);
       if (incomingIds.contains(id)) {
-        emit packetRejected(QStringLiteral("2_1_S"), QStringLiteral("duplicate instance across groups"));
+        emit packetRejected(QStringLiteral("2_1_S"),
+            QStringLiteral("duplicate instance across groups: %1 appears again in %2")
+                .arg(id).arg(QString::fromLatin1(group.name)));
         return false;
       }
       incomingIds.insert(id);
@@ -499,7 +488,12 @@ bool PetRepository::parseWarehouse(const QJsonObject& packet) {
       // A retained omitted/invalid group containing this instance makes the
       // partial packet ambiguous; do not silently delete either observation.
       if (replacement.contains(id)) {
-        emit packetRejected(QStringLiteral("2_1_S"), QStringLiteral("instance conflicts with retained group"));
+        // The retained group is the one this packet did not carry, so name it:
+        // otherwise the report cannot say which observation is being protected.
+        emit packetRejected(QStringLiteral("2_1_S"),
+            QStringLiteral("instance %1 in %2 conflicts with retained group %3")
+                .arg(id).arg(candidate.key(),
+                    replacement.value(id).value(QStringLiteral("_warehouseGroup")).toString()));
         return false;
       }
       const QJsonObject previous = hasCachedDetail(id) ? detailIdentities_.value(id) : warehouse_.value(id);
@@ -1707,10 +1701,6 @@ bool PetRepository::calculationProjectionMatchesRaw(const QJsonObject& raw, cons
   // cultivation. Any future non-scalar calculation overlay must be checked
   // here before it is added to the compact summary contract.
   return true;
-}
-QJsonObject PetRepository::residentDetail(qint64 id) const {
-  const auto raw = rawRecords_->acquire(accountKey_, sessionGeneration_, id);
-  return raw ? raw->object() : QJsonObject{};
 }
 QJsonObject PetRepository::recordBrief(qint64 id) const {
   return backpack_.contains(id) ? withDeploymentState(backpack_.value(id)) : warehouse_.value(id);

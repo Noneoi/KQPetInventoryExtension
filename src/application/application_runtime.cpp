@@ -652,7 +652,9 @@ void ApplicationRuntime::requestCacheAction(const QString& action, const QJsonOb
     QJsonObject request = options;
     if (inspect) {
       QJsonArray keys; QSet<QString> seen;
-      for (const auto& pet : services.repo->backpackBriefs() + services.repo->warehouseBriefs()) {
+      QList<QJsonObject> briefs = services.repo->backpackBriefs();
+      briefs.append(services.repo->warehouseBriefs());
+      for (const auto& pet : briefs) {
         const auto key = ImageService::storageKey(petVisualKey(pet));
         if (!key.isEmpty() && !seen.contains(key)) { keys.append(key); seen.insert(key); }
       }
@@ -674,7 +676,9 @@ void ApplicationRuntime::requestMissingImages() {
       return;
     }
     QList<ImageRequest> requests; QSet<QString> seen;
-    for (const auto& pet : services.repo->backpackBriefs() + services.repo->warehouseBriefs()) {
+    QList<QJsonObject> briefs = services.repo->backpackBriefs();
+    briefs.append(services.repo->warehouseBriefs());
+    for (const auto& pet : briefs) {
       ImageRequest request; request.visualKey = petVisualKey(pet);
       const auto key = ImageService::storageKey(request.visualKey);
       if (key.isEmpty() || petRaceId(pet) <= 0 || seen.contains(key)) continue;

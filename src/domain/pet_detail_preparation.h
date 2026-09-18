@@ -6,7 +6,6 @@
 struct DetailPreparationLimits {
   quint64 workingBytes = 16ULL * 1024 * 1024;
   quint64 resultBytes = 1024ULL * 1024;
-  quint64 pageBytes = 256ULL * 1024;
   quint64 expandedCarryResultBytes = 8ULL * 1024 * 1024;
   int maximumExpandedCarryItems = 16384;
   int maximumTextUnits = 32768;

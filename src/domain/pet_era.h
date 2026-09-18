@@ -39,6 +39,10 @@ struct PetEraSystems {
   bool astrolabe = false;
   bool sacred = false;
   bool sixTalentLanes = true;
+  // Set only when the era itself is unresolved. Neither lane layout can be
+  // assumed then, so every original property position is shown instead of
+  // silently hiding the four the chosen layout would leave out.
+  bool allTalentLanes = false;
 };
 PetEraSystems systemsForEra(PetEra era);
 bool eraHasComponent(PetEra era, const QString& key);

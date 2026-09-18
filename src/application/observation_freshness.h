@@ -49,7 +49,6 @@ public:
   quint64 revision() const { return revision_; }
   quint64 observationSequence(const QString& group) const;
   QDateTime observedAt(const QString& group) const;
-  ObservationClockSample checkedClock() const { return checked_; }
   int observationCount() const { return observations_.size(); }
   int evidenceCount() const { return evidence_.size(); }
 

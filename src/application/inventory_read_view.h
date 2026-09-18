@@ -32,8 +32,9 @@ public:
   virtual RawPetRecordHandle rawRecordHandle(qint64) const { return {}; }
   virtual PetRecordVersion recordVersion(qint64) const { return {}; }
   virtual PetDerivedFactsHandle derivedFactsFor(qint64) const { return {}; }
-  // Two workbench consumers: 0=pet detail, 1=shop detail. Only selected raw
-  // records are requested for GUI, so the projection cannot pin the whole LRU.
+  // Workbench detail consumers: 0=pet detail, 1=shop detail, 2=related-pet
+  // popup (see kDetailConsumerCount). Only selected raw records are requested
+  // for GUI, so the projection cannot pin the whole LRU.
   virtual void watchDetail(int, qint64) {}
   virtual PreparedPetDetailHandle preparedDetail(int, qint64) const { return {}; }
   virtual QString detailPreparationError(int) const { return {}; }

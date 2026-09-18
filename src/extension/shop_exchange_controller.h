@@ -37,7 +37,6 @@ public:
   bool requestInfo();
   bool requestCultivationMaterials();
   MaterialInventorySnapshot cultivationMaterialInventory() const;
-  bool updateCatalog();
   bool isRunning() const { return running_; }
   bool cacheLoading() const;
   int pendingStorageCount() const;

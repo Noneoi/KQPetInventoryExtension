@@ -35,7 +35,6 @@ public:
   static QJsonObject parseOfficialText(const QString& text, const QJsonObject& protocol,
                                       QString* error = nullptr);
 
-  static QJsonObject itemObject(const QJsonObject& packet, const ShopExchangeGood& good);
   // -1 means unknown; absent fields are never assumed to mean zero uses.
   static int usedCount(const QJsonObject& packet, const ShopExchangeGood& good);
   // Explicit unlimited contracts return INT_MAX for legacy display consumers.

@@ -41,7 +41,8 @@ QJsonValue part(const QVector<QString>& values, int index) {
 quint64 textBytes(const QString& text) { return 64 + quint64(qMax(text.size(), text.capacity())) * sizeof(QChar); }
 quint64 fieldBytes(const DetailField& value) { return sizeof(value) + textBytes(value.label) + textBytes(value.text); }
 quint64 entryBytes(const DetailEntry& value) {
-  quint64 bytes = sizeof(value) + textBytes(value.name) + textBytes(value.group) + textBytes(value.problem);
+  quint64 bytes = sizeof(value) + textBytes(value.name) + textBytes(value.group) + textBytes(value.problem) +
+      textBytes(value.originalName);
   for (const auto& item : value.fields) bytes += fieldBytes(item);
   return bytes;
 }
@@ -63,6 +64,19 @@ qint64 relationId(const QJsonValue& value) {
   qint64 id = 0;
   const auto scalar = value.isObject() ? value.toObject().value(QStringLiteral("id")) : value;
   return number(scalar, &id, 1, std::numeric_limits<qint64>::max()) ? id : 0;
+}
+// Where this account keeps a related pet. The roster fields only exist for a
+// pet the account actually holds, so their absence in a present summary is a
+// warehouse group the client did not name, not a missing pet.
+DetailOwnership ownershipOf(bool present, const QJsonObject& related) {
+  if (!present) return DetailOwnership::Missing;
+  const auto location = related.value(QStringLiteral("_location")).toString();
+  if (location == QStringLiteral("backpack")) return DetailOwnership::Backpack;
+  if (location != QStringLiteral("warehouse")) return DetailOwnership::Unknown;
+  const auto group = related.value(QStringLiteral("_warehouseGroup")).toString();
+  if (group == QStringLiteral("elite")) return DetailOwnership::WarehouseElite;
+  if (group == QStringLiteral("goodbye")) return DetailOwnership::WarehouseGoodbye;
+  return DetailOwnership::WarehouseNormal;
 }
 DetailEntry invalidEntry(const QString& name, const QString& reason) {
   DetailEntry value; value.name = name; value.state = DetailKnowledge::Invalid; value.problem = reason; return value;
@@ -97,7 +111,8 @@ bool detailRelatedSummaryValid(const DetailRelatedSummary& summary, QString* err
   static const QSet<QString> allowed{QStringLiteral("id"),QStringLiteral("r"),QStringLiteral("ri"),QStringLiteral("fr"),
       QStringLiteral("n"),QStringLiteral("customName"),QStringLiteral("lv"),QStringLiteral("zdl"),QStringLiteral("xzdl"),
       QStringLiteral("rt"),QStringLiteral("_metaOriginalName"),QStringLiteral("_metaAttributes"),QStringLiteral("_metaJobs"),
-      QStringLiteral("_metaEra"),QStringLiteral("_metaRaceId")};
+      QStringLiteral("_metaEra"),QStringLiteral("_metaRaceId"),
+      QStringLiteral("_location"),QStringLiteral("_warehouseGroup")};
   const auto fail = [&] { if (error) *error = QStringLiteral("invalid related identity, revision or non-summary fields"); return false; };
   if (summary.instanceId <= 0 || (summary.present && summary.revision == 0) || (!summary.present && !summary.fields.isEmpty())) return fail();
   if (summary.fields.contains(QStringLiteral("id")) && relationId(summary.fields.value(QStringLiteral("id"))) != summary.instanceId) return fail();
@@ -224,8 +239,9 @@ struct PetDetailPreparation::Impl {
     // properties must never shift the six properties retained in this view.
     const int lanes[8] = {0,1,2,3,4,5,6,7};
     const int modern[6] = {0,7,8,9,10,11};
-    const int* indices = systems.sixTalentLanes ? modern : lanes;
-    const int laneCount = systems.sixTalentLanes ? 6 : 8;
+    const int every[12] = {0,1,2,3,4,5,6,7,8,9,10,11};
+    const int* indices = systems.allTalentLanes ? every : systems.sixTalentLanes ? modern : lanes;
+    const int laneCount = systems.allTalentLanes ? 12 : systems.sixTalentLanes ? 6 : 8;
     for (int n = 0; n < laneCount; ++n) {
       const int i = indices[n];
       const auto f = numeric(names[i],part(talents,i)); qint64 energy = 0;
@@ -386,45 +402,70 @@ struct PetDetailPreparation::Impl {
     if (p.section == DetailSection::SummonRelations || p.section == DetailSection::CarryRelations) {
       p.state = DetailKnowledge::Known;
       bool hadRelationFields = false;
+      // Every relation reference uses -1 (older records: 0) for "this pet has no
+      // such relation". That is a complete answer, not an unreadable instance
+      // ID, so it must never become a relation row or an invalid observation.
+      const auto absentReference = [](const QJsonValue& reference) {
+        if (reference.isUndefined() || reference.isNull()) return true;
+        qint64 parsed = 0;
+        return DomainNumeric::checkedInteger(reference,&parsed) && parsed <= 0;
+      };
       const auto appendArray = [&](const char* source, const QString& label) {
         const auto v = value(source);
         hadRelationFields |= !v.isUndefined();
-        if (v.isArray()) groups.append({label,v.toArray(),0});
-        else if (!v.isUndefined()) { groups.append({label,QJsonArray{v},0}); p.state = DetailKnowledge::Invalid; }
+        if (v.isArray()) { if (!v.toArray().isEmpty()) groups.append({label,v.toArray(),0}); }
+        else if (!v.isUndefined() && !v.isNull()) { groups.append({label,QJsonArray{v},0}); p.state = DetailKnowledge::Invalid; }
       };
       const auto appendOne = [&](const char* embeddedKey, const char* primary, const char* fallback, const QString& label, int race = 0) {
         const auto object = embeddedKey ? value(embeddedKey) : QJsonValue(QJsonValue::Undefined);
         QJsonValue reference = value(primary);
         hadRelationFields |= !object.isUndefined() || !reference.isUndefined() || race > 0;
-        qint64 sentinel = -1;
-        const bool zero = number(reference,&sentinel,0,std::numeric_limits<qint64>::max()) && sentinel == 0;
-        if ((reference.isUndefined() || zero) && fallback && !value(fallback).isUndefined()) reference = value(fallback);
+        if (absentReference(reference) && fallback && !value(fallback).isUndefined()) reference = value(fallback);
+        const bool embeddedPet = object.isObject() && !object.toObject().isEmpty();
+        const bool malformedEmbedded = !object.isUndefined() && !object.isNull() && !object.isObject();
         const qint64 embeddedId = relationId(object), referenceId = relationId(reference);
+        const bool absent = absentReference(reference);
+        // No embedded pet, no usable instance ID, no race and nothing malformed:
+        // the client answered "no relation", so no row is produced at all.
+        if (!embeddedPet && !malformedEmbedded && absent && race <= 0) return;
         const QString conflict = embeddedId > 0 && referenceId > 0 && embeddedId != referenceId
             ? QStringLiteral("嵌入对象与关系字段的实例 ID 冲突：%1 / %2").arg(embeddedId).arg(referenceId) : QString();
-        if (object.isObject() && !object.toObject().isEmpty()) {
+        if (embeddedPet) {
           QJsonObject small = object.toObject();
-          if (!small.contains(QStringLiteral("id")) && !reference.isUndefined()) small.insert(QStringLiteral("id"), reference);
+          if (!small.contains(QStringLiteral("id")) && !absent) small.insert(QStringLiteral("id"), reference);
           groups.append({label,QJsonArray{small},race,conflict});
-        } else if (number(reference,&sentinel,0,std::numeric_limits<qint64>::max()) && sentinel == 0) {
-          if (race > 0) groups.append({label,QJsonArray{QJsonObject{{QStringLiteral("ri"),race}}},race});
-        } else if (!reference.isUndefined()) groups.append({label,QJsonArray{reference},race});
-        else if (race > 0) groups.append({label,QJsonArray{QJsonObject{{QStringLiteral("ri"),race}}},race});
-        else if (!object.isUndefined() && !object.isObject()) groups.append({label,QJsonArray{object},race});
+        } else if (malformedEmbedded) groups.append({label,QJsonArray{object},race});
+        else if (!absent) groups.append({label,QJsonArray{reference},race});
+        else groups.append({label,QJsonArray{QJsonObject{{QStringLiteral("ri"),race}}},race});
       };
       if (p.section == DetailSection::SummonRelations) {
-        appendOne("sppl","sepi","sdpi",QStringLiteral("被召唤精灵")); appendArray("asps",QStringLiteral("召唤关联列表"));
-        qint64 race = 0; number(value("srri"),&race,1); appendOne(nullptr,"srpi",nullptr,QStringLiteral("召唤者"),int(race));
+        appendOne("sppl","sepi","sdpi",DetailRelationGroup::summoned()); appendArray("asps",DetailRelationGroup::summonList());
+        qint64 race = 0; number(value("srri"),&race,1); appendOne(nullptr,"srpi",nullptr,DetailRelationGroup::summoner(),int(race));
       } else {
-        appendOne("cppl","cepi",nullptr,QStringLiteral("正在被携带"));
-        appendArray("crpis",QStringLiteral("携带者 / 神使"));
+        const qsizetype beforeCarried = groups.size();
+        appendOne("cppl","cepi",nullptr,DetailRelationGroup::carriedEnvoy());
+        const bool carriesOne = groups.size() > beforeCarried;
+        const qsizetype beforeCarriers = groups.size();
+        appendArray("crpis",DetailRelationGroup::carrierOwner());
+        p.contractEnvoyRole = groups.size() > beforeCarriers;
         const auto candidates = value("acps");
         hadRelationFields |= !candidates.isUndefined();
         p.carryCandidatesKnown = candidates.isArray();
-        p.hasCarryCandidates = !candidates.isUndefined() && (!candidates.isArray() || !candidates.toArray().isEmpty());
+        p.carryCandidateCount = candidates.isArray() ? int(candidates.toArray().size()) : -1;
+        p.hasCarryCandidates = !candidates.isUndefined() && !candidates.isNull() &&
+            (!candidates.isArray() || !candidates.toArray().isEmpty());
         p.carryCandidatesExpanded = requested == DetailSection::CarryRelations;
-        if (p.carryCandidatesExpanded) appendArray("acps",QStringLiteral("可以携带"));
+        // Carrying one, or being offered a candidate list to carry, is what
+        // makes this pet the contracting side. Both are known before the
+        // candidate list itself is resolved, so the collapsed page knows too.
+        p.contractCarrierRole = carriesOne || p.hasCarryCandidates;
+        if (p.carryCandidatesExpanded) appendArray("acps",DetailRelationGroup::carryCandidate());
       }
+      // A pet outside both systems keeps no relation row and no candidate list.
+      // Its section is reported as not applicable instead of shown empty.
+      qint64 relationValues = 0;
+      for (const auto& group : groups) relationValues += group.values.size();
+      p.relationsApplicable = relationValues > 0 || p.hasCarryCandidates;
       if (groups.isEmpty() && !hadRelationFields) { p.state = DetailKnowledge::Unknown; p.problem = QStringLiteral("没有返回关系字段"); }
       return;
     }
@@ -523,11 +564,17 @@ struct PetDetailPreparation::Impl {
       if (petRaceId(related) <= 0 && race > 0) related.insert(QStringLiteral("ri"),race);
       DetailEntry e; e.group = pending.label; e.name = related.value(QStringLiteral("customName")).toString();
       if (e.name.isEmpty()) e.name = related.value(QStringLiteral("n")).toString(); if (e.name.isEmpty()) e.name = metadata.petName(race); if (e.name.isEmpty()) e.name = QStringLiteral("未知精灵");
+      e.relatedInstanceId = pending.id;
+      // The original name only earns its own text when it says something the
+      // shown name does not; a renamed pet is the case that needs both.
+      const QString original = metadata.resolvedOriginalName(related);
+      if (original != e.name) e.originalName = original;
+      e.ownership = ownershipOf(summary.present, related);
       const bool badId = pending.id <= 0 && pending.embedded.contains(QStringLiteral("id"));
       if (badId) { e.state = DetailKnowledge::Invalid; e.problem = QStringLiteral("嵌入实例 ID 无效"); p.state = DetailKnowledge::Invalid; }
-      // The expanded carry list shows names only. Keep the same background
-      // identity resolution without retaining unused per-candidate power data.
-      if (requested == DetailSection::CarryRelations && pending.label == QStringLiteral("可以携带")) {
+      // The expanded carry list shows names, original names and where the
+      // account keeps each candidate, without retaining per-candidate power.
+      if (requested == DetailSection::CarryRelations && pending.label == DetailRelationGroup::carryCandidate()) {
         p.entries.append(std::move(e)); continue;
       }
       e.fields.append(pending.id > 0 ? field(QStringLiteral("实例 ID"),QString::number(pending.id)) : field(QStringLiteral("实例 ID"),QStringLiteral("待确认"),badId ? DetailKnowledge::Invalid : DetailKnowledge::Unknown));

@@ -1,18 +1,18 @@
 #include "pet_power_analysis_renderer.h"
+#include "html_document.h"
 
 namespace {
-QString escaped(const QString& text) { return text.toHtmlEscaped(); }
-QString number(bool known, int value) { return known ? QString::number(value) : QStringLiteral("—"); }
+using kqpet::html::escaped;
+using kqpet::html::number;
 QString gain(bool known, int value) {
   return known ? (value > 0 ? QStringLiteral("+%1").arg(value) : QString::number(value)) : QStringLiteral("—");
 }
 QString document(const QString& body) {
-  return QStringLiteral("<html><head><style>body{font-family:'Microsoft YaHei UI','Segoe UI';font-size:12px;color:#233044;background:#fff;margin:12px;}"
-      "h2{font-size:18px;margin:0 0 6px;}h3{font-size:14px;margin:16px 0 6px;color:#24547f;}"
-      "p{margin:6px 0;}td,th{padding:5px 4px;vertical-align:top;}th{text-align:left;background:#eff4fa;color:#345777;}"
-      ".muted{color:#64748b;}.notice{background:#fff6df;color:#94651d;padding:8px;}"
-      ".value{font-size:16px;font-weight:600;color:#24547f;}.positive{color:#b45309;}"
-      "a{color:#2462a3;text-decoration:none;}</style></head><body>%1</body></html>").arg(body);
+  return kqpet::html::document(QStringLiteral(
+      "h3{font-size:14px;margin:16px 0 6px;color:#24547f;}"
+      "td,th{padding:5px 4px;vertical-align:top;}th{text-align:left;background:#eff4fa;color:#345777;}"
+      ".notice{background:#fff6df;color:#94651d;padding:8px;}"
+      ".value{font-size:16px;font-weight:600;color:#24547f;}.positive{color:#b45309;}"), body);
 }
 QString retry() { return QStringLiteral("<p><a href='kqanalysis://retry'>重新准备本地分析</a></p>"); }
 QString metric(const QString& title, bool known, int value) {

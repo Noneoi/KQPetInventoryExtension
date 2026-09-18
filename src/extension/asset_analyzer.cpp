@@ -22,19 +22,13 @@
 
 namespace {
 
+// The catalog's official original name is only a last resort; every other
+// case follows the one shared naming rule in pet_identity.
 QString displayName(const QJsonObject& pet, const PetMetadataView& metadata) {
-  QString name = pet.value(QStringLiteral("customName")).toString().trimmed();
-  if (name.isEmpty()) name = pet.value(QStringLiteral("n")).toString().trimmed();
-  if (name.isEmpty()) name = metadata.resolvedOriginalName(pet);
-  return name.isEmpty() ? QStringLiteral("未知精灵") : name;
-}
-
-QString locationText(const QJsonObject& pet) {
-  if (pet.value(QStringLiteral("_location")).toString() == QStringLiteral("backpack"))
-    return QStringLiteral("背包");
-  if (pet.value(QStringLiteral("_warehouseGroup")).toString() == QStringLiteral("elite"))
-    return QStringLiteral("精英仓库");
-  return QStringLiteral("普通仓库");
+  const QString name = petDisplayName(pet);
+  if (name != QStringLiteral("未知精灵")) return name;
+  const QString original = metadata.resolvedOriginalName(pet);
+  return original.isEmpty() ? name : original;
 }
 
 bool hasFullDetail(const PetRepository* repository, const QJsonObject& pet) {
@@ -218,7 +212,7 @@ PetAssetRecord AssetAnalyzer::summarySeed(const QJsonObject& brief, bool complet
                                          bool sourceKnown, const PetMetadataView& metadata) {
   PetAssetRecord seed;
   seed.instanceId = petInstanceId(brief); seed.raceId = petRaceId(brief);
-  seed.name = displayName(brief, metadata); seed.location = locationText(brief);
+  seed.name = displayName(brief, metadata); seed.location = petLocationText(brief);
   seed.pet = AssetDerivation::identityFields(brief);
   seed.detailAvailable = complete && !brief.value(QStringLiteral("_visualMismatch")).toBool();
   seed.observationVerified = sourceKnown && !brief.value(QStringLiteral("_unverifiedObservation")).toBool();
@@ -236,7 +230,7 @@ AccountInventorySummary AssetAnalyzer::inventorySummary() const {
   for (const auto instanceId : repository_->currentInstanceIds()) {
     const auto pet = repository_->briefFor(instanceId);
     ++result.totalPets;
-    const QString location = locationText(pet);
+    const QString location = petLocationText(pet);
     if (location == QStringLiteral("背包")) ++result.backpackPets;
     else if (location == QStringLiteral("精英仓库")) ++result.eliteWarehousePets;
     else ++result.normalWarehousePets;
@@ -251,7 +245,7 @@ InventorySignature AssetAnalyzer::inventorySignature() const {
   result.account = repository_->accountKey();
   for (const auto instanceId : repository_->currentInstanceIds()) {
     const auto pet = repository_->briefFor(instanceId);
-    result.locations.insert(instanceId, locationText(pet));
+    result.locations.insert(instanceId, petLocationText(pet));
   }
   return result;
 }
@@ -278,7 +272,7 @@ AccountAssetOverview AssetAnalyzer::captureInput(std::shared_ptr<const PetDetail
     QJsonObject required = AssetDerivation::analysisInputFields(brief, detail);
     PetAssetRecord pet;
     pet.instanceId = id; pet.raceId = petRaceId(required);
-    pet.name = displayName(required, metadata); pet.location = locationText(required);
+    pet.name = displayName(required, metadata); pet.location = petLocationText(required);
     pet.detailAvailable = hasFullDetail(repository_, required);
     pet.observationVerified = input.sourceVerified &&
         !brief.value(QStringLiteral("_unverifiedObservation")).toBool() &&

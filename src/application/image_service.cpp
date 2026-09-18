@@ -293,20 +293,26 @@ public:
     return values;
   }
   QStringList localPaths(const QString& visualKey) const {
+    // Ordered, because the caller tries the candidates in order. The set only
+    // answers "already listed" without rescanning the list for every file.
     QStringList paths;
+    QSet<QString> listed;
     const QString stable = cachePath(options_.dataRoot, visualKey);
     if (stable.isEmpty()) return paths;
     paths.append(stable);
+    listed.insert(stable);
     const QString key = ImageService::storageKey(visualKey);
     const QDir base(QFileInfo(stable).absolutePath());
     const QString oldExact = base.filePath(visualKey + QStringLiteral(".png"));
-    if (oldExact != stable && safeExistingChain(oldExact)) paths.append(oldExact);
+    if (oldExact != stable && safeExistingChain(oldExact)) { paths.append(oldExact); listed.insert(oldExact); }
     const auto appendMatches = [&](const QDir& directory) {
       const QStringList patterns = key == visualKey ? QStringList{key + QStringLiteral(".png")}
           : QStringList{key + QStringLiteral(".png"), key + QStringLiteral("_*.png")};
       const auto files = directory.entryInfoList(patterns, QDir::Files | QDir::NoSymLinks, QDir::Time);
-      for (const auto& file : files)
-        if (safeExistingChain(file.absoluteFilePath()) && !paths.contains(file.absoluteFilePath())) paths.append(file.absoluteFilePath());
+      for (const auto& file : files) {
+        const QString path = file.absoluteFilePath();
+        if (!listed.contains(path) && safeExistingChain(path)) { paths.append(path); listed.insert(path); }
+      }
     };
     appendMatches(base);
     const QDir versions(base.filePath(QStringLiteral("versions")));

@@ -1,4 +1,5 @@
 #include "data_root_config.h"
+#include "command_line.h"
 #include "../bootstrap/strict_json.h"
 
 #include <windows.h>
@@ -37,17 +38,6 @@ std::string utf8(const std::wstring& value) {
   WideCharToMultiByte(CP_UTF8, WC_ERR_INVALID_CHARS, value.data(), static_cast<int>(value.size()),
       result.data(), count, nullptr, nullptr);
   return result;
-}
-std::wstring quoteArgument(const std::wstring& value) {
-  std::wstring result = L"\"";
-  std::size_t slashes = 0;
-  for (const wchar_t c : value) {
-    if (c == L'\\') { ++slashes; continue; }
-    result.append(c == L'\"' ? slashes * 2 + 1 : slashes, L'\\');
-    result += c; slashes = 0;
-  }
-  result.append(slashes * 2, L'\\');
-  return result + L"\"";
 }
 bool writeFile(const std::filesystem::path& path, const std::string& bytes) {
   HANDLE file = CreateFileW(path.c_str(), GENERIC_WRITE, 0, nullptr, CREATE_NEW, FILE_ATTRIBUTE_NORMAL, nullptr);

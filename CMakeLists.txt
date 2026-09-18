@@ -340,11 +340,8 @@ add_library(KQPetApplicationCore STATIC
   src/extension/asset_analyzer.h
   src/extension/asset_snapshot_store.cpp
   src/extension/asset_snapshot_store.h
-  src/extension/pet_detail_analyzer.cpp
-  src/extension/pet_detail_analyzer.h
   src/extension/pet_detail_catalog.cpp
   src/extension/pet_detail_catalog.h
-  src/extension/pet_detail_view_model.h
   src/extension/pet_refresh_controller.cpp
   src/extension/pet_refresh_controller.h
   src/extension/pet_repository.cpp
@@ -390,8 +387,7 @@ target_link_libraries(KQPetBridge PUBLIC KQPetDiagnostics KQPetProtocol KQPetInb
 add_library(KQPet::Bridge ALIAS KQPetBridge)
 
 add_library(KQPetUi STATIC
-  src/extension/pet_detail_renderer.cpp
-  src/extension/pet_detail_renderer.h
+  src/extension/html_document.h
   src/extension/pet_search.cpp
   src/extension/pet_search.h
   src/extension/prepared_pet_detail_renderer.cpp

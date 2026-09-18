@@ -115,7 +115,9 @@ PetEraSystems systemsForEra(PetEra era) {
       break;
     case PetEra::Unknown:
       // Era not resolved: keep every system calculable so leftover data is
-      // visible, but do not grant Lingchu-only breakthrough.
+      // visible, but do not grant Lingchu-only breakthrough. Guessing a talent
+      // lane layout here would drop four real properties, so show all of them.
+      systems.allTalentLanes = true;
       systems.proficient = true;
       systems.equipment = true;
       systems.guardStone = true;

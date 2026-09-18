@@ -577,38 +577,6 @@ void AssetAnalysisController::finishJob(const AnalysisJobFinished& finished) {
   if (alive) emit analysisJobFinished(finished);
 }
 
-AccountAssetOverview AssetAnalysisController::recalculateOverview() {
-  // Offline compatibility adapter. Runtime uses requestAnalysis exclusively.
-  if (closing_ || analysisQueued_) return overview();
-  checkInputFreshness();
-  currentJob_ = nextJobKey(); analysisQueued_ = true;
-  QPointer<AssetAnalysisController> alive(this);
-  const auto input = capture(currentJob_);
-  if (!alive) return {};
-  if (input && !jobCurrent(input->key)) return overview();
-  if (!input) { analysisQueued_ = false; return overview(); }
-  QList<ShopExchangeGood> goods;
-  for (const auto& shop : input->catalogSnapshot->allShops)
-    for (const auto& good : shop.goods) if (good.isOnlineOn(input->catalogDate)) goods.append(good);
-  const auto conditions = PreparedShopConditions::prepare(CompiledShopCatalog::compile(goods), input->shopPacket,
-      AccountResourceView(input->resourceCounts, input->resourceCountsKnown, {}, input->conditionContext.shopSource, input->sourceInvalidated),
-      input->conditionContext);
-  RecommendationSession session(account_, input->overview, conditions, input->metadata, nullptr, true);
-  while (session.step() == RecommendationSession::Status::Running) {}
-  auto result = std::make_shared<AnalysisWorkResult>();
-  result->key = input->key; result->overview = session.takeOverview(); result->recommendations = session.takeResults();
-  // The synchronous test adapter has never auto-recorded snapshots.
-  const bool automatic = autoSnapshotEnabled_;
-  autoSnapshotEnabled_ = false;
-  auto& state = currentState();
-  state.lastValidOverview = result->overview; state.lastValidRecommendations = result->recommendations;
-  state.retainedResult = result; state.analyzedSignature = analyzer_.inventorySignature();
-  state.lastAnalysisAt = QDateTime::currentDateTime(); state.dirtyPetIds.clear(); state.hasAnalysis = true;
-  state.inventoryStale = false; state.shopStale = !result->overview.sourceVerified;
-  trimAccountStates(); analysisQueued_ = false; autoSnapshotEnabled_ = automatic;
-  return result->overview;
-}
-
 void AssetAnalysisController::requestAnalysis() {
   if (closing_ || !repository_) return;
   checkInputFreshness();

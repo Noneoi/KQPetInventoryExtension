@@ -173,8 +173,3 @@ void RecommendationModel::setRecommendations(
   endResetModel();
 }
 
-const ActionRecommendation* RecommendationModel::recommendationAt(int row) const {
-  return row >= 0 && row < recommendations_.size()
-             ? &recommendations_.at(row)
-             : nullptr;
-}

@@ -28,7 +28,7 @@ PetRefreshController::PetRefreshController(PetRepository* repository, QObject* p
     if (state != SessionConnectionState::Active)
       resetForAccount(repository_->accountKey(), repository_->sessionGeneration());
   });
-  for (QTimer* timer : {&automaticTimer_, &listGapTimer_, &backpackTimeoutTimer_,
+  for (QTimer* timer : {&listGapTimer_, &backpackTimeoutTimer_,
                         &warehouseTimeoutTimer_, &detailTimer_, &detailTimeoutTimer_,
                         &moveTimeoutTimer_}) {
     timer->setSingleShot(true);
@@ -153,8 +153,6 @@ void PetRefreshController::setTimings(const Timings& timings) {
   timings_.detailMaxRetries = qMax(0, timings_.detailMaxRetries);
   timings_.moveRequestTimeoutMs = qMax(1, timings_.moveRequestTimeoutMs);
   saveTimings();
-  if (repository_->isAuthenticated() && !listRunning_ && !batchRunning_)
-    scheduleAutomaticRefresh();
   emit statusChanged(QStringLiteral("刷新参数已在内存应用，正在保存；仅在手动刷新或点选精灵时查询最新数据。"));
 }
 
@@ -193,8 +191,8 @@ void PetRefreshController::loadTimings() {
     field(QStringLiteral("detailMaxRetries"), &loaded.detailMaxRetries, 0);
     field(QStringLiteral("moveRequestTimeoutMs"), &loaded.moveRequestTimeoutMs, 1);
     timingsKnown_ = valid;
-    if (valid) { timings_ = loaded; scheduleAutomaticRefresh(); }
-    else emit statusChanged(QStringLiteral("刷新参数读取失败，自动刷新暂未启动：%1").arg(error.isEmpty() ? QStringLiteral("设置字段类型或数值无效") : error));
+    if (valid) timings_ = loaded;
+    else emit statusChanged(QStringLiteral("刷新参数读取失败，本次使用内置默认值：%1").arg(error.isEmpty() ? QStringLiteral("设置字段类型或数值无效") : error));
   };
   timingsStorage_->changed = [this](const QString&, quint64, quint64 revision, StorageStatus status, const QString& error) {
     if (status == StorageStatus::Queued) timingsSaveRevision_ = revision;
@@ -343,7 +341,6 @@ void PetRefreshController::onAccountSessionChanged(const QString& account,
 void PetRefreshController::resetForAccount(const QString& account,
                                            quint64 sessionGeneration) {
   QScopedValueRollback<bool> terminalGuard(terminalNotificationGuard_, true);
-  automaticTimer_.stop();
   listGapTimer_.stop();
   backpackTimeoutTimer_.stop();
   warehouseTimeoutTimer_.stop();
@@ -400,13 +397,6 @@ void PetRefreshController::resetForAccount(const QString& account,
   emit statusChanged(repository_->isAuthenticated()
       ? QStringLiteral("账号 %1 已就绪；使用本地缓存，手动刷新或点选精灵时获取最新数据。").arg(account_)
       : QStringLiteral("账号 %1 当前未在线；继续显示已保存的本地数据。").arg(account_));
-  scheduleAutomaticRefresh();
-}
-
-void PetRefreshController::scheduleAutomaticRefresh() {
-  // Retain old interval preferences for compatibility, but never schedule a
-  // network read merely because time passed or a background task completed.
-  automaticTimer_.stop();
 }
 
 void PetRefreshController::requestManualListRefresh() {
@@ -435,7 +425,6 @@ void PetRefreshController::requestManualListRefresh() {
 
 void PetRefreshController::startListRefresh(bool manual) {
   if (!repository_->isAuthenticated() || listRunning_) return;
-  automaticTimer_.stop();
   detailTimer_.stop();
   listRunning_ = true;
   listManual_ = manual;
@@ -549,7 +538,6 @@ void PetRefreshController::maybeFinishListRefresh() {
   }
   if (backpackSucceeded_ && warehouseSucceeded_ && !repository_->formationKnown())
     requestFormationLoad();
-  if (!batchRunning_) scheduleAutomaticRefresh();
   scheduleNextDetail(0);
 }
 
@@ -602,7 +590,6 @@ void PetRefreshController::startWarehouseDetailRefreshForIds(const QList<qint64>
     emit statusChanged(QStringLiteral("当前仓库没有可刷新的精灵详情。"));
     return;
   }
-  automaticTimer_.stop();
   emit statusChanged(QStringLiteral("仓库详情刷新已启动：共 %1 只，逐只读取并覆盖保存本地缓存。").arg(batchTotal_));
   scheduleNextDetail(0);
 }
@@ -639,7 +626,6 @@ void PetRefreshController::cancelWarehouseDetailRefresh() {
   detailTimeoutTimer_.stop();
   clearDetailState();
   emit statusChanged(QStringLiteral("仓库详情刷新任务已取消，已有本地缓存全部保留。"));
-  scheduleAutomaticRefresh();
 }
 
 void PetRefreshController::requestSingleDetail(qint64 instanceId) {
@@ -832,7 +818,6 @@ void PetRefreshController::finishDetailBatchIfDone() {
   emitDetailProgress();
   emit statusChanged(QStringLiteral("仓库详情刷新完成：已保存 %1，失败 %2。")
                         .arg(batchSucceeded_).arg(batchFailed_));
-  scheduleAutomaticRefresh();
 }
 
 void PetRefreshController::emitDetailProgress() {
@@ -902,7 +887,6 @@ void PetRefreshController::beginMove(MoveKind kind, qint64 instanceId) {
           .arg(instanceId).arg(moveSessionGeneration_));
   batchWasRunningBeforeMove_ = batchRunning_;
   batchWasPausedBeforeMove_ = batchPaused_;
-  automaticTimer_.stop();
   if (batchRunning_) {
     batchPaused_ = true;
     detailTimer_.stop();
@@ -1250,9 +1234,7 @@ void PetRefreshController::submitPreparedMove() {
       return;
     }
     moveOutcome_ = MoveOutcome::Unknown;
-    if (writeSender_)
-      submitted = writeSender_(QStringLiteral("PJXExtension"), QStringLiteral("2_1_11"), payload);
-    else if (sender_)
+    if (sender_)
       submitted = sender_(QStringLiteral("PJXExtension"), QStringLiteral("2_1_11"), payload)
           ? SubmissionOutcome::Submitted : SubmissionOutcome::Unknown;
   }
@@ -1501,8 +1483,6 @@ void PetRefreshController::restoreAfterMove() {
     batchPaused_ = batchWasPausedBeforeMove_;
     emitDetailProgress();
     if (!batchPaused_) scheduleNextDetail(0);
-  } else if (!listRunning_) {
-    scheduleAutomaticRefresh();
   }
   batchWasRunningBeforeMove_ = false;
   batchWasPausedBeforeMove_ = false;

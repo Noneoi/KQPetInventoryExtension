@@ -31,7 +31,6 @@ public:
 
   AccountInventorySummary inventorySummary() const;
   InventorySignature inventorySignature() const;
-  AccountAssetOverview recalculateOverview();
   AccountAssetOverview overview() const;
   AccountAssetOverview routineSummary() const;
   QList<ActionRecommendation> recommendations() const;
