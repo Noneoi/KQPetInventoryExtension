@@ -774,7 +774,7 @@ void PetRepository::saveInventory() {
 quint64 PetRepository::saveDetail(qint64 instanceId, const QJsonObject& detail,
                                  const QDateTime& requestedSavedAt, quint64 requestGeneration,
                                  bool preservation) {
-  if (preservation ? !session_.canPersist() : !canCacheAccountObservation()) return 0;
+  if (preservation ? !(session_.canPersist() || readContinuityWriteAllowed()) : !canCacheAccountObservation()) return 0;
   auto raw = rawRecords_->acquire(accountKey_, sessionGeneration_, instanceId);
   if (!raw || raw->object() != detail) {
     lastWriteAdmissionStatus_ = StorageStatus::InvalidRequest;

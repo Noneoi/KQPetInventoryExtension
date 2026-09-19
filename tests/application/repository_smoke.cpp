@@ -283,6 +283,52 @@ bool protocolRegressions(const QString& root) {
                 "verified login promoted cached weak observations into current source/write evidence");
   ok &= require(sawLegacyProbe && legacyProbeContained,
                 "an isolated data-root override probed the user's personal legacy directory");
+
+  // v1.3-level move basis on an unverified host stream: complete lists read in
+  // order through the current, never-interrupted stream.
+  qputenv("KQPET_DATA_ROOT", QDir(root).filePath(QStringLiteral("read-continuity")).toUtf8());
+  PetRepository movable;
+  const auto weakDeliver = [&movable](const QJsonObject& packet) {
+    movable.handlePacket(QStringLiteral("recivedata"),
+                         QString::fromUtf8(QJsonDocument(packet).toJson(QJsonDocument::Compact)));
+  };
+  weakDeliver({{QStringLiteral("_cmd"), QStringLiteral("21_1")},
+               {QStringLiteral("info"), QJsonObject{{QStringLiteral("n"), QStringLiteral("movable")}}}});
+  const auto refreshBoth = [&](quint64 generation, const QJsonObject& warehouse) {
+    movable.beginListRefresh(generation, movable.accountKey(), movable.sessionGeneration());
+    weakDeliver(backpack);
+    movable.expectListPart(QStringLiteral("2_1_S"), generation, movable.accountKey(), movable.sessionGeneration());
+    weakDeliver(warehouse);
+  };
+  refreshBoth(1, warehousePacket());
+  ok &= require(movable.readContinuityWriteAllowed() && !movable.sessionContext().canPersist() &&
+                    movable.listObservationsAuthoritativeForWrite(),
+                "fresh complete in-order lists on an uninterrupted stream did not allow a v1.3-level move");
+  movable.beginListRefresh(2, movable.accountKey(), movable.sessionGeneration());
+  ok &= require(!movable.listObservationsAuthoritativeForWrite(),
+                "a new read-continuity preflight inherited the previous observations");
+  movable.expectListPart(QStringLiteral("2_1_S"), 2, movable.accountKey(), movable.sessionGeneration());
+  weakDeliver(warehousePacket());
+  ok &= require(!movable.listObservationsAuthoritativeForWrite(),
+                "a warehouse read without a fresh backpack read allowed a move");
+  refreshBoth(3, {{QStringLiteral("_cmd"), QStringLiteral("2_1_S")}, {QStringLiteral("ns"), QJsonArray{}}});
+  ok &= require(!movable.listObservationsAuthoritativeForWrite(),
+                "a partial warehouse read allowed a read-continuity move");
+  QJsonObject duplicated = warehousePacket();
+  duplicated.insert(QStringLiteral("ns"), QJsonArray{pet});
+  refreshBoth(4, duplicated);
+  ok &= require(!movable.listObservationsAuthoritativeForWrite(),
+                "the same instance in backpack and warehouse allowed a read-continuity move");
+  refreshBoth(5, warehousePacket());
+  ok &= require(movable.listObservationsAuthoritativeForWrite(),
+                "a clean re-read on the same stream did not restore the move basis");
+  movable.setConnectionState(SessionConnectionState::Uncertain, QStringLiteral("synthetic input overflow"));
+  ok &= require(!movable.readContinuityWriteAllowed() && !movable.listObservationsAuthoritativeForWrite(),
+                "an interrupted stream kept its move basis");
+  refreshBoth(6, warehousePacket());
+  ok &= require(!movable.readContinuityWriteAllowed() && !movable.listObservationsAuthoritativeForWrite(),
+                "lists read after a stream interruption regained a move basis");
+  ok &= require(waitForRepositoryIdle(&movable), "read-continuity repository did not drain its I/O");
   return ok;
 }
 

@@ -191,7 +191,10 @@ int PetRepository::backpackCapacity(int packType) const {
 quint64 PetRepository::preserveBackpackDetailAsync(qint64 instanceId) {
   if (!listObservationsAuthoritativeForWrite()) return 0;
   const auto raw = rawRecordHandle(instanceId);
-  if (!backpack_.contains(instanceId) || !raw || !raw->payload || !raw->sourceKnown) return 0;
+  // A read-continuity move preserves the record just observed in this stream;
+  // the saved file still records it as a read-only observation.
+  if (!backpack_.contains(instanceId) || !raw || !raw->payload ||
+      (!raw->sourceKnown && !readContinuityWriteAllowed())) return 0;
   // Preserve the last actual original, not a synthesized combination of a
   // partial current list with older cultivation fields.
   QJsonObject pet = raw->object();

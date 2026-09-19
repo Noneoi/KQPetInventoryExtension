@@ -85,6 +85,8 @@ public:
     return warehouseObservations_.value(group);
   }
   bool listObservationsAuthoritativeForWrite() const;
+  // True while an unverified session may still move pets at v1.3 level.
+  bool readContinuityWriteAllowed() const;
   void setSessionSourceEvidence(const SessionSourceEvidence& source);
   void markSessionUncertain(const QString& reason);
   void setConnectionState(SessionConnectionState state, const QString& reason = {});

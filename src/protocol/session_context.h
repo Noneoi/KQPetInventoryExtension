@@ -60,7 +60,16 @@ struct InventoryObservation {
   QDateTime observedAt;
   bool complete = false;
   bool sourceVerified = false;
+  // Host-proved order (verified source + ordering barrier). No production
+  // adapter supplies this today.
   bool ordered = false;
+  // Observed through the current, never-interrupted read stream of an
+  // unverified session. This is the v1.3-level basis for a move: the lists
+  // were freshly read, in order, by this extension in this session. It is not
+  // proof that no stale packet could interleave around an account switch.
+  bool continuousRead = false;
+
+  void revokeWriteAuthority() { ordered = false; continuousRead = false; }
 };
 
 Q_DECLARE_METATYPE(PacketCorrelationStrength)

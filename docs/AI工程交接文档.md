@@ -59,7 +59,7 @@ freshnessProjection 在新建过期副本时先申请额外预算，同一源与
 
 精灵唯一键是账号加协议实例字段 id；r/ri、fr、名称、图片和位置都不是实例 ID。兼容性通过、已登录、有本地缓存、收到同名命令分别是不同证据。
 
-SessionSourceEvidence 区分 identityVerified 与 orderingVerified。当前生产适配器不能凭扩展本地计数或延时伪造主机顺序屏障。缺少可信来源/顺序时，应保留只读观察并明确 Unknown 或 Uncertain；不为让功能“看起来能用”绕过持久化或移动授权。
+SessionSourceEvidence 区分 identityVerified 与 orderingVerified。当前生产适配器不能凭扩展本地计数或延时伪造主机顺序屏障，因此 `ordered` 永远不会在生产中出现。精灵移动在无验证来源时按“读连续性”级别执行（`PetRepository::readContinuityWriteAllowed`、`ActualSendSource::allowUnverifiedWrite`，见[设计与逆向依据 §5](设计与逆向依据.md#5-移动与保存)），这是 2026-09-19 用户确认的 v1.3 级别取舍；其他写入仍按原规则。缺少可信来源时，其余观察保留只读并明确 Unknown 或 Uncertain。
 
 命令白名单、字段形状、严格整数、账号/实例/任务关联和会话有效性必须共同满足。队列溢出或来源中断会撤销待发送意图，不能把不同账号的迟包关联到新请求。写操作只发送一次，超时使用只读核对，不能自动重试写命令。
 

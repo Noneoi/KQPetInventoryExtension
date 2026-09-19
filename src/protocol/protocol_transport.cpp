@@ -98,11 +98,13 @@ SendReceipt executeIntent(const OutboundIntent& intent, const ActualSendSource& 
   const bool weakRead = !declaredWrite && actual.allowUnverifiedRead && !intent.source.verified() &&
       (!actual.sourceVerifiedAtExecution || (actual.source.account == intent.ticket.account &&
                                              actual.sessionEpoch == intent.ticket.sessionEpoch));
-  if (!weakRead && (!actual.sourceVerifiedAtExecution || !actual.source.verified() ||
+  const bool weakWrite = declaredWrite && actual.allowUnverifiedWrite && !intent.source.verified() &&
+      !actual.sourceVerifiedAtExecution && intent.preflightRevision != 0;
+  if (!weakRead && !weakWrite && (!actual.sourceVerifiedAtExecution || !actual.source.verified() ||
       !actual.source.sameSource(intent.source) || actual.source.account != intent.ticket.account ||
       actual.sessionEpoch != intent.ticket.sessionEpoch))
     return deny(QStringLiteral("actual GUI source does not match captured account/session evidence"));
-  if (intent.write && (!actual.orderedSubmission || !actual.source.orderingVerified ||
+  if (intent.write && !weakWrite && (!actual.orderedSubmission || !actual.source.orderingVerified ||
                        !intent.preflightRevision || actual.preflightRevision != intent.preflightRevision))
     return deny(QStringLiteral("write submission has no current source/order/preflight authority"));
   if (!intent.permit.claim(nowMs)) {

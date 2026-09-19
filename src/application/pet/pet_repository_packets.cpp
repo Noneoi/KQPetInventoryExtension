@@ -74,9 +74,9 @@ void PetRepository::beginListRefresh(quint64 requestGeneration, const QString& a
   backpackExpectation_ = expectation;
   backpackExpectation_.minimumReceiveSequence = lastInboundSequence_;
   warehouseExpectation_ = {};
-  backpackObservation_.ordered = false;
+  backpackObservation_.revokeWriteAuthority();
   for (auto it = warehouseObservations_.begin(); it != warehouseObservations_.end(); ++it)
-    it.value().ordered = false;
+    it.value().revokeWriteAuthority();
 }
 
 void PetRepository::expectListPart(const QString& command, quint64 requestGeneration,
@@ -223,7 +223,7 @@ bool PetRepository::parseWarehouse(const QJsonObject& packet) {
     DecodedPetList candidate = PacketContracts::decodePetList(packet.value(key));
     if (!candidate.valid()) {
       invalid = true;
-      warehouseObservations_[QString::fromLatin1(group.name)].ordered = false;
+      warehouseObservations_[QString::fromLatin1(group.name)].revokeWriteAuthority();
       emit packetRejected(QStringLiteral("2_1_S"), key + QStringLiteral(": ") + candidate.error);
       continue;
     }
@@ -290,7 +290,7 @@ bool PetRepository::parseWarehouse(const QJsonObject& packet) {
     // Partial read observations stay useful, but cannot finish a complete
     // write preflight or a post-write authoritative verification.
     for (auto it = warehouseObservations_.begin(); it != warehouseObservations_.end(); ++it)
-      it.value().ordered = false;
+      it.value().revokeWriteAuthority();
   }
   for (qint64 id : mismatches) emit visualMismatchDetected(id);
   const auto account = accountKey_; const auto epoch = sessionGeneration_;
@@ -554,9 +554,9 @@ void PetRepository::setConnectionState(SessionConnectionState state, const QStri
   authenticated_ = false;
   onlineData_ = false;
   clearExpectations();
-  backpackObservation_.ordered = false;
+  backpackObservation_.revokeWriteAuthority();
   for (auto it = warehouseObservations_.begin(); it != warehouseObservations_.end(); ++it)
-    it.value().ordered = false;
+    it.value().revokeWriteAuthority();
   formationKnown_ = false;
   emit sessionTrustChanged(state, reason);
   emit dataChanged();
@@ -579,15 +579,31 @@ InventoryObservation PetRepository::currentObservation(bool complete) const {
                         currentEnvelope_.orderedObservation &&
                         !currentEnvelope_.orderEvidenceToken.isEmpty() &&
                         currentEnvelope_.receiveSequence != 0;
+  observation.continuousRead = processingEnvelope_ && !currentEnvelope_.source.verified() &&
+                               currentEnvelope_.receiveSequence != 0 && readContinuityWriteAllowed();
   return observation;
 }
 
+bool PetRepository::readContinuityWriteAllowed() const {
+  // v1.3-level move basis for an unverified host stream: an identified
+  // account whose read stream has never been interrupted (disconnect, input
+  // overflow, conflicting login and shutdown all clear weakReadContinuity_).
+  // A verified source never falls back to this weaker level.
+  return !session_.source.verified() && weakReadContinuity_ && authenticated_ &&
+         canCacheAccountObservation();
+}
+
 bool PetRepository::listObservationsAuthoritativeForWrite() const {
-  const auto authoritative = [this](const InventoryObservation& observation) {
-    return observation.complete && observation.sourceVerified && observation.ordered &&
-           observation.sessionEpoch == sessionGeneration_;
+  // A verified source needs host-proved order. Without one (the production
+  // host today) the lists must have been read, complete and in order, through
+  // the current uninterrupted stream; see readContinuityWriteAllowed().
+  const bool verifiedMode = session_.canPersist();
+  if (!verifiedMode && !readContinuityWriteAllowed()) return false;
+  const auto authoritative = [this, verifiedMode](const InventoryObservation& observation) {
+    return observation.complete && observation.sessionEpoch == sessionGeneration_ &&
+           (verifiedMode ? observation.sourceVerified && observation.ordered : observation.continuousRead);
   };
-  if (!session_.canPersist() || !authoritative(backpackObservation_)) return false;
+  if (!authoritative(backpackObservation_)) return false;
   quint64 warehouseSequence = 0;
   for (const QString& group : {QStringLiteral("normal"), QStringLiteral("elite"), QStringLiteral("goodbye")}) {
     const InventoryObservation observation = warehouseObservations_.value(group);
@@ -797,8 +813,9 @@ void PetRepository::handleDecodedPacket(const QJsonObject& packet) {
       emit packetRejected(command, QStringLiteral("invalid sequence status type"));
       return;
     }
-    if (!currentObservation(false).ordered) {
-      emit packetRejected(command, QStringLiteral("sequence acknowledgement lacks verified source/order evidence"));
+    const InventoryObservation acknowledgement = currentObservation(false);
+    if (!acknowledgement.ordered && !acknowledgement.continuousRead) {
+      emit packetRejected(command, QStringLiteral("sequence acknowledgement lacks source/order or read-continuity evidence"));
       return;
     }
     if (!statusPresent) {

@@ -206,15 +206,17 @@ void ExtensionContext::scheduleOutboundDrain() {
     QMetaObject::invokeMethod(this, [this] { drainOutbound(); }, Qt::QueuedConnection);
 }
 void ExtensionContext::drainOutbound() {
-  // No reviewed host connection/page identity is currently available. The
-  // execution gate therefore refuses writes, rather than copying Core account
-  // strings here and calling them actual GUI source evidence.
+  // No reviewed host connection/page identity is currently available, so no
+  // Core account string is copied here as actual GUI source evidence. Reads run
+  // as unverified observations; the pet move runs at the v1.3 level that Core
+  // enforces before queueing it (see ActualSendSource::allowUnverifiedWrite).
   for (int count = 0; count < 8; ++count) {
     auto intent = outbound_->takeNext();
     if (!intent) break;
     ActualSendSource source;
     source.closing = OriginalBridge::closing() || runtime_->closing() || !bridge_->captureHealthy();
     source.allowUnverifiedRead = TargetCompatibilityGuard::lastReport().supported && !source.closing;
+    source.allowUnverifiedWrite = source.allowUnverifiedRead;
     const SendReceipt receipt = executeIntent(*intent, source, transportMonotonicMs(), [this](const OutboundIntent& value) {
       return value.flashMethod.isEmpty()
           ? bridge_->sendSubmission(value.extension, value.ticket.command, value.parameters)

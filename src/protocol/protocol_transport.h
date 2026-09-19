@@ -79,7 +79,15 @@ struct ActualSendSource {
   bool orderedSubmission = false;
   // Explicit capability of a compatible, healthy host process. This permits
   // registered reads as unverified observations, never account attribution or writes.
+  // Writes need allowUnverifiedWrite below.
   bool allowUnverifiedRead = false;
+  // Explicit capability for a registered write (the pet move) from a session
+  // without verified source evidence. Core only queues such a write after a
+  // fresh, complete, in-order list preflight on an uninterrupted read stream
+  // (PetRepository::readContinuityWriteAllowed), and revokes its permit on any
+  // account/session change. It never covers an intent carrying verified source
+  // evidence: those still need matching source and host order at execution.
+  bool allowUnverifiedWrite = false;
 };
 
 using AsyncSender = std::function<bool(const OutboundIntent&)>;

@@ -274,7 +274,8 @@ void PetRefreshController::onOperationStorageCompleted(const StorageResult& resu
   const bool saved = matchesRecord && result.status == StorageStatus::Saved;
   const auto current = [this, &pending] {
     return repository_->accountKey() == pending.account && repository_->sessionGeneration() == pending.epoch &&
-        repository_->sessionContext().canPersist() && repository_->storageContext() && pending.context &&
+        (repository_->sessionContext().canPersist() || repository_->readContinuityWriteAllowed()) &&
+        repository_->storageContext() && pending.context &&
         repository_->storageContext()->id() == pending.context->id();
   };
   if (!saved && result.status != StorageStatus::Superseded)

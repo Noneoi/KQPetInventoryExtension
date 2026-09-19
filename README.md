@@ -6,7 +6,7 @@
 
 ## 安装与升级（推荐）
 
-在 [v2.0.0-preview.3 发行页](https://github.com/Noneoi/KQPetInventoryExtension/releases/tag/v2.0.0-preview.3) 下载名称含 **copy-ready** 的复制即用 ZIP。
+在 [v2.0.0-preview.4 发行页](https://github.com/Noneoi/KQPetInventoryExtension/releases/tag/v2.0.0-preview.4) 下载名称含 **copy-ready** 的复制即用 ZIP。
 
 1. 关闭正在运行的氪奇客户端。
 2. 解压下载的压缩包。

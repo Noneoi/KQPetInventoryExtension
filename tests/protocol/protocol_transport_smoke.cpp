@@ -105,6 +105,26 @@ bool primitiveTests() {
   auto weakWrite = request(true); weakWrite.source = {};
   ok &= check(executeIntent(weakWrite, unverifiedHost, 1000, submit).outcome == SubmissionOutcome::DefinitelyNotSubmitted,
               "weak read capability authorized a write");
+  // v1.3-level move: an explicit write capability for a source-free intent
+  // that Core preflighted. It cannot stand in for verified evidence, and a
+  // write without a preflight revision is still refused.
+  ActualSendSource moveHost = unverifiedHost; moveHost.allowUnverifiedWrite = true;
+  const int beforeWeakWrite = calls;
+  auto preflightedWrite = request(true); preflightedWrite.source = {};
+  ok &= check(executeIntent(preflightedWrite, moveHost, 1000, submit).outcome == SubmissionOutcome::Submitted &&
+                  calls == beforeWeakWrite + 1,
+              "explicit read-continuity write capability did not submit a preflighted move");
+  auto unpreflighted = request(true); unpreflighted.source = {}; unpreflighted.preflightRevision = 0;
+  ok &= check(executeIntent(unpreflighted, moveHost, 1000, submit).outcome == SubmissionOutcome::DefinitelyNotSubmitted,
+              "a write without a Core preflight revision reached the host");
+  auto verifiedWrite = request(true);
+  ok &= check(executeIntent(verifiedWrite, moveHost, 1000, submit).outcome == SubmissionOutcome::DefinitelyNotSubmitted,
+              "a verified-source write was downgraded to the read-continuity level");
+  auto weakReadViaMoveHost = request(); weakReadViaMoveHost.source = {};
+  weakReadViaMoveHost.write = true;
+  ok &= check(executeIntent(weakReadViaMoveHost, moveHost, 1000, submit).outcome == SubmissionOutcome::DefinitelyNotSubmitted &&
+                  calls == beforeWeakWrite + 1,
+              "a read command forged as a write passed the write capability");
   ok &= check(executeIntent(expired, actual(), 5000, submit).outcome == SubmissionOutcome::DefinitelyNotSubmitted,
               "expired pending intent reached host");
   auto queued = request();
@@ -311,6 +331,16 @@ bool repeatedWeakLoginTests() {
   ok &= check(repository.backpackPets().isEmpty(), "renewed weak epoch retained an old list expectation");
 
   int listReads = 0, detailReads = 0, writes = 0;
+  bool moved = false;  // the simulated server state after an accepted move
+  const QJsonObject movedBackpack{{QStringLiteral("_cmd"), QStringLiteral("2_1_10")},
+      {QStringLiteral("pl"), QJsonArray{
+          QJsonObject{{QStringLiteral("id"), 1}, {QStringLiteral("r"), 7001}, {QStringLiteral("lv"), 100},
+                      {QStringLiteral("n"), QStringLiteral("observed backpack")}},
+          QJsonObject{{QStringLiteral("id"), 2}, {QStringLiteral("r"), 7002}, {QStringLiteral("lv"), 100},
+                      {QStringLiteral("n"), QStringLiteral("observed warehouse")}}}},
+      {QStringLiteral("pps"), QJsonArray{QStringLiteral("1#2"), QJsonValue::Null}}, {QStringLiteral("ppc"), 12}};
+  const QJsonObject movedWarehouse{{QStringLiteral("_cmd"), QStringLiteral("2_1_S")},
+      {QStringLiteral("ns"), QJsonArray{}}, {QStringLiteral("rb"), QJsonArray{}}, {QStringLiteral("es"), QJsonArray{}}};
   bool detailFinished = false, detailSucceeded = false, repositorySaved = false;
   QObject::connect(&repository, &PetRepository::detailResponseAccepted, &repository,
                    [&](qint64, quint64) { repositorySaved = true; });
@@ -320,9 +350,13 @@ bool repeatedWeakLoginTests() {
     ok &= check(!intent.source.verified() && intent.ticket.sessionEpoch == repository.sessionGeneration(),
                 "weak controller intent acquired source evidence or used an old local epoch");
     const auto receipt = executeIntent(intent, weakHost, transportMonotonicMs(), [&](const OutboundIntent& active) {
-      if (active.write) { ++writes; return SubmissionOutcome::Submitted; }
-      if (active.ticket.command == QStringLiteral("2_1_10")) { ++listReads; deliverWeak(backpack); }
-      else if (active.ticket.command == QStringLiteral("2_1_S")) { ++listReads; deliverWeak(warehouse); }
+      if (active.write) {
+        ++writes; moved = true;
+        deliverWeak({{QStringLiteral("_cmd"), QStringLiteral("2_1_11")}, {QStringLiteral("r"), 1}});
+        return SubmissionOutcome::Submitted;
+      }
+      if (active.ticket.command == QStringLiteral("2_1_10")) { ++listReads; deliverWeak(moved ? movedBackpack : backpack); }
+      else if (active.ticket.command == QStringLiteral("2_1_S")) { ++listReads; deliverWeak(moved ? movedWarehouse : warehouse); }
       else if (active.ticket.command == QStringLiteral("2_1_R")) {
         ++detailReads;
         deliverWeak({{QStringLiteral("_cmd"), active.ticket.command},
@@ -347,25 +381,50 @@ bool repeatedWeakLoginTests() {
                   repository.detailFor(2).value(QStringLiteral("_unverifiedObservation")).toBool() &&
                   repository.isDetailPersisted(2),
               "read-only detail was invisible, retried after valid observation, or not durably cached");
-  controller.requestMoveToWarehouse(1);
-  ok &= check(waitUntil([&] { return !controller.moveRunning(); }) && writes == 0 &&
-                  !repository.listObservationsAuthoritativeForWrite() && !repository.sessionContext().canPersist(),
-              "renewed weak read session gained a move-write capability");
+  // Moving at the v1.3 level: the forced preflight re-reads both lists
+  // through this uninterrupted stream, which is enough for Core to queue the
+  // write. The host still refuses it unless it grants the explicit write
+  // capability that production grants to a compatible, healthy client.
+  bool moveSucceeded = false; QString moveMessage; int moveFinishedCount = 0;
+  QObject::connect(&controller, &PetRefreshController::moveFinished, &controller,
+                   [&](bool succeeded, const QString& message) {
+                     ++moveFinishedCount; moveSucceeded = succeeded; moveMessage = message; });
+  controller.requestMoveToBackpack(2);
+  ok &= check(waitUntil([&] { return moveFinishedCount == 1; }) && !moveSucceeded && writes == 0 &&
+                  !moved && repository.readContinuityWriteAllowed() && !repository.sessionContext().canPersist(),
+              "a host without the explicit write capability submitted a move");
+  weakHost.allowUnverifiedWrite = true;
+  controller.requestMoveToBackpack(2);
+  ok &= check(waitUntil([&] { return moveFinishedCount == 2; }) && moveSucceeded && writes == 1 &&
+                  repository.backpackIds() == QList<qint64>{1, 2} && repository.warehousePet(2).isEmpty() &&
+                  !repository.sessionContext().canPersist(),
+              qPrintable(QStringLiteral("unverified but uninterrupted session did not complete exactly one "
+                                        "verified move: %1").arg(moveMessage)));
   ok &= check(waitForRepositoryIdle(&repository), "weak read test did not drain actual repository I/O");
   QDirIterator accountFiles(QDir(directory.path()).filePath(QStringLiteral("accounts")),
                            QStringList{QStringLiteral("*.json")},
                            QDir::Files | QDir::Hidden | QDir::System, QDirIterator::Subdirectories);
-  int savedObservations = 0;
+  int savedObservations = 0, moveJournals = 0;
   while (accountFiles.hasNext()) {
-    QFile cached(accountFiles.next());
+    const QString path = accountFiles.next();
+    QFile cached(path);
     ok &= check(cached.open(QIODevice::ReadOnly), "read-only cache could not be read back");
     const auto envelope = QJsonDocument::fromJson(cached.readAll()).object();
+    if (QFileInfo(path).dir().dirName() == QStringLiteral("operations")) {
+      // Move intent journals, one per attempted move; not observation caches.
+      ok &= check(envelope.value(QStringLiteral("schema")).toInt() == 1 &&
+                      envelope.value(QStringLiteral("account")).toString() == QStringLiteral("weak-live-login"),
+                  "move journal was written for another account or schema");
+      ++moveJournals;
+      continue;
+    }
     ok &= check(envelope.value(QStringLiteral("schema")).toInt() == 4 &&
                     envelope.value(QStringLiteral("account")).toString() == QStringLiteral("weak-live-login") &&
                     envelope.value(QStringLiteral("trust")).toString() == QStringLiteral("read-only-observation"),
                 "cached read-only data was promoted to a verified observation");
     ++savedObservations;
   }
+  ok &= check(moveJournals == 2, "each attempted read-continuity move did not leave exactly one intent journal");
   ok &= check(savedObservations >= 2 && QFileInfo::exists(QDir(directory.path()).filePath(QStringLiteral("last-account.txt"))),
               "read-only observations or offline account hint were not saved");
 
