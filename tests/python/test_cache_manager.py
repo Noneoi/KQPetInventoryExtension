@@ -12,7 +12,9 @@ import zipfile
 class CacheManagerTest(unittest.TestCase):
     def setUp(self):
         self.temp = tempfile.TemporaryDirectory(prefix='kq-cache-test-')
-        self.base = Path(self.temp.name)
+        # Expand 8.3 short names (e.g. RUNNER~1 on CI) so paths match what the
+        # cache manager records after resolving the directory.
+        self.base = Path(self.temp.name).resolve()
         self.root = self.base / 'cache'
         self.client = self.base / 'client'
         self.root.mkdir()

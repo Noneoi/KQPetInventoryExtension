@@ -15,7 +15,7 @@ jobs:
 
     steps:
       - name: Check out source
-        uses: actions/checkout@v4
+        uses: actions/checkout@v5
 
       - name: Install Qt 6.6.3
         uses: jurplel/install-qt-action@v4

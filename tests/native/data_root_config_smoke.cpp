@@ -18,7 +18,10 @@ int main() {
   std::setlocale(LC_ALL, ".UTF8");
   wchar_t temporary[32768]{}, generated[32768]{};
   const DWORD count = GetTempPathW(32768, temporary);
-  if (!count || count >= 32768 || !GetTempFileNameW(temporary, L"kqd", 0, generated)) return 1;
+  if (!count || count >= 32768) return 1;
+  // Expand 8.3 short names (e.g. RUNNER~1 on CI); the loader rejects alias spellings.
+  const DWORD longCount = GetLongPathNameW(temporary, temporary, 32768);
+  if (!longCount || longCount >= 32768 || !GetTempFileNameW(temporary, L"kqd", 0, generated)) return 1;
   const std::filesystem::path root(generated);
   if (!DeleteFileW(generated) || !std::filesystem::create_directory(root)) return 1;
   const auto client = root / L"客户端";

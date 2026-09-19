@@ -18,7 +18,10 @@ struct Temporary {
   fs::path base, path;
   Temporary() {
     wchar_t root[32768]{}, unique[32768]{};
-    if (!GetTempPathW(32768, root) || !GetTempFileNameW(root, L"kqr", 0, unique)) return;
+    // Expand 8.3 short names (e.g. RUNNER~1 on CI); release paths must be their final spelling.
+    if (!GetTempPathW(32768, root)) return;
+    const DWORD length = GetLongPathNameW(root, root, 32768);
+    if (!length || length >= 32768 || !GetTempFileNameW(root, L"kqr", 0, unique)) return;
     base = fs::path(root).lexically_normal(); path = fs::path(unique).lexically_normal();
     if (base.filename().empty()) base = base.parent_path();
     DeleteFileW(path.c_str()); std::error_code error; fs::create_directory(path, error);
