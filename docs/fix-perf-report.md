@@ -1,5 +1,7 @@
 # 修复与性能优化报告（T0–T10）
 
+> **历史记录。**任务书 T0–T10 的结论报告（分支 `fix/kq-reliability-perf`，已合入 main）。文中的源码路径是当时的位置，现位置见 [architecture.md §8](architecture.md#8-路径迁移对照2026-09-19)。
+
 - 分支：`fix/kq-reliability-perf`（基线 `4d29a6e409a619ae38b39f524aa78ff87aa50e35`）
 - 最终提交：`070e2de`（本文件随该提交交付）
 - 执行环境：Windows x64 / MSVC 19.51.36231 / Qt 6.6.3 (`D:\Qt\6.6.3\msvc2019_64`) /

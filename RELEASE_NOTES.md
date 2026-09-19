@@ -1,8 +1,12 @@
 # 发行说明
 
-## 未发布（预览构建 2.0.0-421e66b1beef-20260918T122129Z）
+## 2.0.0-preview.3
 
-尚未打 tag。完整 Release 回归 72 项通过，详细的评审与修复记录见 [docs/code-review-20260918.md](docs/code-review-20260918.md)。
+预览构建，完整 Release 回归 72 项通过；构建的 releaseId 即附件文件名中 `KQPetInventory-` 之后的部分。真实客户端交互由用户手动验证。
+
+安装和升级方式不变：下载本发行页的 **copy-ready** ZIP，按三步复制后双击 **启动精灵工作台.cmd**。原版客户端、已有缓存和数据目录配置保留。
+
+本版包含 preview.2 之后的界面改进与修复（评审记录见 [docs/code-review-20260918.md](docs/code-review-20260918.md)），以及一次不改变功能的代码与文档整理。
 
 ### 精灵详细界面：契约与召唤关系
 
@@ -24,9 +28,17 @@
 ### 清理与性能
 
 - 移除全仓库零引用的 API、字段，以及整条已停用的自动刷新与写入发送支路；遗留详情管线源文件一并删除。
-- `src/extension` 下三个转发到 application 适配层的头文件与 `src/domain` 同名但内容不同，文件里已注明它们不可删除——删除不会报缺失头文件，只会静默命中同名的 domain 版本。
 - 两个渲染器的 HTML 骨架、loader 的两份命令行转义各自合并为共享实现，渲染与转义结果不变。
 - 详情在数据未变化时不再重建文档（不会再被重置滚动位置）；分页按钮只在页数变化时重建；拼音首字母加缓存；图片候选路径去重与背包/仓库列表拼接各减少一次全量遍历或拷贝。
+
+### 代码与文档整理（功能不变）
+
+- 源码按层分目录：`domain`、`contracts`、`storage`、`diagnostics`、`protocol`、`bridge`、`application/*`、`ui/*`，`extension` 只保留 DLL 入口与装配根。`#include` 统一为相对 `src/` 的完整路径，删除了与 `src/domain` 同名的三个转发头，同名头文件互相误命中的问题从根上消除。
+- CMake 按层拆到 `cmake/`，测试按同样的层放进 `tests/` 子目录，构建期工具移到 `tools/build/`；两项边界检查同步适配。
+- 商店与日常控制器中逐行复制的只读请求收发逻辑合并为一个共用组件；重复的整数解析、服务器名称与带符号数字显示各合并为一份；删除几处没有调用方的代码。
+- `pet_repository`、`pet_refresh_controller`、`shop_exchange_controller` 按职责各拆为三个实现文件，精灵表格的样式与搜索高亮独立成文件；函数体原样搬移。
+- 验证：整理前后完整 Release 回归均为 72/72；逐项比对了每个源文件的编译参数、每个目标的链接库和每项测试的注册信息，逐个核对了搬移的函数；发行产物的导出表一致。方法记录在 [docs/architecture.md](docs/architecture.md)。
+- 文档：三份战力分册已合并进《精灵战力计算体系》，《客户端版本自适配》并入《设计与逆向依据》，新增[文档索引](docs/README.md)与[架构与代码组织](docs/architecture.md)，历史记录类文档标注了状态和路径对照。
 
 ## 2.0.0-preview.2
 
@@ -101,6 +113,6 @@
 - [分析刷新机制](docs/pet-analysis-lifecycle.md)
 - [源兽材料背包](docs/source-beast-inventory-protocol.md)
 - [活动发现](docs/activity-exchange-public-data.md)与[次数、费用观察](docs/activity-exchange-observations.md)
-- [客户端自适配](docs/compatibility-adaptive.md)
+- [客户端自适配](docs/设计与逆向依据.md#21-客户端版本自适配)
 
 历史版本记录可在 Git 历史中查看。旧的单 DLL pending 更新及安装流程已被当前配对版本结构替代，不应继续作为操作说明。

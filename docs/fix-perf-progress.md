@@ -1,5 +1,7 @@
 # 修复与性能优化进度（任务书 T0–T10）
 
+> **历史记录。**任务书 T0–T10 的逐项工作日志；结论见 [fix-perf-report.md](fix-perf-report.md)。文中的源码路径是当时的位置，现位置见 [architecture.md §8](architecture.md#8-路径迁移对照2026-09-19)。
+
 本文件按任务书维护。状态只用：`Pending / Investigating / Reproduced / FixedAndTargetedTested / NotReproduced / Blocked / Verified`。
 
 执行环境（2026-09-16）：

@@ -1,6 +1,6 @@
 # AI 工程交接：v2 工作台整合
 
-核对日期：2026-09-12。工程目录为 D:\奥奇工程\KQPetInventoryExtension。日常客户端目录 D:\奥奇工程\氪奇Pro-V1.1.4 不是默认测试写入目标；本轮整合不意味着已经覆盖日常部署。
+核对日期：2026-09-12；2026-09-19 按代码目录整理更新路径与收尾状态。工程目录以实际克隆位置为准（早期记录中的 D:\奥奇工程\KQPetInventoryExtension 是当时的开发机路径）。日常客户端目录不是默认测试写入目标；预览发布不意味着已经覆盖日常部署。
 
 ## 先确认当前状态
 
@@ -13,11 +13,12 @@ v2 是重构任务名称。不要在文档、压缩包名或验收报告中手�
 阅读顺序：
 
 1. [README](../README.md)：当前构建、打包、部署、数据与回退命令。
-2. [重构计划](v2.0-reconstruction-plan.md) 与 [实施记录](v2.0-implementation-log.md)：约定、用户修正和进度。
-3. CMakeLists.txt、scripts/build.ps1、scripts/test-release.ps1：实际目标图及构建身份。
-4. src/application/application_runtime.*、src/extension/extension_context.*：Core/GUI 装配与关闭流程。
-5. 对应 Domain、Storage、Controller、ReadView、模型及测试。
-6. profiles/targets.json、profiles/legacy-baselines.json 和 [逆向依据](设计与逆向依据.md)：兼容与旧版证据。
+2. [架构与代码组织](architecture.md)：源码分层、依赖边界、构建片段、测试布局，以及确认整理不改变功能的方法。
+3. [重构计划](v2.0-reconstruction-plan.md) 与 [实施记录](v2.0-implementation-log.md)：约定、用户修正和进度（历史记录，源码路径按 architecture.md §8 对照）。
+4. CMakeLists.txt 与 cmake/*.cmake、scripts/build.ps1、scripts/test-release.ps1：实际目标图及构建身份。
+5. src/application/runtime/application_runtime.*、src/extension/extension_context.*：Core/GUI 装配与关闭流程。
+6. 对应 Domain、Storage、Controller、ReadView、模型及测试。
+7. profiles/targets.json、profiles/legacy-baselines.json 和 [逆向依据](设计与逆向依据.md)：兼容与旧版证据。
 
 用户最新要求优先于旧计划数字：**预算应有余量，性能目标作参考，不机械卡旧门槛。** 当前默认 result 128 MiB、Worker total 512 MiB、input 128 MiB、compiled cache 16 MiB、I/O outstanding 128 MiB、分析准备超时 120 秒。常规性能抽测默认预热 1 次、采样 3 次；完整矩阵和 -Strict 是按需选项。不要继续为旧 64/256 MiB 或全矩阵强制要求扩大任务。
 
@@ -26,15 +27,15 @@ v2 是重构任务名称。不要在文档、压缩包名或验收报告中手�
 | 职责 | 主要源码/目标 | 接手时关注 |
 |---|---|---|
 | Compatibility | src/compatibility、Profile 生成器、CompatibilityCheck | Qt 调用前先验证 PE、架构、模块、Profile、入口策略 |
-| Protocol / Bridge | packet_contract、session_context、original_bridge、inbound/outbound queue | 捕获值与来源证据；调用原版不能被业务异常或队列阻塞 |
+| Protocol / Bridge | src/protocol（packet_contract、session_context、inbound/outbound queue）、src/bridge（original_bridge、inline_hook） | 捕获值与来源证据；调用原版不能被业务异常或队列阻塞 |
 | Domain | src/domain、KQPetDomain | QtCore 值与纯规则；不依赖单例、Repository、I/O、UI 或隐式业务时钟 |
 | Storage | src/storage、KQPetStorage | 冻结写入上下文、单 I/O 线程、队列计费、锁与原子文件提交 |
-| Application | src/application、各业务 Controller、ApplicationRuntime | 固定 Core/Compute 调度、取消、版本校验、缓存协调与发布 |
-| UI | 工作台、各页、模型、只读投影、图片门面 | 显式冻结元数据/事实；增量角色更新；不从 GUI 读个人目录或重算培养 |
+| Application | src/application/{runtime,catalog,pet,shop,routine,analysis,views,images}、ApplicationRuntime | 固定 Core/Compute 调度、取消、版本校验、缓存协调与发布 |
+| UI | src/ui/{workbench,pet,detail,shop,routine,analysis,common}：工作台、各页、模型、渲染 | 显式冻结元数据/事实；增量角色更新；不从 GUI 读个人目录或重算培养 |
 
 六边界是职责关系，不要求恰好六个库。KQPetCore 是 ApplicationCore 的兼容聚合别名，不能把它误称为纯 Domain。还要检查 UI 是否仍有 Catalog/旧详情适配器反向依赖；单纯更名 target 不算完成拆分。
 
-tools/check_domain_boundary.py 检查 Domain 和三个明确审查的值契约：pet_detail_types.h、pet_derivation_types.h、pet_record_types.h。该白名单不开放整个 contracts 或 Application 目录，契约内容与递归直接依赖仍需检查。QElapsedTimer 用于计量/分片；业务日期必须作为冻结输入传入。Domain 的 QtCore-only /WHOLEARCHIVE 测试补充静态检查。
+tools/build/check_domain_boundary.py 检查 Domain 和三个明确审查的值契约：pet_detail_types.h、pet_derivation_types.h、pet_record_types.h。该白名单不开放整个 contracts 或 Application 目录，契约内容与递归直接依赖仍需检查。QElapsedTimer 用于计量/分片；业务日期必须作为冻结输入传入。Domain 的 QtCore-only /WHOLEARCHIVE 测试补充静态检查。
 
 ## 线程、版本与所有权
 
@@ -101,12 +102,18 @@ ctest --test-dir .\build-v2 -C Release --output-on-failure
 
 验证中断、损坏 manifest、来源不明、锁冲突或报告不匹配时保留原状并反馈，不靠手工替换 DLL、删除个人文件或强杀游戏消除报错。
 
-## 本轮收尾仍要核实
+## 收尾状态
 
-不要在这份静态交接文档里维护易过期的“全部通过”数字。最终以实际构建目录、报告和产物 identity 核查：
+不要在这份静态交接文档里维护易过期的“全部通过”数字。最终以实际构建目录、报告和产物 identity 核查。
 
-- 新 PreparedDetail、Pet/Shop 页与只读契约接线是否完成，旧同步详情路径是否仍为生产入口。
-- UI 对 ApplicationCore/Catalog 的最后反向依赖是否切断，纯边界与完整链接是否通过。
+已完成（有自动检查守住）：
+
+- 精灵页与商店页的详情只走 PreparedDetail 与只读契约；旧的同步详情分析/渲染路径已删除。
+- UI 不再反向依赖 ApplicationCore/Catalog：`ui_boundary` 检查 KQPetUi 的链接与包含，`domain_boundary` 与 `/WHOLEARCHIVE` 链接检查 Domain。
+- 源码已按层分目录、include 统一为相对 `src/` 的路径，见 [architecture.md](architecture.md)。
+
+仍需在真实客户端上核实：
+
 - 工作台入口、登录会话变化、真实请求/响应关联、旧选择清理、正常退出是否在同一配对产物上验收。
 - 100/125/150/200% 和小窗口实际截图是否检查，性能抽测是否说明数据规模、缓存状态与测量限制。
 - 预览包与正式包是否区分，是否完成中断恢复、v2 回退与冻结旧配对回退，原版 EXE 哈希是否未变。

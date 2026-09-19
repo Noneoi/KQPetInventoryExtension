@@ -6,7 +6,7 @@
 
 ## 安装与升级（推荐）
 
-在 [v2.0.0-preview.2 发行页](https://github.com/Noneoi/KQPetInventoryExtension/releases/tag/v2.0.0-preview.2) 下载名称含 **copy-ready** 的复制即用 ZIP。
+在 [v2.0.0-preview.3 发行页](https://github.com/Noneoi/KQPetInventoryExtension/releases/tag/v2.0.0-preview.3) 下载名称含 **copy-ready** 的复制即用 ZIP。
 
 1. 关闭正在运行的氪奇客户端。
 2. 解压下载的压缩包。
@@ -107,7 +107,35 @@ ctest --test-dir .\build-v2 -C Release --output-on-failure
 | `KQPetCompatibilityCheck.exe` | 离线兼容检查 |
 | `KQWorkbenchUiPreview.exe` | 使用模拟数据的独立工作台预览 |
 
-客户端适配不限定氪奇 1.1.3/1.1.4，也不依赖固定文件名、整文件哈希或历史地址。启动器与 DLL 检查当前客户端接口；未识别或 ABI 不兼容时给出原因。通过检测不等于所有未来客户端都保证可用。详见 [客户端版本自适配](docs/compatibility-adaptive.md)。
+客户端适配不限定氪奇 1.1.3/1.1.4，也不依赖固定文件名、整文件哈希或历史地址。启动器与 DLL 检查当前客户端接口；未识别或 ABI 不兼容时给出原因。通过检测不等于所有未来客户端都保证可用。详见 [设计与逆向依据 · 客户端版本自适配](docs/设计与逆向依据.md#21-客户端版本自适配)。
+
+## 代码结构
+
+源码按职责分层存放（Domain 不依赖任何上层；UI 只经只读视图与值契约访问 Application，由 `tools/build` 下的边界检查保证）：
+
+```text
+src/
+├─ compatibility/  runtime/  loader/  bootstrap/   原生（无 Qt）：客户端兼容检测、启动通道、版本加载器、稳定入口、发行清单
+├─ domain/            纯 QtCore 值与规则（战力、培养、商店条件、推荐），不做 I/O，没有单例
+├─ contracts/         跨层共享的冻结值契约
+├─ storage/           单 I/O 线程、原子写入、诊断存储
+├─ diagnostics/       构建信息、诊断日志、目标 Profile 守卫
+├─ protocol/          封包契约、会话、入站队列、出站传输
+├─ bridge/            MinHook 内联钩子、原版客户端桥接与窗口定位
+├─ application/
+│  ├─ runtime/        ApplicationRuntime 装配、数据更新、缓存管理
+│  ├─ catalog/        精灵详情、商店兑换、日常活动目录及其读写
+│  ├─ pet/            精灵仓库、记录/派生缓存、刷新与移动
+│  ├─ shop/  routine/ 商店与日常活动控制器
+│  ├─ analysis/       资产分析、推荐适配、后台分析 Worker
+│  ├─ views/          供 GUI 读取的只读视图、投影与发布器
+│  ├─ images/         图片调度、解码与落盘
+│  └─ common/         控制器共用的缓存写入、观察时效与只读请求跟踪
+├─ ui/                workbench/ pet/ detail/ shop/ routine/ analysis/ common/
+└─ extension/         KQPetInventory.dll 入口与装配根（dllmain、ExtensionContext、嵌入资源）
+```
+
+include 统一写成相对 `src/` 的完整路径；CMake 按层拆在 `cmake/`；测试按同样的层放在 `tests/` 子目录。依赖边界、构建与测试布局、以及怎样验证整理不改变功能，见 [架构与代码组织](docs/architecture.md)。
 
 ## 开发打包与高级部署
 
@@ -148,16 +176,14 @@ $package = 'C:\Downloads\实际预览包目录'
 
 ## 文档
 
+全部文档按用途分组列在 [文档索引](docs/README.md)。常用的几份：
+
 | 内容 | 文档 |
 | --- | --- |
 | 版本变化 | [发行说明](RELEASE_NOTES.md) |
 | 数据目录、缓存、备份与迁移 | [本地缓存与手动更新](docs/local-cache-and-manual-updates.md) |
 | 官方资料与图片更新 | [手动公共数据更新](docs/manual-public-data-updater.md) |
-| 战力组成、星神与至高判定 | [战斗力分析](docs/pet-power-composition.md) |
-| 单只分析与资产汇总何时更新 | [分析刷新机制](docs/pet-analysis-lifecycle.md) |
-| 培养材料及空闲源兽 | [材料规则](docs/cultivation-material-rules.md)、[源兽仓库读取](docs/source-beast-inventory-protocol.md) |
-| 活动自动发现与次数、费用来源 | [活动兑换目录](docs/activity-exchange-public-data.md)、[只读观察映射](docs/activity-exchange-observations.md) |
-| 版本适配与逆向依据 | [兼容检测](docs/compatibility-adaptive.md)、[设计依据](docs/设计与逆向依据.md) |
-| 开发维护 | [工程交接](docs/AI工程交接文档.md)、[重构实施记录](docs/v2.0-implementation-log.md) |
+| 战力组成、星神与至高判定 | [战斗力分析](docs/pet-power-composition.md)、[精灵战力计算体系](docs/精灵战力计算体系.md) |
+| 源码分层与开发维护 | [架构与代码组织](docs/architecture.md)、[工程交接](docs/AI工程交接文档.md) |
 
 本项目与奥奇传说、氪奇官方无隶属关系。
