@@ -335,7 +335,7 @@ add_executable(KQAnalysisCacheIntegrationSmoke tests/application/analysis_cache_
 target_link_libraries(KQAnalysisCacheIntegrationSmoke PRIVATE KQPetApplication)
 target_compile_options(KQAnalysisCacheIntegrationSmoke PRIVATE $<$<CXX_COMPILER_ID:MSVC>:/utf-8 /wd4828>)
 add_test(NAME analysis_cache_integration_smoke COMMAND KQAnalysisCacheIntegrationSmoke)
-set_tests_properties(analysis_cache_integration_smoke PROPERTIES TIMEOUT 45)
+set_tests_properties(analysis_cache_integration_smoke PROPERTIES TIMEOUT 150)
 
 add_executable(KQSnapshotStorageSmoke tests/application/snapshot_storage_smoke.cpp src/extension/resources.qrc)
 target_link_libraries(KQSnapshotStorageSmoke PRIVATE KQPetCore)

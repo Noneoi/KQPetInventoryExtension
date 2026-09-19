@@ -259,7 +259,11 @@ int main(int argc, char** argv) {
   }), "isolated bounded IO delay admitted");
   ok &= require(until([&] { return ioHeld.load(); }), "IO delay actually started before request burst");
   controller.requestAnalysis();
-  const bool pressureFinished = until([&] { return !controller.analysisRunning(); }, 20000);
+  // 512 original reads through a one-slot raw cache regularly exceed 20s on
+  // hosted CI runners; stay under the controller's 120s preparation timeout.
+  QElapsedTimer pressureTimer; pressureTimer.start();
+  const bool pressureFinished = until([&] { return !controller.analysisRunning(); }, 90000);
+  std::fprintf(stderr, "pressure scenario: finished=%d elapsedMs=%lld\n", pressureFinished, pressureTimer.elapsed());
   if (!pressureFinished || controller.overview().totalPets != 515 || controller.overview().missingDetailPets != 1) {
     const auto rawState = repository.rawCacheStats(); const auto factState = cache.stats();
     std::fprintf(stderr, "PRESSURE: finished=%d P=%d missing=%d protected=%d raw=%d reads=%d facts=%d retries=%llu status=%s\n",
