@@ -450,6 +450,9 @@ set_tests_properties(
     ENVIRONMENT "QT_QPA_PLATFORM=offscreen;KQPET_PREVIEW_SELF_TEST=1;KQPET_PREVIEW_EXIT_MS=3000"
     TIMEOUT 15
 )
+# The shop preview also runs the thousand-pet project switch check, which needs
+# more headroom on hosted CI runners (about 7s locally, over 15s on CI).
+set_tests_properties(shop_ui_preview_smoke PROPERTIES TIMEOUT 45)
 kqpet_use_qt_runtime(pet_ui_preview_smoke shop_ui_preview_smoke routine_ui_preview_smoke
   asset_analysis_ui_preview_smoke ui_preferences_smoke)
 
