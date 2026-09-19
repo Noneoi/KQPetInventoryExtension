@@ -150,6 +150,16 @@ int legacySmoke(QApplication& application) {
   // measure the window's own startup rather than what the detail changes below
   // trigger, which is what this check is about. Drain until the model has been
   // quiet for three passes, with a cap so a genuine reset storm still fails.
+  //
+  // The account switch above also queued the per-account analysis settings and
+  // snapshot history reads on the storage thread. Their completion emits
+  // accountAnalysisChanged, which legitimately refreshes the whole window. That
+  // completion time is set by the I/O thread, not by this test, so a quiet model
+  // alone is not enough: wait for both reads too, or the refresh can land inside
+  // the counting window below and be mistaken for a detail-triggered rebuild.
+  const auto accountReadsSettled = [&controller]() {
+    return controller.autoSnapshotSettingKnown() && !controller.snapshotHistoryLoading();
+  };
   {
     int settleResets = 0;
     const QMetaObject::Connection settleWatch = model
@@ -158,7 +168,7 @@ int legacySmoke(QApplication& application) {
         : QMetaObject::Connection();
     QElapsedTimer settle;
     settle.start();
-    for (int quiet = 0; quiet < 3 && settle.elapsed() < 5000;) {
+    for (int quiet = 0; (quiet < 3 || !accountReadsSettled()) && settle.elapsed() < 5000;) {
       const int before = settleResets;
       QCoreApplication::processEvents(QEventLoop::AllEvents, 20);
       QThread::msleep(5);
