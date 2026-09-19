@@ -115,7 +115,7 @@ production callers should use the default strict QSaveFile implementation.
 Library sources: `storage_service.cpp`, `storage_write_context.cpp`; public
 headers: `storage_service.h`, `storage_write_context.h`, `storage_types.h`.
 Enable AUTOMOC, include `src/storage`, and link Qt 6.6.3 Core. The standalone
-`tests/storage_queue_smoke.cpp` needs only this library and Qt Core.
+`tests/storage/storage_queue_smoke.cpp` needs only this library and Qt Core.
 
 The smoke test exercises frozen caller data, out-of-order revisions and equal
 revision conflicts, bounded outstanding jobs/bytes, selected-read priority,

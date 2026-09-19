@@ -1,5 +1,5 @@
 #include "bootstrap.h"
-#include "client_target.h"
+#include "loader/client_target.h"
 
 namespace kqpet::bootstrap {
 namespace fs = std::filesystem;

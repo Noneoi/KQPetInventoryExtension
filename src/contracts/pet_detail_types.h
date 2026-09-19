@@ -1,7 +1,7 @@
 #pragma once
 #include "pet_derivation_types.h"
-#include "../domain/pet_cultivation_requirements.h"
-#include "../domain/catalog_types.h"
+#include "domain/pet_cultivation_requirements.h"
+#include "domain/catalog_types.h"
 #include <QJsonObject>
 #include <QVector>
 #include <QStringList>

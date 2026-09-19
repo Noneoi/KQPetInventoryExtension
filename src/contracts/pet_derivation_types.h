@@ -1,6 +1,6 @@
 #pragma once
 #include "pet_record_types.h"
-#include "../domain/pet_analysis_facts.h"
+#include "domain/pet_analysis_facts.h"
 
 struct PetDerivationKey {
   PetRecordKey record;

@@ -1,10 +1,10 @@
 #include "extension_context.h"
-#include "diagnostic_logger.h"
-#include "target_compatibility_guard.h"
+#include "diagnostics/diagnostic_logger.h"
+#include "diagnostics/target_compatibility_guard.h"
 #include "version.h"
-#include "original_bridge.h"
-#include "startup_channel.h"
-#include "target_check.h"
+#include "bridge/original_bridge.h"
+#include "runtime/startup_channel.h"
+#include "compatibility/target_check.h"
 
 #include <windows.h>
 

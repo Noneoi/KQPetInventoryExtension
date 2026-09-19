@@ -38,8 +38,9 @@ function Write-JsonFile([string]$Path, $Value) {
     [IO.File]::WriteAllText($Path, ($Value | ConvertTo-Json -Depth 30), $utf8)
 }
 function Source-Snapshot {
-    $files = @('tests\asset_analysis_performance.cpp', 'tests\performance_controller_core.h', 'tests\performance_dataset.cpp',
-               'tests\performance_dataset.h', 'scripts\run-performance.ps1',
+    $files = @('tests\performance\asset_analysis_performance.cpp', 'tests\performance\performance_controller_core.h',
+               'tests\performance\performance_dataset.cpp', 'tests\performance\performance_dataset.h',
+               'scripts\run-performance.ps1',
                'docs\v2.0-reconstruction-plan.md')
     $result = [ordered]@{}
     foreach ($name in $files) {

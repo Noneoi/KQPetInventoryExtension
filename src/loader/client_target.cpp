@@ -1,5 +1,5 @@
 #include "client_target.h"
-#include "target_check.h"
+#include "compatibility/target_check.h"
 
 #include <algorithm>
 #include <limits>

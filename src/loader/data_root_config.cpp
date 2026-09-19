@@ -1,6 +1,6 @@
 #include "data_root_config.h"
 #include "command_line.h"
-#include "../bootstrap/strict_json.h"
+#include "bootstrap/strict_json.h"
 
 #include <windows.h>
 #include <cstring>

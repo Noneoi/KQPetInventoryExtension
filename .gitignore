@@ -1,36 +1,31 @@
+# Build trees and packaging output (build.ps1 defaults to build-v2).
 /build/
 /build-*/
 /build-*
-/build-battle/
-/build-qt663/
-/build-codex-shop/
-/build-codex-shop-v2/
-/build-codex-shop-v3/
-/build-check/
-/build-performance-results/
-/validation-logs/
 /dist/
+/dist*/
 /release/
+/validation-logs/
 /.vs/
+CMakeUserPresets.json
+
+# Local runtime data
 /KQPetData/
 /**/KQPetData/
+
+# Toolchain / interpreter byproducts
 *.user
 *.zip
-CMakeUserPresets.json
 __pycache__/
 *.pyc
 *.log
-.env
-.env.*
-!.env.example
 *.pdb
 *.obj
 *.ilk
 *.exp
 *.tmp
-/dist2/
-/dist3/
-/dist4/
-/dist5/
-/dist6/
-/dist7/
+
+# Secrets
+.env
+.env.*
+!.env.example

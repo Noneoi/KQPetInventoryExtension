@@ -28,9 +28,10 @@ shop_pet_eligibility.cpp
 
 Application keeps `AssetAnalyzer` input capture and controller-based summaries,
 and the old global-metadata entry points in `recommendation_adapter.*` and
-`shop_legacy_adapters.*`. The old extension headers forward to those adapters
-where compatibility requires them; Domain never includes the compatibility
-headers. Domain callers use `PreparedRecommendationEngine`, `RecommendationSession`
+`shop_legacy_adapters.*` (under `src/application/analysis` and
+`src/application/shop`). Callers that need those legacy entry points include the
+adapter headers by their full `application/...` path; Domain never includes
+them. Domain callers use `PreparedRecommendationEngine`, `RecommendationSession`
 and `AssetDerivation`. The worker includes this directory's recommendation
 header explicitly. Legacy `RecommendationEngine::generate` remains an
 Application call and cannot be linked using Domain alone.
@@ -42,7 +43,7 @@ DomainNumeric; callers retain the exact signed-string, JSON precision and
 overflow rules. Battle-power value types are shared directly with the UI view
 model, without importing that display model back into Domain.
 
-`tests/domain_core_smoke.cpp` runs without QCoreApplication or registered RCC.
+`tests/domain/domain_core_smoke.cpp` runs without QCoreApplication or registered RCC.
 Link it against Domain and QtCore with `/WHOLEARCHIVE` on MSVC, so unresolved
 references in an otherwise unused Domain object cannot hide in a static archive.
 It exercises numeric boundaries, frozen catalog data, strict quotas, duplicate
@@ -51,7 +52,7 @@ snapshot comparability and move restrictions/sequence rules. Existing broader
 application and algorithm tests remain necessary; this is a boundary regression,
 not a replacement for the full behavioral suite.
 
-Run `python tools/check_domain_boundary.py --self-test` for include/API checks.
+Run `python tools/build/check_domain_boundary.py --self-test` for include/API checks.
 The script deliberately ignores comments and literals and includes negative
 fixtures. It is an architectural guard, not a full C++ parser or a claim that
 all possible dependency tricks can be recognized. Pair it with the standalone

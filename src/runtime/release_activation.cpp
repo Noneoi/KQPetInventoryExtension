@@ -1,6 +1,6 @@
 #include "release_activation.h"
-#include "../bootstrap/strict_json.h"
-#include "client_target.h"
+#include "bootstrap/strict_json.h"
+#include "loader/client_target.h"
 #include <tlhelp32.h>
 #include <bcrypt.h>
 #include <algorithm>

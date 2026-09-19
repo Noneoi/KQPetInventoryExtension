@@ -10,4 +10,7 @@ bool checkedInteger(const QJsonValue& value, qint64* result,
                     qint64 maximum = std::numeric_limits<qint64>::max());
 bool checkedAdd(qint64 left, qint64 right, qint64* result);
 bool checkedMultiply(qint64 left, qint64 right, qint64* result);
+// Non-negative int from a finite whole JSON number or a plain decimal digit
+// string (no sign, no whitespace), rejecting anything above INT_MAX.
+bool checkedCount(const QJsonValue& value, int* result);
 }

@@ -1,4 +1,5 @@
 #include "checked_json_numbers.h"
+#include <QString>
 #include <cmath>
 
 namespace {
@@ -51,4 +52,24 @@ bool checkedMultiply(qint64 left, qint64 right, qint64* result) {
   return true;
 }
 
+bool checkedCount(const QJsonValue& value, int* result) {
+  if (value.isDouble()) {
+    const double number = value.toDouble();
+    if (!std::isfinite(number) || number < 0 ||
+        number > std::numeric_limits<int>::max() || std::floor(number) != number)
+      return false;
+    *result = static_cast<int>(number);
+    return true;
+  }
+  if (!value.isString() || value.toString().isEmpty()) return false;
+  int number = 0;
+  for (const QChar character : value.toString()) {
+    if (character < QLatin1Char('0') || character > QLatin1Char('9')) return false;
+    const int digit = character.unicode() - '0';
+    if (number > (std::numeric_limits<int>::max() - digit) / 10) return false;
+    number = number * 10 + digit;
+  }
+  *result = number;
+  return true;
+}
 }

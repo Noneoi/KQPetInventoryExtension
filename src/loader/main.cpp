@@ -9,9 +9,9 @@
 #include "remote_module.h"
 #include "command_line.h"
 #include "data_root_config.h"
-#include "target_check.h"
-#include "startup_channel.h"
-#include "release_activation.h"
+#include "compatibility/target_check.h"
+#include "runtime/startup_channel.h"
+#include "runtime/release_activation.h"
 #include "version.h"
 
 namespace {

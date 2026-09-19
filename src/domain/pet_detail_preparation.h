@@ -1,5 +1,5 @@
 #pragma once
-#include "../contracts/pet_detail_types.h"
+#include "contracts/pet_detail_types.h"
 #include <atomic>
 #include <memory>
 

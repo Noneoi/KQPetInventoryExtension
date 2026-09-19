@@ -1,31 +1,8 @@
 #include "shop_limit_facts.h"
 #include "activity_shop_observation.h"
+#include "checked_json_numbers.h"
 #include <cmath>
 #include <limits>
-
-namespace {
-bool checkedCount(const QJsonValue& value, int* result) {
-  if (value.isDouble()) {
-    const double number = value.toDouble();
-    if (!std::isfinite(number) || number < 0 ||
-        number > std::numeric_limits<int>::max() || std::floor(number) != number)
-      return false;
-    *result = static_cast<int>(number);
-    return true;
-  }
-  if (!value.isString() || value.toString().isEmpty()) return false;
-  int number = 0;
-  for (const QChar character : value.toString()) {
-    if (character < QLatin1Char('0') || character > QLatin1Char('9')) return false;
-    const int digit = character.unicode() - '0';
-    if (number > (std::numeric_limits<int>::max() - digit) / 10) return false;
-    number = number * 10 + digit;
-  }
-  *result = number;
-  return true;
-}
-
-}
 
 QJsonObject shopItemObject(const QJsonObject& packet,
                                             const ShopExchangeGood& good) {
@@ -62,7 +39,7 @@ int shopUsedCount(const QJsonObject& packet, const ShopExchangeGood& good) {
   if (!knownLimitKeys.contains(good.limitKey) || good.limitCount <= 0) return -1;
   const QJsonValue value = shopItemObject(packet, good).value(good.limitKey);
   int count = 0;
-  return checkedCount(value, &count) ? count : -1;
+  return DomainNumeric::checkedCount(value, &count) ? count : -1;
 }
 
 int shopRemainingCount(const QJsonObject& packet,

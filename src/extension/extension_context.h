@@ -1,7 +1,7 @@
 #pragma once
-#include "application_runtime.h"
-#include "pet_refresh_controller.h"
-#include "workbench_types.h"
+#include "application/runtime/application_runtime.h"
+#include "application/pet/pet_refresh_controller.h"
+#include "ui/workbench/workbench_types.h"
 #include <QObject>
 #include <QPointer>
 #include <atomic>

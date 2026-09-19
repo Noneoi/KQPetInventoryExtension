@@ -1,6 +1,6 @@
 #include "release_manifest.h"
-#include "../bootstrap/strict_json.h"
-#include "pe_view.h"
+#include "bootstrap/strict_json.h"
+#include "compatibility/pe_view.h"
 #include <bcrypt.h>
 #include <algorithm>
 #include <cstring>

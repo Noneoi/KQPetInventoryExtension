@@ -73,7 +73,7 @@ wait expires; Storage owns that lifetime. The last log line is best effort.
 `status`/`diagnosticText` expose saved, pending, dropped, failed and admission
 failure counts without pretending queued events have been saved.
 
-`tests/diagnostic_smoke.cpp` uses smaller production-clamped limits. It verifies
+`tests/diagnostics/diagnostic_smoke.cpp` uses smaller production-clamped limits. It verifies
 rotation and byte budgets, real child-process run-lock contention, active-run
 preservation and ended-run cleanup, stable installation salt, bounded scans,
 path rejection, queue/backpressure accounting, memory/disk redaction, structured

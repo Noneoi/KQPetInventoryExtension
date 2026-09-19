@@ -1,5 +1,5 @@
 #pragma once
-#include "release_activation.h"
+#include "runtime/release_activation.h"
 #include <vector>
 
 namespace kqpet::bootstrap {
