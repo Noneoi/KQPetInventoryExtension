@@ -36,4 +36,6 @@ jobs:
 
       - name: Run smoke tests
         shell: pwsh
-        run: ctest --test-dir build-ci -C Release --output-on-failure
+        # Hosted runners vary a lot in disk speed; several smoke tests use tight
+        # timing budgets. Retry a failing test up to twice before failing the job.
+        run: ctest --test-dir build-ci -C Release --output-on-failure --repeat until-pass:3

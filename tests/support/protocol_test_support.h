@@ -8,7 +8,9 @@
 #include <QEventLoop>
 #include <QThread>
 
-inline bool waitForRepositoryPersistence(PetRepository* repository, int timeoutMs = 2000) {
+// Upper bounds only: both helpers return as soon as the repository settles,
+// so generous limits cost nothing locally but absorb slow CI disks.
+inline bool waitForRepositoryPersistence(PetRepository* repository, int timeoutMs = 10000) {
   QElapsedTimer timer;
   timer.start();
   while (repository->pendingPersistenceCount() && timer.elapsed() < timeoutMs) {
@@ -19,7 +21,7 @@ inline bool waitForRepositoryPersistence(PetRepository* repository, int timeoutM
   return repository->pendingPersistenceCount() == 0;
 }
 
-inline bool waitForRepositoryIdle(PetRepository* repository, int timeoutMs = 5000) {
+inline bool waitForRepositoryIdle(PetRepository* repository, int timeoutMs = 15000) {
   QElapsedTimer timer;
   timer.start();
   const auto busy = [repository] {

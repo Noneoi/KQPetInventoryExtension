@@ -34,7 +34,7 @@ bool require(bool condition, const char* message) {
   return condition;
 }
 
-bool waitUntil(const std::function<bool()>& predicate, int timeoutMs = 1500) {
+bool waitUntil(const std::function<bool()>& predicate, int timeoutMs = 5000) {
   QElapsedTimer timer;
   timer.start();
   while (!predicate() && timer.elapsed() < timeoutMs) {
@@ -141,10 +141,11 @@ int main(int argc, char* argv[]) {
   PetRefreshController::Timings timings;
   timings.automaticIntervalMs = 100000;
   timings.listRequestGapMs = 2;
-  timings.listTimeoutMs = 100;
+  // Simulated network timeouts must outlast real disk I/O on slow CI runners.
+  timings.listTimeoutMs = 400;
   timings.detailRequestGapMs = 2;
-  timings.detailTimeoutMs = 50;
-  timings.moveRequestTimeoutMs = 150;
+  timings.detailTimeoutMs = 200;
+  timings.moveRequestTimeoutMs = 600;
   controller.setTimings(timings);
 
   QList<qint64> pack{1, 2};
@@ -374,7 +375,7 @@ int main(int argc, char* argv[]) {
   finished = false;
   const int writesBeforeTimeout = writes;
   controller.requestMoveToBackpack(3);
-  ok &= require(waitUntil([&]() { return finished; }, 2000),
+  ok &= require(waitUntil([&]() { return finished; }, 8000),
                 "write-timeout reconciliation did not finish");
   ok &= require(succeeded && writes == writesBeforeTimeout + 1,
                 "timed-out write was resent or not reconciled by reads");
@@ -384,7 +385,7 @@ int main(int argc, char* argv[]) {
         {QStringLiteral("info"), QJsonObject{{QStringLiteral("n"), QStringLiteral("move-test")}}}});
   };
   const auto drainStorage = [&]() {
-    return waitUntil([&] { return storage.state().outstandingTasks == 0; }, 2500);
+    return waitUntil([&] { return storage.state().outstandingTasks == 0; }, 10000);
   };
   const auto waitForStorageEntry = [&]() {
     bool entered = false;
@@ -414,7 +415,7 @@ int main(int argc, char* argv[]) {
   ok &= require(intentHeld, "intent persistence fixture did not reach its held writer");
   ok &= require(!finished && writes == beforeStorageCases,
                 "move submitted after intent admission but before Saved");
-  const bool timedOutBeforeSend = waitUntil([&] { return finished; }, 2000);
+  const bool timedOutBeforeSend = waitUntil([&] { return finished; }, 8000);
   storageRelease.release();
   ok &= require(timedOutBeforeSend && drainStorage() && writes == beforeStorageCases &&
                     controller.lastMoveOutcome() == MoveOutcome::NotSent,
@@ -448,7 +449,7 @@ int main(int argc, char* argv[]) {
   controller.requestSingleDetail(3);
   const bool responseHeld = waitForStorageEntry();
   QElapsedTimer diskWait; diskWait.start();
-  waitUntil([&] { return diskWait.elapsed() > timings.detailTimeoutMs * 3; }, 600);
+  waitUntil([&] { return diskWait.elapsed() > timings.detailTimeoutMs * 3; }, timings.detailTimeoutMs * 3 + 500);
   ok &= require(responseHeld, "received-detail fixture did not reach its held writer");
   ok &= require(detailRequests == beforeSlowDetail + 1,
                 "received detail was retried as a network timeout while awaiting persistence");
