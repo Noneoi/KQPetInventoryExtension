@@ -84,4 +84,4 @@
 - 当前官方 `materialservice~2026091011614836.swf` → `mmo/material/stargod/StarGodItemService.as`，配合当前 `interfaces~2026091011614836.swf` 的 `PetJob`：星神品质、类型、限制职业；生成器同时保留 `limited`。
 - 当前官方 `astrolabeservice~2026082767617311.swf`：488 个节点的 `battlePower`、`locatedTypeId`；`Interfaces/.../PetAstrolabe.as::getCurrentBattlePower/getMaxBattlePower` 明确三选 150 与普通节点目标。`locatedTypeId=0/1/2` 分别为核心/连结/外圈。
 
-仓库代码对应 `src/domain/pet_power_calculator.cpp`；定向测试 `tests/pet_power_composition_smoke.cpp` 覆盖未装红星、重复类型、职业限制、实际槽等级、无星轮、三选加成、未知字段与当前官方完整目录。官方定义随着“检查数据更新”刷新到本地，无需为每一只新精灵编写硬编码分支。
+仓库代码对应 `src/domain/pet_power_calculator.cpp`；定向测试 `tests/pet_power_composition_smoke.cpp` 覆盖未装红星、重复类型、职业限制、实际槽等级、无星轮、三选加成、未知字段与当前官方完整目录。官方定义随着“全部检查更新”刷新到本地，无需为每一只新精灵编写硬编码分支。

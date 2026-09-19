@@ -7,7 +7,7 @@
 | 文档 | 内容 |
 |---|---|
 | [本地缓存与手动更新](local-cache-and-manual-updates.md) | 数据目录、刷新方式、缓存管理、备份与迁移 |
-| [手动公共数据更新](manual-public-data-updater.md) | “检查数据更新”覆盖哪些官方资料、便携工具、图片 |
+| [手动公共数据更新](manual-public-data-updater.md) | “全部检查更新”覆盖哪些官方资料、便携工具、图片 |
 | [精灵分析的刷新与缓存](pet-analysis-lifecycle.md) | 单只分析与资产汇总在什么时候更新 |
 | [战斗力组成与至高判定](pet-power-composition.md) | 官方当前/极限、持有可达、至高四个数的含义与计算边界 |
 | [养成缺口与对应材料规则](cultivation-material-rules.md) | 元魂、神源兽、星轮的需求与材料对应 |

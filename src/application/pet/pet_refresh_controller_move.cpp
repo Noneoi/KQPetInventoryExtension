@@ -488,9 +488,9 @@ void PetRefreshController::finishMoveVerification(bool listsSucceeded) {
           ? QStringLiteral("实例 %1 已进入仓库。")
                 .arg(moveInstanceId_)
           : moveReplacementId_ > 0
-                ? QStringLiteral("实例 %1 已进入背包，实例 %2 已进入仓库。")
+                ? QStringLiteral("实例 %1 已放入背包，实例 %2 已放入仓库。")
                       .arg(moveInstanceId_).arg(moveReplacementId_)
-                : QStringLiteral("实例 %1 已进入背包。")
+                : QStringLiteral("实例 %1 已放入背包。")
                       .arg(moveInstanceId_);
   finishMove(true, message);
 }

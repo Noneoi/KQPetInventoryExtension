@@ -1,6 +1,6 @@
 cmake_minimum_required(VERSION 3.24)
 
-project(KQPetInventoryExtension VERSION 2.0.0 LANGUAGES C CXX)
+project(KQPetInventoryExtension VERSION 3.0.0 LANGUAGES C CXX)
 
 # CMake 4.4 on the local Chinese MSVC toolchain decodes UTF-8 /showIncludes
 # detection as the system code page. Ninja then records zero header deps.

@@ -58,8 +58,9 @@ bool copyResource(const QString& resource, const QString& output) {
 
 class Job final : public QObject {
 public:
-  Job(QString root, std::shared_ptr<State> state, QObject* parent)
-      : QObject(parent), root_(std::move(root)), state_(std::move(state)), process_(this), timer_(this) {
+  Job(QString root, QStringList components, std::shared_ptr<State> state, QObject* parent)
+      : QObject(parent), root_(std::move(root)), requestedComponents_(std::move(components)),
+        state_(std::move(state)), process_(this), timer_(this) {
     process_.setProcessChannelMode(QProcess::MergedChannels);
     auto environment = QProcessEnvironment::systemEnvironment();
     environment.insert(QStringLiteral("PYTHONUTF8"), QStringLiteral("1"));
@@ -75,7 +76,7 @@ public:
       if (!tail_.trimmed().isEmpty()) parse(tail_);
       const bool success = hasResult_ && resultSuccess_ && code == 0 && status == QProcess::NormalExit;
       const QString message = !resultMessage_.isEmpty() ? resultMessage_
-          : success ? QStringLiteral("公共数据检查完成；已有数据继续从本地读取")
+          : success ? QStringLiteral("数据检查完成；已有数据继续从本地读取")
           : QStringLiteral("公共数据检查未完成，原有数据已保留");
       finish(success, components_, message);
     });
@@ -156,11 +157,16 @@ private:
 #else
     process_.setProgram(QStringLiteral("pwsh"));
 #endif
-    process_.setArguments({QStringLiteral("-NoProfile"), QStringLiteral("-NonInteractive"), QStringLiteral("-ExecutionPolicy"),
+    QStringList arguments{QStringLiteral("-NoProfile"), QStringLiteral("-NonInteractive"), QStringLiteral("-ExecutionPolicy"),
         QStringLiteral("Bypass"), QStringLiteral("-File"), QDir(scripts).filePath(QStringLiteral("bootstrap-public-data.ps1")),
-        QStringLiteral("-DataRoot"), root_});
+        QStringLiteral("-DataRoot"), root_};
+    if (!requestedComponents_.isEmpty())
+      arguments << QStringLiteral("-Components") << requestedComponents_.join(QLatin1Char(','));
+    process_.setArguments(arguments);
     process_.setWorkingDirectory(scripts);
-    state_->progress(QStringLiteral("正在检查官方数据；首次运行会准备可重复使用的本地解析工具"));
+    state_->progress(requestedComponents_.isEmpty()
+        ? QStringLiteral("正在检查全部官方数据；首次运行会准备可重复使用的本地解析工具")
+        : QStringLiteral("正在检查所选官方数据；首次运行会准备可重复使用的本地解析工具"));
     timer_.start();
     process_.start();
   }
@@ -215,6 +221,7 @@ private:
     deleteLater();
   }
   QString root_;
+  QStringList requestedComponents_;
   std::shared_ptr<State> state_;
   QProcess process_;
   QTimer timer_;
@@ -242,11 +249,23 @@ DataUpdateService::DataUpdateService(StorageService* storage, QObject* parent)
 }
 DataUpdateService::~DataUpdateService() { close(); }
 bool DataUpdateService::busy() const { return impl_->busy; }
-bool DataUpdateService::requestUpdate() {
+QStringList DataUpdateService::componentNames() {
+  return {QStringLiteral("pets"), QStringLiteral("shop"), QStringLiteral("images"),
+          QStringLiteral("icons"), QStringLiteral("routines")};
+}
+bool DataUpdateService::requestUpdate(const QStringList& components) {
   if (impl_->busy || !impl_->storage || impl_->state->closing.load()) return false;
+  // Only fixed names ever reach the script's command line.
+  QStringList selected;
+  for (const QString& name : componentNames())
+    if (components.contains(name)) selected.append(name);
+  if (selected.size() != components.size()) return false;
+  if (selected.size() == componentNames().size()) selected.clear();
   auto state = impl_->state;
   const QString root = impl_->storage->dataRoot();
-  if (!impl_->storage->postAuxiliary([root, state](QObject* ioRoot) { new DataUpdateInternal::Job(root, state, ioRoot); })) return false;
+  if (!impl_->storage->postAuxiliary([root, selected, state](QObject* ioRoot) {
+        new DataUpdateInternal::Job(root, selected, state, ioRoot);
+      })) return false;
   impl_->busy = true;
   return true;
 }

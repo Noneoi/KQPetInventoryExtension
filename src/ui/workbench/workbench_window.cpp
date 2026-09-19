@@ -1,4 +1,6 @@
 #include "workbench_window.h"
+#include "ui/common/ui_preferences.h"
+#include "diagnostics/build_info.h"
 
 #include <QAbstractButton>
 #include <QAbstractItemView>
@@ -86,7 +88,7 @@ QLabel* plainLabel(QWidget* parent, const QString& objectName = {}) {
 WorkbenchWindow::WorkbenchWindow(PageFactory factory, QWidget* parent, const WorkbenchOptions& options)
     : QMainWindow(parent), factory_(std::move(factory)), options_(options) {
   setObjectName(QStringLiteral("KQWorkbench"));
-  setWindowTitle(QStringLiteral("精灵工作台"));
+  setWindowTitle(QStringLiteral("精灵工作台 %1").arg(BuildInfo::displayVersion()));
   setAttribute(Qt::WA_DeleteOnClose, false);
   // This auxiliary window must not participate in the host application's
   // last-primary-window decision. Closing the workbench itself still hides it.
@@ -134,6 +136,14 @@ WorkbenchWindow::WorkbenchWindow(PageFactory factory, QWidget* parent, const Wor
   brand->setAlignment(Qt::AlignCenter);
   brand->setStyleSheet(QStringLiteral("font-size:22px;font-weight:700;color:#326496;padding:8px 0;"));
   side->addWidget(brand);
+  pluginVersion_ = plainLabel(sidebar_, QStringLiteral("KQWorkbenchPluginVersion"));
+  pluginVersion_->setAlignment(Qt::AlignCenter);
+  pluginVersion_->setWordWrap(true);
+  pluginVersion_->setTextInteractionFlags(Qt::TextSelectableByMouse);
+  pluginVersion_->setStyleSheet(QStringLiteral("color:#7b8c9f;font-size:11px;"));
+  pluginVersion_->setText(QStringLiteral("插件 %1").arg(BuildInfo::displayVersion()));
+  pluginVersion_->setToolTip(QStringLiteral("插件 %1\n构建标识：%2").arg(BuildInfo::buildLabel(), BuildInfo::releaseId()));
+  side->addWidget(pluginVersion_);
   side->addSpacing(18);
   for (int index = 0; index < 4; ++index) {
     auto* button = new QPushButton(titles()[index], sidebar_);
@@ -235,6 +245,9 @@ WorkbenchWindow::WorkbenchWindow(PageFactory factory, QWidget* parent, const Wor
   const QSize available = options_.availableLogicalSize.isValid() ? options_.availableLogicalSize
       : screen() ? screen()->availableGeometry().size() : QSize(1280, 800);
   resize(options_.preferredSize.boundedTo(available - QSize(16, 16)));
+  const QByteArray geometry = QByteArray::fromBase64(
+      UiPreferences::value(QStringLiteral("workbench/geometry")).toByteArray());
+  if (!geometry.isEmpty()) restoreGeometry(geometry);
   setSession({});
   setTask({});
   setPersistence({});
@@ -313,6 +326,7 @@ bool WorkbenchWindow::showPage(WorkbenchPage requested) {
   if (!created) { rejectNavigation(QStringLiteral("该页面暂时不可用，请查看诊断。")); return false; }
   const int index = pageIndex(requested);
   currentPage_ = requested;
+  UiPreferences::setValue(QStringLiteral("workbench/page"), index);
   stack_->setCurrentWidget(holders_[index]);
   for (int page = 0; page < 4; ++page) navigation_[page]->setChecked(page == index);
   notice_->hide();
@@ -468,4 +482,20 @@ void WorkbenchWindow::showEvent(QShowEvent* event) {
   constrainToScreen();
   if (!page(currentPage_)) showPage(currentPage_);
 }
-void WorkbenchWindow::closeEvent(QCloseEvent* event) { event->ignore(); hide(); }
+void WorkbenchWindow::closeEvent(QCloseEvent* event) {
+  event->ignore();
+  saveUiPreferences();
+  hide();
+}
+void WorkbenchWindow::saveUiPreferences() const {
+  if (!UiPreferences::enabled()) return;
+  UiPreferences::setValue(QStringLiteral("workbench/geometry"), saveGeometry().toBase64());
+  UiPreferences::sync();
+}
+WorkbenchPage WorkbenchWindow::rememberedPage() {
+  bool valid = false;
+  const int index = UiPreferences::value(QStringLiteral("workbench/page")).toInt(&valid);
+  if (!valid || index < static_cast<int>(WorkbenchPage::Pets) || index > static_cast<int>(WorkbenchPage::Assets))
+    return WorkbenchPage::Pets;
+  return static_cast<WorkbenchPage>(index);
+}

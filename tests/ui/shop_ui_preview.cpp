@@ -10,6 +10,7 @@
 #include <QJsonArray>
 #include <QJsonDocument>
 #include <QLabel>
+#include <QLineEdit>
 #include <QTableWidget>
 #include <QHeaderView>
 #include <QTabWidget>
@@ -105,16 +106,36 @@ bool verifyLargeProjectSwitches() {
   const auto* currency = window.findChild<QLabel*>(QStringLiteral("KQShopCurrencySummary"));
   if (!selectedGoods->item(0,1)->text().contains(QStringLiteral("活动券 ×30")) ||
       !selectedGoods->item(1,1)->text().contains(QStringLiteral("测试币 ×12")) ||
-      selectedGoods->item(1,3)->text() != QStringLiteral("观察 1 / 3") ||
+      selectedGoods->item(1,3)->text() != QStringLiteral("1 / 3（待确认）") ||
       !selectedGoods->item(2,2)->text().contains(QStringLiteral("1")) ||
       selectedGoods->item(2,3)->text() != QStringLiteral("需在活动中查看") ||
       selectedGoods->item(3,3)->text() != QStringLiteral("不适用当前活动等级") || !currency ||
-      !currency->text().contains(QStringLiteral("测试币 99")) || !currency->text().contains(QStringLiteral("活动券 观察 88"))) return false;
+      !currency->text().contains(QStringLiteral("测试币 99")) || !currency->text().contains(QStringLiteral("活动券 88（待确认）"))) return false;
+  // Need / own / short: confirmed balances are green, unconfirmed ones say so.
+  if (selectedGoods->columnCount() != 6 || !selectedGoods->item(1,5) ||
+      selectedGoods->item(1,5)->text() != QStringLiteral("足够") ||
+      !selectedGoods->item(1,5)->toolTip().contains(QStringLiteral("测试币：需要 12，拥有 99")) ||
+      selectedGoods->item(0,5)->text() != QStringLiteral("足够（待确认）") ||
+      selectedGoods->item(0,5)->foreground().style() != Qt::NoBrush) return false;
+  // Searching hides other goods and jumps to the shop tab holding the match.
+  auto* search = window.findChild<QLineEdit*>(QStringLiteral("KQShopGoodSearch"));
+  if (!search) return false;
+  search->setText(QStringLiteral("常驻性能样本3"));
+  if (!PreviewInventory::until([&] {
+    auto* goods = qobject_cast<QTableWidget*>(tabs->widget(0));
+    return tabs->currentIndex() == 0 && goods && !goods->isRowHidden(3) && goods->isRowHidden(2);
+  })) return false;
+  search->clear();
+  if (!PreviewInventory::until([&] {
+    auto* goods = qobject_cast<QTableWidget*>(tabs->widget(0));
+    return goods && !goods->isRowHidden(2);
+  })) return false;
+  tabs->setCurrentIndex(1);
   const int priorRebuild = window.property("rebuildCount").toInt(); window.setPacket(activityState(true),true);
   if (!PreviewInventory::until([&] {
     selectedGoods = qobject_cast<QTableWidget*>(tabs->currentWidget());
     return window.property("rebuildCount").toInt() > priorRebuild && !window.petRowsPreparing() &&
-        selectedGoods && selectedGoods->item(1,3)->text() == QStringLiteral("上次 1 / 3");
+        selectedGoods && selectedGoods->item(1,3)->text() == QStringLiteral("1 / 3（上次）");
   })) return false;
   for (int row = 0; row < table->rowCount(); ++row)
     if (!table->item(row,0) || table->item(row,0)->data(Qt::UserRole).toLongLong() < 31600) return false;

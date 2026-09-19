@@ -383,7 +383,7 @@ public:
       }
     }
     if (attribute || stargod || !allowedUrl(source->url)) {
-      source->message = QStringLiteral("本地没有图片；请点击“检查数据更新”补充图片索引"); done(source, false); return;
+      source->message = QStringLiteral("本地没有图片；请点击“全部检查更新”补充图片索引"); done(source, false); return;
     }
     QFile previousFailure(path + QStringLiteral(".failure.json"));
     if (!source->request.retry && !source->request.refreshChangedSource && safeExistingChain(previousFailure.fileName()) && previousFailure.open(QIODevice::ReadOnly) && previousFailure.size() <= 8192 &&
@@ -447,7 +447,7 @@ public:
     const QString python = QDir(options_.dataRoot).filePath(QStringLiteral("data-tools/python/python.exe"));
     const QString script = QDir(options_.dataRoot).filePath(QStringLiteral("data-tools/scripts/public_data_updater.py"));
     if (!safeExistingChain(python) || !safeExistingChain(script) || !QFile::exists(python) || !QFile::exists(script)) {
-      source->message = QStringLiteral("图片工具尚未准备；请先点击“检查数据更新”"); done(source, false); return;
+      source->message = QStringLiteral("图片工具尚未准备；请先点击“全部检查更新”"); done(source, false); return;
     }
     auto* process = new QProcess(this);
 #ifdef Q_OS_WIN

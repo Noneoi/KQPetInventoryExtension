@@ -60,8 +60,8 @@ int main(int argc, char* argv[]) {
       auto* activity = window->findChild<QTableWidget*>(QStringLiteral("KQRoutineActivityTable"));
       auto* opportunity = window->findChild<QTableWidget*>(QStringLiteral("KQRoutineOpportunityTable"));
       valid = valid && daily && weekly && daily->columnCount() == 6 &&
-              weekly->columnCount() == 6 && activity && activity->columnCount() == 6 &&
-              opportunity && opportunity->columnCount() == 7 &&
+              weekly->columnCount() == 6 && activity && activity->columnCount() == 4 &&
+              opportunity && opportunity->columnCount() == 6 &&
               opportunity->rowCount() == 11 &&
               opportunity->item(0, 2) &&
               opportunity->item(0, 2)->text() == QStringLiteral("2") &&
@@ -93,6 +93,13 @@ int main(int argc, char* argv[]) {
           QStringLiteral("1008_20260522_nf_0:activity"), QStringLiteral("16_24_A:zao1:activity"), QStringLiteral("16_24_A:zao2:activity")})
         validity.insert(key, current);
       window->setPeriodValidity(validity);
+      // Protocol origins live in tooltips, and times are shown in local time.
+      const QString expectedTime = current.observedAtUtc.toLocalTime().toString(QStringLiteral("yyyy-MM-dd HH:mm:ss"));
+      check(opportunity->item(0, 0)->toolTip().contains(QStringLiteral("1008_20220603_swa_0_0")) &&
+            activity->item(0, 0)->toolTip().contains(QStringLiteral("活动标识")) &&
+            daily->item(0, 1)->toolTip().contains(expectedTime) &&
+            !daily->item(0, 1)->toolTip().contains(QStringLiteral("T00:00:00")),
+            "routine tooltips lost the data source or kept the raw UTC timestamp");
       check(daily->item(0, 1)->text() == QStringLiteral("已完成") &&
             daily->item(0, 1)->foreground().color() == QColor(QStringLiteral("#087a43")),
             "verified current progress did not preserve completed display");

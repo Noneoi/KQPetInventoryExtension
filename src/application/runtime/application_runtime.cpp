@@ -622,10 +622,10 @@ bool ApplicationRuntime::deliverReceipt(const SendReceipt& receipt) {
 }
 bool ApplicationRuntime::closing() const { return state_->closing.load(std::memory_order_acquire); }
 
-void ApplicationRuntime::requestDataUpdate() {
+void ApplicationRuntime::requestDataUpdate(const QStringList& components) {
   const auto state = state_;
-  if (!postUnscoped([state](const CoreServices& services) {
-    if (services.cacheManager->busy() || state->imageBatchRunning || !services.dataUpdater->requestUpdate()) {
+  if (!postUnscoped([state, components](const CoreServices& services) {
+    if (services.cacheManager->busy() || state->imageBatchRunning || !services.dataUpdater->requestUpdate(components)) {
       const bool busy = services.dataUpdater->busy();
       notify(state, [busy](ApplicationRuntime* target) {
         emit target->dataUpdateStatusChanged(QStringLiteral("已有数据更新、补图或缓存管理任务，请完成后再检查。"), busy);

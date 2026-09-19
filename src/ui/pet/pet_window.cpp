@@ -1,5 +1,6 @@
 #include "pet_window.h"
 #include "ui/common/display_text.h"
+#include "ui/common/ui_preferences.h"
 
 #include "diagnostics/build_info.h"
 
@@ -54,12 +55,17 @@
 
 #include <algorithm>
 #include <climits>
+#include <tuple>
+#include <utility>
 #include <vector>
 
 namespace {
 
 // The related-pet popup's own detail slot, beside 0 (selected pet) and 1 (shop).
 constexpr int kRelatedDetailConsumer = 2;
+
+// Filter text remembered on a combo box until its choices are populated.
+constexpr char kPreferredFilterProperty[] = "kqPreferredFilter";
 static_assert(kRelatedDetailConsumer < kDetailConsumerCount,
               "the related-pet popup needs its own detail consumer slot");
 
@@ -91,7 +97,7 @@ PetWindow::PetWindow(InventoryReadView* repository, QWidget* parent, PetImageCac
     : QDialog(parent), repository_(repository) {
   imageCache_ = sharedImages ? sharedImages : new PetImageCache(repository_->dataRoot(), this);
   setObjectName(QStringLiteral("KQPetInventoryWindow"));
-  setWindowTitle(QStringLiteral("原版氪奇 · 精灵背包与仓库 · %1")
+  setWindowTitle(QStringLiteral("精灵工作台 · 精灵背包与仓库 · %1")
                      .arg(BuildInfo::displayVersion()));
   resize(1560, 820);
   setMinimumSize(1280, 700);
@@ -156,7 +162,9 @@ PetWindow::PetWindow(InventoryReadView* repository, QWidget* parent, PetImageCac
   for (int index = 0; index < detailEras.size(); ++index) {
     auto* check = new QCheckBox(detailEras[index], detailEraFilters_);
     check->setObjectName(QStringLiteral("KQPetDetailEra%1").arg(index));
-    check->setChecked(true);
+    const QString eraKey = QStringLiteral("pets/detailRefreshEra%1").arg(index);
+    check->setChecked(UiPreferences::value(eraKey, true).toBool());
+    connect(check, &QCheckBox::toggled, check, [eraKey](bool checked) { UiPreferences::setValue(eraKey, checked); });
     check->setToolTip(QStringLiteral("启动时固定本轮精灵名单；暂停和继续不会改变范围"));
     detailEraChecks_.append(check);
     detailEraLayout->addWidget(check);
@@ -168,7 +176,21 @@ PetWindow::PetWindow(InventoryReadView* repository, QWidget* parent, PetImageCac
   connect(filterToggle_, &QPushButton::toggled, this, [this](bool expanded) {
     filterPanel_->setVisible(expanded && (!workbenchCompact_ || !compactDetails_));
     QTimer::singleShot(0, this, &PetWindow::fitInventoryGeometry);
+    UiPreferences::setValue(QStringLiteral("pets/filterPanelExpanded"), expanded);
   });
+  // Attribute/job/era choices are only known once the list is prepared, so the
+  // saved choice waits on each box until rebuildFilterChoices() can apply it.
+  bool restoredFilter = false;
+  for (const auto& [box, key] : {std::pair{attributeFilter_, "pets/attributeFilter"},
+                                 std::pair{jobFilter_, "pets/jobFilter"},
+                                 std::pair{eraFilter_, "pets/eraFilter"}}) {
+    const QString saved = UiPreferences::value(QString::fromLatin1(key)).toString();
+    box->setProperty(kPreferredFilterProperty, saved);
+    restoredFilter = restoredFilter || !saved.isEmpty();
+  }
+  // A restored filter must never hide pets silently: show the panel holding it.
+  filterToggle_->setChecked(restoredFilter ||
+                            UiPreferences::value(QStringLiteral("pets/filterPanelExpanded"), false).toBool());
 
   progress_ = new QLabel(QStringLiteral("仓库详情刷新：未启动"), this);
   progress_->setObjectName(QStringLiteral("KQPetInlineProgress"));
@@ -203,6 +225,8 @@ PetWindow::PetWindow(InventoryReadView* repository, QWidget* parent, PetImageCac
   addSortChoices(backpackSort_);
   backpackSortDirection_->addItem(QStringLiteral("正序"), true);
   backpackSortDirection_->addItem(QStringLiteral("倒序"), false);
+  UiPreferences::bindComboBox(backpackSort_, QStringLiteral("pets/backpackSort"));
+  UiPreferences::bindComboBox(backpackSortDirection_, QStringLiteral("pets/backpackSortAscending"));
   backpackControls->addWidget(backpackTitle_);
   backpackControls->addStretch(1);
   backpackControls->addWidget(new QLabel(QStringLiteral("背包排序"), backpackPane));
@@ -230,6 +254,8 @@ PetWindow::PetWindow(InventoryReadView* repository, QWidget* parent, PetImageCac
   addSortChoices(warehouseSort_);
   warehouseSortDirection_->addItem(QStringLiteral("正序"), true);
   warehouseSortDirection_->addItem(QStringLiteral("倒序"), false);
+  UiPreferences::bindComboBox(warehouseSort_, QStringLiteral("pets/warehouseSort"));
+  UiPreferences::bindComboBox(warehouseSortDirection_, QStringLiteral("pets/warehouseSortAscending"));
   warehouseControls->addWidget(warehouseTitle);
   warehouseControls->addStretch(1);
   warehouseControls->addWidget(new QLabel(QStringLiteral("仓库排序"), warehousePane));
@@ -259,6 +285,7 @@ PetWindow::PetWindow(InventoryReadView* repository, QWidget* parent, PetImageCac
   configurePetTable(eliteWarehouseTable_);
   warehouseTabs_->addTab(warehouseTable_, QStringLiteral("普通仓库"));
   warehouseTabs_->addTab(eliteWarehouseTable_, QStringLiteral("精英仓库"));
+  UiPreferences::bindTabWidget(warehouseTabs_, QStringLiteral("pets/warehouseTab"));
   warehouseLayout->addWidget(warehouseTabs_, 1);
 
   for (QTableView* table : {static_cast<QTableView*>(backpackTable_), warehouseTable_, eliteWarehouseTable_})
@@ -271,6 +298,7 @@ PetWindow::PetWindow(InventoryReadView* repository, QWidget* parent, PetImageCac
   listSplitter->setStretchFactor(0, 0);
   listSplitter->setStretchFactor(1, 1);
   listSplitter->setSizes({440, 260});
+  UiPreferences::bindSplitter(listSplitter, QStringLiteral("pets/inventorySplitter"));
 
   detailTabs_ = new QTabWidget(splitter);
   detailView_ = new PetImageBrowser(detailTabs_);
@@ -319,6 +347,7 @@ PetWindow::PetWindow(InventoryReadView* repository, QWidget* parent, PetImageCac
   analysisView_->setPlaceholderText(QStringLiteral("请选择一只精灵"));
   analysisLayout->addWidget(analysisView_,1);
   detailTabs_->addTab(analysisPage_, QStringLiteral("精灵分析"));
+  UiPreferences::bindTabWidget(detailTabs_, QStringLiteral("pets/detailTab"));
   connect(detailTabs_, &QTabWidget::currentChanged, this, [this](int) {
     if (detailTabs_->currentWidget() != analysisPage_ || !repository_ || currentId_ <= 0) return;
     // Selecting this tab reuses the current detail subscription and local facts.
@@ -337,12 +366,22 @@ PetWindow::PetWindow(InventoryReadView* repository, QWidget* parent, PetImageCac
   splitter->setStretchFactor(0, 8);
   splitter->setStretchFactor(1, 4);
   splitter->setSizes({1020, 520});
+  // Only the wide layout is remembered; the compact layout toggles panes instead.
+  if (const QList<int> saved = UiPreferences::intList(QStringLiteral("pets/contentSplitter")); saved.size() == 2) {
+    workbenchWideSizes_ = saved;
+    splitter->setSizes(saved);
+  }
+  connect(splitter, &QSplitter::splitterMoved, this, [this](int, int) {
+    if (workbenchCompact_) return;
+    workbenchWideSizes_ = contentSplitter_->sizes();
+    UiPreferences::setIntList(QStringLiteral("pets/contentSplitter"), workbenchWideSizes_);
+  });
   root->addWidget(splitter, 1);
 
   auto* moveBar = new QHBoxLayout();
   moveBar->addStretch(1);
   moveToWarehouse_ = new QPushButton(QStringLiteral("放入仓库"), this);
-  moveToBackpack_ = new QPushButton(QStringLiteral("进入背包"), this);
+  moveToBackpack_ = new QPushButton(QStringLiteral("放入背包"), this);
   moveToWarehouse_->setToolTip(
       QStringLiteral("写入前后都会强制刷新；召唤、携带和神使关系可以正常移动"));
   moveToBackpack_->setToolTip(
@@ -654,7 +693,7 @@ void PetWindow::focusPet(qint64 instanceId) {
       const int row = mapped.row() % 12;
       backpackTable_->selectRow(row);
       selectBackpack(row, 0);
-      setStatus(QStringLiteral("已定位实例 %1；当前详情来源见左侧状态区。").arg(instanceId));
+      setStatus(QStringLiteral("已定位到实例 %1。").arg(instanceId));
       return;
     }
   }
@@ -672,7 +711,7 @@ void PetWindow::focusPet(qint64 instanceId) {
     table->setCurrentIndex(index);
     table->scrollTo(index, QAbstractItemView::PositionAtCenter);
     selectWarehouse(index);
-    setStatus(QStringLiteral("已定位实例 %1；当前详情来源见左侧状态区。").arg(instanceId));
+    setStatus(QStringLiteral("已定位到实例 %1。").arg(instanceId));
   }
 }
 
@@ -855,7 +894,8 @@ void PetWindow::rebuildFilterChoices() {
   }
 
   auto refill = [](QComboBox* box, const QStringList& values) {
-    const QString selected = box->currentIndex() > 0 ? box->currentText() : QString();
+    const QString selected = box->currentIndex() > 0 ? box->currentText()
+        : box->property(kPreferredFilterProperty).toString();
     const QSignalBlocker blocker(box);
     box->clear();
     box->addItem(QStringLiteral("全部"));
@@ -894,8 +934,8 @@ void PetWindow::rebuildFilterChoices() {
   QStringList orderedEras = eras.values();
   std::sort(orderedEras.begin(), orderedEras.end(),
             [](const QString& left, const QString& right) {
-              if ((left == QStringLiteral("其它")) != (right == QStringLiteral("其它")))
-                return right == QStringLiteral("其它");
+              if ((left == QStringLiteral("其他")) != (right == QStringLiteral("其他")))
+                return right == QStringLiteral("其他");
               return QString::localeAwareCompare(left, right) < 0;
             });
   refill(attributeFilter_, orderedAttributes);
@@ -918,6 +958,14 @@ void PetWindow::refreshViews(bool rebuildChoices) {
   const QString attribute = attributeFilter_->currentIndex() > 0 ? attributeFilter_->currentText() : QString{};
   const QString job = jobFilter_->currentIndex() > 0 ? jobFilter_->currentText() : QString{};
   const QString era = eraFilter_->currentIndex() > 0 ? eraFilter_->currentText() : QString{};
+  for (const auto& [box, key, value] : {std::tuple{attributeFilter_, "pets/attributeFilter", attribute},
+                                        std::tuple{jobFilter_, "pets/jobFilter", job},
+                                        std::tuple{eraFilter_, "pets/eraFilter", era}}) {
+    // An unpopulated box has only "全部" and says nothing about the user's choice.
+    if (box->count() <= 1) continue;
+    box->setProperty(kPreferredFilterProperty, value);
+    UiPreferences::setValue(QString::fromLatin1(key), value);
+  }
   for (PetFilterProxyModel* proxy : {backpackProxy_, warehouseProxy_, eliteWarehouseProxy_}) {
     proxy->setFilters(search_->text(), attribute, job, era);
     const bool backpack = proxy == backpackProxy_;
@@ -1012,7 +1060,7 @@ void PetWindow::updateMoveButtons() {
   moveToWarehouse_->setText(moveRunning_ ? QStringLiteral("移动处理中……")
                                          : QStringLiteral("放入仓库"));
   moveToBackpack_->setText(moveRunning_ ? QStringLiteral("移动处理中……")
-                                        : QStringLiteral("进入背包"));
+                                        : QStringLiteral("放入背包"));
 }
 
 void PetWindow::moveCurrentToWarehouse() {

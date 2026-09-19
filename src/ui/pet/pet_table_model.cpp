@@ -268,11 +268,11 @@ void PetTableModel::derive(Row& row, const QJsonObject& source, bool force, QLis
       else cache.powerToolTip += QStringLiteral("\n至高差距尚不能完整计算");
       if (!power.completionKnown) cache.powerToolTip += QStringLiteral("\n培养条件尚未齐全，暂不能判定升无可升");
       if (!facts->facts.asset.observationVerified || !cache.currentSourceVerified)
-        cache.powerToolTip += QStringLiteral("\n数据来自缓存或只读观察");
+        cache.powerToolTip += QStringLiteral("\n数据来自本地缓存，可能不是最新");
     } else {
       ++stats_.preparedFactsUnavailable;
       cache.powerToolTip = repository_ && repository_->recordVersion(cache.instanceId).complete
-          ? QStringLiteral("当前详情版本的培养派生结果尚未就绪")
+          ? QStringLiteral("正在计算培养数据，请稍候")
           : QStringLiteral("详情尚不完整，培养战力待确认");
     }
   }

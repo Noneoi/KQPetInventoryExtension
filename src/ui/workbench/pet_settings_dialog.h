@@ -28,7 +28,8 @@ public:
 
 signals:
   void cacheActionRequested(const QString& action, const QJsonObject& options);
-  void dataUpdateRequested();
+  // Empty: update everything. Otherwise the selected public data parts.
+  void dataUpdateRequested(const QStringList& components);
   void missingImagesRequested();
   void imageBatchPauseRequested(bool paused);
   void imageBatchCancelRequested();
@@ -61,6 +62,7 @@ private:
   QCheckBox* restoreOverwrite_ = nullptr;
   QLabel* dataUpdateStatus_ = nullptr;
   QPushButton* dataUpdateButton_ = nullptr;
+  QList<QPushButton*> partialUpdateButtons_;
   QPushButton* missingImagesButton_ = nullptr;
   QProgressBar* imageProgress_ = nullptr;
   QLabel* imageStatus_ = nullptr;

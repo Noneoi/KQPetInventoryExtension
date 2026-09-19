@@ -14,7 +14,11 @@ class DataUpdateService final : public QObject {
 public:
   explicit DataUpdateService(StorageService* storage, QObject* parent = nullptr);
   ~DataUpdateService() override;
-  bool requestUpdate();
+  // Public data parts that can be updated on their own.
+  static QStringList componentNames();
+  // Empty checks every part; otherwise only the named parts (see
+  // componentNames()). Unknown names are rejected without starting anything.
+  bool requestUpdate(const QStringList& components = {});
   bool busy() const;
   void close();
 

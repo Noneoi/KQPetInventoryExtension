@@ -1,5 +1,7 @@
 #include "pet_settings_dialog.h"
 
+#include "diagnostics/build_info.h"
+
 #include <QCheckBox>
 #include <QComboBox>
 #include <QDateTime>
@@ -8,6 +10,7 @@
 #include <QDir>
 #include <QFileDialog>
 #include <QFormLayout>
+#include <QGridLayout>
 #include <QGroupBox>
 #include <QHBoxLayout>
 #include <QJsonArray>
@@ -21,6 +24,8 @@
 #include <QTabWidget>
 #include <QUrl>
 #include <QVBoxLayout>
+
+#include <tuple>
 
 namespace {
 QSpinBox* makeSpinBox(int minimum, int maximum, const QString& suffix, QWidget* parent) {
@@ -51,7 +56,7 @@ QString sizeText(qint64 bytes) {
 
 PetSettingsDialog::PetSettingsDialog(const RefreshTimings& timings, QWidget* parent)
     : QDialog(parent) {
-  setWindowTitle(QStringLiteral("设置"));
+  setWindowTitle(QStringLiteral("设置 · 精灵工作台 %1").arg(BuildInfo::buildLabel()));
   setModal(true);
   resize(750, 670);
   setMinimumSize(650, 590);
@@ -234,16 +239,43 @@ QWidget* PetSettingsDialog::createDataPage() {
   auto* layout = new QVBoxLayout(page);
   auto* catalogs = new QGroupBox(QStringLiteral("官方公共数据"), page);
   auto* catalogLayout = new QVBoxLayout(catalogs);
-  catalogLayout->addWidget(explanation(QStringLiteral("手动更新精灵与养成资料、属性/职业/货币名称、兑换目录、精灵图片、星神/属性图标，以及日常任务和活动。首次检查可能需要几分钟。"), catalogs));
-  dataUpdateButton_ = button(QStringLiteral("检查数据更新"), catalogs);
+  catalogLayout->addWidget(explanation(QStringLiteral(
+      "游戏更新后，点击“全部检查更新”即可；只有官方版本变化的部分才会重新下载和解析。"
+      "也可以只更新某一类数据，其余数据保持不变。首次检查需要准备解析工具，可能需要几分钟。"), catalogs));
+  dataUpdateButton_ = button(QStringLiteral("全部检查更新"), catalogs);
   dataUpdateButton_->setObjectName(QStringLiteral("KQCheckDataUpdate"));
+  dataUpdateButton_->setToolTip(QStringLiteral("依次检查下面全部五类数据"));
   catalogLayout->addWidget(dataUpdateButton_, 0, Qt::AlignLeft);
+  auto* partial = new QGridLayout;
+  partial->addWidget(new QLabel(QStringLiteral("单独更新："), catalogs), 0, 0);
+  const QList<std::tuple<QString, QString, QString>> parts{
+      {QStringLiteral("pets"), QStringLiteral("精灵与养成资料"),
+       QStringLiteral("精灵字典、星神、星轮、元魂、源兽规则，以及属性/职业/货币名称")},
+      {QStringLiteral("shop"), QStringLiteral("兑换商店"), QStringLiteral("指定精灵兑换目录和活动兑换")},
+      {QStringLiteral("images"), QStringLiteral("精灵图片索引"),
+       QStringLiteral("新精灵的图片来源；已缓存图片版本变化时一并更新")},
+      {QStringLiteral("icons"), QStringLiteral("星神与属性图标"), QStringLiteral("星神和属性的小图标")},
+      {QStringLiteral("routines"), QStringLiteral("日常与活动"), QStringLiteral("日常/周常任务目录和当前活动列表")}};
+  for (int index = 0; index < parts.size(); ++index) {
+    const auto& [component, title, tip] = parts[index];
+    auto* part = button(title, catalogs);
+    part->setObjectName(QStringLiteral("KQDataUpdate-%1").arg(component));
+    part->setToolTip(tip);
+    partial->addWidget(part, index / 3, index % 3 + 1);
+    connect(part, &QPushButton::clicked, this, [this, component = component, title = title] {
+      setDataUpdateStatus(QStringLiteral("正在检查%1…").arg(title), true);
+      emit dataUpdateRequested({component});
+    });
+    partialUpdateButtons_.append(part);
+  }
+  partial->setColumnStretch(4, 1);
+  catalogLayout->addLayout(partial);
   dataUpdateStatus_ = explanation(QStringLiteral("尚未检查。更新失败时保留现有本地数据。"), catalogs);
   dataUpdateStatus_->setTextInteractionFlags(Qt::TextSelectableByMouse);
   catalogLayout->addWidget(dataUpdateStatus_);
   connect(dataUpdateButton_, &QPushButton::clicked, this, [this] {
-    setDataUpdateStatus(QStringLiteral("正在检查官方数据…"), true);
-    emit dataUpdateRequested();
+    setDataUpdateStatus(QStringLiteral("正在检查全部官方数据…"), true);
+    emit dataUpdateRequested({});
   });
   layout->addWidget(catalogs);
   auto* images = new QGroupBox(QStringLiteral("本地图片"), page);
@@ -362,11 +394,13 @@ void PetSettingsDialog::setDataUpdateStatus(const QString& message, bool busy) {
   dataUpdateBusy_ = busy;
   dataUpdateStatus_->setText(message);
   dataUpdateButton_->setEnabled(!busy && !imageBatchRunning_);
+  for (QPushButton* part : partialUpdateButtons_) part->setEnabled(!busy && !imageBatchRunning_);
   missingImagesButton_->setEnabled(!busy && !imageBatchRunning_);
 }
 void PetSettingsDialog::setImageBatchProgress(int completed, int total, int failed) {
   imageBatchRunning_ = true;
   dataUpdateButton_->setEnabled(false);
+  for (QPushButton* part : partialUpdateButtons_) part->setEnabled(false);
   missingImagesButton_->setEnabled(false);
   imagePause_->setEnabled(true); imageCancel_->setEnabled(true);
   imageProgress_->setRange(0, qMax(1, total)); imageProgress_->setValue(qBound(0, completed, qMax(1, total)));
@@ -375,6 +409,7 @@ void PetSettingsDialog::setImageBatchProgress(int completed, int total, int fail
 void PetSettingsDialog::finishImageBatch(bool cancelled, int failed) {
   imageBatchRunning_ = false;
   dataUpdateButton_->setEnabled(!dataUpdateBusy_);
+  for (QPushButton* part : partialUpdateButtons_) part->setEnabled(!dataUpdateBusy_);
   imagePause_->setChecked(false); imagePause_->setText(QStringLiteral("暂停"));
   imagePause_->setEnabled(false); imageCancel_->setEnabled(false);
   missingImagesButton_->setEnabled(!dataUpdateBusy_);

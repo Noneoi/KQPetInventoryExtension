@@ -1,6 +1,7 @@
 #include "domain/asset_snapshot_comparator.h"
 #include "asset_analysis_window.h"
 #include "ui/common/display_text.h"
+#include "ui/common/ui_preferences.h"
 
 #include "asset_analysis_filter_proxy_model.h"
 #include "asset_analysis_model.h"
@@ -137,7 +138,7 @@ AssetAnalysisWindow::AssetAnalysisWindow(AnalysisReadView* controller,
                                          QWidget* parent)
     : QDialog(parent), controller_(controller) {
   setObjectName(QStringLiteral("KQAssetAnalysisWindow"));
-  setWindowTitle(QStringLiteral("原版氪奇 · 账号资产与养成分析 · %1")
+  setWindowTitle(QStringLiteral("精灵工作台 · 账号资产与养成分析 · %1")
                      .arg(BuildInfo::displayVersion()));
   resize(1380, 850);
   setMinimumSize(1050, 680);
@@ -335,6 +336,14 @@ AssetAnalysisWindow::AssetAnalysisWindow(AnalysisReadView* controller,
   historySplitter->setStretchFactor(1, 1);
   historyLayout->addWidget(historySplitter, 1);
   tabs_->addTab(historyPage, QStringLiteral("历史快照"));
+  UiPreferences::bindTabWidget(tabs_, QStringLiteral("assets/tab"));
+  UiPreferences::bindTabWidget(recommendationTabs_, QStringLiteral("assets/recommendationTab"));
+  UiPreferences::bindComboBox(filter_, QStringLiteral("assets/diagnosticFilter"));
+  showAllRecommendations_->setChecked(
+      UiPreferences::value(QStringLiteral("assets/showAllRecommendations"), false).toBool());
+  connect(showAllRecommendations_, &QCheckBox::toggled, this, [](bool checked) {
+    UiPreferences::setValue(QStringLiteral("assets/showAllRecommendations"), checked);
+  });
   root->addWidget(tabs_, 1);
 
   status_ = new QLabel(this);
@@ -664,11 +673,11 @@ void AssetAnalysisWindow::updateRoutineOverviewRows() {
   };
   write(QStringLiteral("今日任务 / 玩法剩余"),
         routineSummary_.dailyTasksKnown ? QString::number(routineSummary_.unfinishedDailyTasks)
-                                        : QStringLiteral("周期未确认"),
+                                        : QStringLiteral("可能已过期"),
         routineSummary_.todayOpportunities);
   write(QStringLiteral("本周任务 / 玩法剩余"),
         routineSummary_.weeklyTasksKnown ? QString::number(routineSummary_.unfinishedWeeklyTasks)
-                                         : QStringLiteral("周期未确认"),
+                                         : QStringLiteral("可能已过期"),
         routineSummary_.weekOpportunities);
 }
 
@@ -747,7 +756,7 @@ void AssetAnalysisWindow::rebuildOverview() {  const QString pending = QStringLi
   addOverviewRow(QStringLiteral("今日任务 / 玩法剩余"),
                  routineSummary_.routineDataKnown
                      ? QStringLiteral("未完成任务 %1；玩法剩余 %2")
-                           .arg(routineSummary_.dailyTasksKnown ? QString::number(routineSummary_.unfinishedDailyTasks) : QStringLiteral("周期未确认"))
+                           .arg(routineSummary_.dailyTasksKnown ? QString::number(routineSummary_.unfinishedDailyTasks) : QStringLiteral("可能已过期"))
                            .arg(opportunitySummaryText(routineSummary_.todayOpportunities))
                      : QStringLiteral("未查询"),
                  routineSummary_.routineDataKnown
@@ -757,7 +766,7 @@ void AssetAnalysisWindow::rebuildOverview() {  const QString pending = QStringLi
   addOverviewRow(QStringLiteral("本周任务 / 玩法剩余"),
                  routineSummary_.routineDataKnown
                      ? QStringLiteral("未完成任务 %1；玩法剩余 %2")
-                           .arg(routineSummary_.weeklyTasksKnown ? QString::number(routineSummary_.unfinishedWeeklyTasks) : QStringLiteral("周期未确认"))
+                           .arg(routineSummary_.weeklyTasksKnown ? QString::number(routineSummary_.unfinishedWeeklyTasks) : QStringLiteral("可能已过期"))
                            .arg(opportunitySummaryText(routineSummary_.weekOpportunities))
                      : QStringLiteral("未查询"),
                  routineSummary_.routineDataKnown

@@ -66,6 +66,8 @@ add_library(KQPetUi STATIC
   src/ui/common/display_text.h
   src/ui/common/pet_image_cache.cpp
   src/ui/common/pet_image_cache.h
+  src/ui/common/ui_preferences.cpp
+  src/ui/common/ui_preferences.h
 )
 target_compile_definitions(KQPetUi PRIVATE UNICODE _UNICODE NOMINMAX WIN32_LEAN_AND_MEAN)
 target_compile_options(KQPetUi PRIVATE $<$<CXX_COMPILER_ID:MSVC>:/utf-8 /wd4828>)

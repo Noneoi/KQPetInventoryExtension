@@ -1,7 +1,9 @@
 param(
   [Parameter(Mandatory=$true)][string]$DataRoot,
   [switch]$ExtractImage,
-  [string]$VisualKey
+  [string]$VisualKey,
+  # Comma-separated subset (pets,shop,images,icons,routines); empty checks all.
+  [string]$Components = ''
 )
 $ErrorActionPreference = 'Stop'
 $ProgressPreference = 'SilentlyContinue'
@@ -34,7 +36,7 @@ try {
   # the first client's manual update is still using it.
   $bootstrapLock = New-Object IO.FileStream((Join-Path $toolsRoot 'bootstrap.lock'), [IO.FileMode]::OpenOrCreate, [IO.FileAccess]::ReadWrite, [IO.FileShare]::None)
   if (!(Test-Python)) {
-    if ($ExtractImage) { throw 'Please run Check data updates first to prepare local picture tools.' }
+    if ($ExtractImage) { throw 'Please run a full data update first to prepare local picture tools.' }
     Send-Progress 'Preparing local data update tools (Python)'
     [IO.Directory]::CreateDirectory($toolsRoot) | Out-Null
     $scratchPath = Join-Path $toolsRoot ('bootstrap-' + [guid]::NewGuid().ToString('N'))
@@ -66,6 +68,7 @@ try {
   $helperPath = Join-Path $PSScriptRoot 'public_data_updater.py'
   $pythonArgs = @('-B', '-u', $helperPath, '--data-root', $resolvedRoot, '--baseline', (Join-Path $PSScriptRoot 'baseline'))
   if ($ExtractImage) { $pythonArgs += @('--extract-image', '--visual-key', $VisualKey) }
+  elseif ($Components) { $pythonArgs += @('--components', $Components) }
   & $pythonExe @pythonArgs
   exit $LASTEXITCODE
 } catch {

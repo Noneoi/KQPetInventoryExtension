@@ -10,6 +10,7 @@
 #include "ui/workbench/pet_settings_dialog.h"
 #include "ui/pet/pet_window.h"
 #include "ui/common/pet_image_cache.h"
+#include "ui/common/ui_preferences.h"
 #include "application/routine/routine_overview_controller.h"
 #include "ui/routine/routine_overview_window.h"
 #include "application/shop/shop_exchange_controller.h"
@@ -52,6 +53,7 @@ void ExtensionContext::start(std::shared_ptr<kqpet::startup::Channel> channel) {
 ExtensionContext::ExtensionContext(QObject* parent) : QObject(parent) {
   QString dataRoot = qEnvironmentVariable("KQPET_DATA_ROOT");
   if (dataRoot.isEmpty()) dataRoot = QDir(QCoreApplication::applicationDirPath()).filePath(QStringLiteral("KQPetData"));
+  UiPreferences::setFilePath(QDir(dataRoot).filePath(QStringLiteral("ui-preferences.ini")));
   inventory_ = new InventoryProjection(dataRoot, this);
   analysis_ = new AnalysisProjection(this);
   images_ = new PetImageCache(dataRoot, this);
@@ -97,6 +99,8 @@ ExtensionContext::ExtensionContext(QObject* parent) : QObject(parent) {
     bridge_->disableCapture();
     outbound_->revokeAll();
     clearReplacement();
+    if (workbench_) workbench_->saveUiPreferences();
+    UiPreferences::sync();
     runtime_->shutdown(2000);
   }, Qt::DirectConnection);
   connect(QCoreApplication::instance(), &QObject::destroyed, bridge_, &OriginalBridge::disableCapture,
@@ -290,7 +294,7 @@ void ExtensionContext::ensureWorkbench() {
   connect(workbench_, &WorkbenchWindow::diagnosticsRequested, this, [this] { copyDiagnostics(); });
   refreshSessionDisplay();
   refreshPersistenceDisplay();
-  workbench_->showPage(WorkbenchPage::Pets);
+  if (!workbench_->showPage(WorkbenchWindow::rememberedPage())) workbench_->showPage(WorkbenchPage::Pets);
 }
 void ExtensionContext::showWorkbench() {
   if (!coreReady_ || runtime_->closing()) return;
@@ -327,7 +331,9 @@ QWidget* ExtensionContext::createPage(WorkbenchPage page, QWidget* parent) {
   if (page == WorkbenchPage::Shop) {
     auto* widget = new ShopWindow(inventory_, parent, images_); shopPage_ = widget;
     connect(widget, &ShopWindow::refreshRequested, this, [this] { postCurrent([](const CoreServices& c) { c.shop->requestInfo(); }); });
-    connect(widget, &ShopWindow::catalogRefreshRequested, runtime_, &ApplicationRuntime::requestDataUpdate);
+    // The shop button only needs the exchange catalog, not every public data part.
+    connect(widget, &ShopWindow::catalogRefreshRequested, runtime_,
+            [this] { runtime_->requestDataUpdate({QStringLiteral("shop")}); });
     connect(widget, &ShopWindow::detailRequested, this, [this](qint64 id) { postCurrent([id](const CoreServices& c) { c.repo->requestCachedDetail(id); c.refresh->requestSingleDetail(id); }); });
     connect(widget, &ShopWindow::moveToBackpackRequested, this, [this](qint64 id) { requestMove(id, true); });
     refreshPageStates(); return widget;

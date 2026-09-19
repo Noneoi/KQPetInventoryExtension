@@ -2,6 +2,7 @@
 #include <QComboBox>
 
 #include "diagnostics/build_info.h"
+#include "ui/common/ui_preferences.h"
 
 #include "domain/pet_identity.h"
 #include "ui/common/pet_image_cache.h"
@@ -12,6 +13,7 @@
 #include "ui/common/pet_facts_ui.h"
 #include "domain/pet_metadata_view.h"
 #include "domain/shop_limit_facts.h"
+#include "ui/pet/pet_search.h"
 
 #include <QAbstractItemView>
 #include <QElapsedTimer>
@@ -24,6 +26,8 @@
 #include <QGridLayout>
 #include <QJsonDocument>
 #include <QLabel>
+#include <QLineEdit>
+#include <QTabBar>
 #include <QPlainTextEdit>
 #include <QPushButton>
 #include <QSet>
@@ -124,7 +128,7 @@ QString resourceName(const ResourceRequirement& requirement, const PetMetadataVi
 ShopWindow::ShopWindow(InventoryReadView* repository, QWidget* parent, PetImageCache* sharedImages)
     : QDialog(parent), repository_(repository), imageCache_(sharedImages) {
   setObjectName(QStringLiteral("KQPetShopWindow"));
-  setWindowTitle(QStringLiteral("原版氪奇 · 培养兑换商店 · %1")
+  setWindowTitle(QStringLiteral("精灵工作台 · 培养兑换商店 · %1")
                      .arg(BuildInfo::displayVersion()));
   resize(1420, 860);
   setMinimumSize(1100, 680);
@@ -133,9 +137,11 @@ ShopWindow::ShopWindow(InventoryReadView* repository, QWidget* parent, PetImageC
   toolbarLayout_ = new QGridLayout();
   refresh_ = new QPushButton(QStringLiteral("刷新兑换次数"), this);
   refreshCatalog_ = new QPushButton(QStringLiteral("更新兑换项目/适用精灵"), this);
+  refreshCatalog_->setToolTip(QStringLiteral("只检查兑换商店数据；其他数据请在设置里更新"));
   sourceFilter_ = new QComboBox(this);
   sourceFilter_->setObjectName(QStringLiteral("KQShopSourceFilter"));
   sourceFilter_->addItems({QStringLiteral("全部兑换"),QStringLiteral("常驻兑换"),QStringLiteral("活动兑换")});
+  UiPreferences::bindComboBox(sourceFilter_, QStringLiteral("shop/sourceFilter"));
   connect(sourceFilter_,&QComboBox::currentIndexChanged,this,[this](int) {
     auto catalog = catalogSnapshot_; const auto date = catalogDate_;
     catalogSnapshot_.reset(); setCatalogSnapshot(std::move(catalog),date);
@@ -176,7 +182,17 @@ ShopWindow::ShopWindow(InventoryReadView* repository, QWidget* parent, PetImageC
   shopTabs_ = new QTabWidget(shopPane);
   shopTabs_->setObjectName(QStringLiteral("KQShopTabs"));
   shopTabs_->setUsesScrollButtons(true);
+  goodSearch_ = new QLineEdit(shopPane);
+  goodSearch_->setObjectName(QStringLiteral("KQShopGoodSearch"));
+  goodSearch_->setPlaceholderText(QStringLiteral("搜索兑换项目或商店名（支持拼音首字母）"));
+  goodSearch_->setClearButtonEnabled(true);
+  goodSearchDebounce_ = new QTimer(this);
+  goodSearchDebounce_->setSingleShot(true);
+  goodSearchDebounce_->setInterval(150);
+  connect(goodSearchDebounce_, &QTimer::timeout, this, [this] { applyGoodSearch(true); });
+  connect(goodSearch_, &QLineEdit::textChanged, goodSearchDebounce_, qOverload<>(&QTimer::start));
   shopLayout->addWidget(currencySummary_);
+  shopLayout->addWidget(goodSearch_);
   shopLayout->addWidget(shopTabs_, 1);
 
   auto* petPane = new QWidget(left);
@@ -222,6 +238,7 @@ ShopWindow::ShopWindow(InventoryReadView* repository, QWidget* parent, PetImageC
 
   detailTabs->addTab(petDetail_, QStringLiteral("本地详情与资格分析"));
   detailTabs->addTab(rawDetail_, QStringLiteral("原始本地缓存"));
+  UiPreferences::bindTabWidget(detailTabs, QStringLiteral("shop/detailTab"));
   petDetail_->setHtml(QStringLiteral(
       "<p style='color:#718096'>点击上方精灵会立即显示本地缓存；账号在线时会按实例 ID 在后台刷新一次详情。</p>"));
 
@@ -231,17 +248,28 @@ ShopWindow::ShopWindow(InventoryReadView* repository, QWidget* parent, PetImageC
   left->setStretchFactor(0, 3);
   left->setStretchFactor(1, 2);
   left->setSizes({500, 310});
+  UiPreferences::bindSplitter(left, QStringLiteral("shop/listingSplitter"));
   horizontal->addWidget(left);
   horizontal->addWidget(detailTabs);
   horizontal->setChildrenCollapsible(false);
   horizontal->setStretchFactor(0, 6);
   horizontal->setStretchFactor(1, 5);
   horizontal->setSizes({780, 620});
+  // Only the wide layout is remembered; the compact layout toggles panes instead.
+  if (const QList<int> saved = UiPreferences::intList(QStringLiteral("shop/contentSplitter")); saved.size() == 2) {
+    workbenchWideSizes_ = saved;
+    horizontal->setSizes(saved);
+  }
+  connect(horizontal, &QSplitter::splitterMoved, this, [this](int, int) {
+    if (workbenchCompact_) return;
+    workbenchWideSizes_ = contentSplitter_->sizes();
+    UiPreferences::setIntList(QStringLiteral("shop/contentSplitter"), workbenchWideSizes_);
+  });
   root->addWidget(horizontal, 1);
 
   auto* moveBar = new QHBoxLayout();
   moveBar->addStretch(1);
-  moveToBackpack_ = new QPushButton(QStringLiteral("进入背包"), this);
+  moveToBackpack_ = new QPushButton(QStringLiteral("放入背包"), this);
   moveToBackpack_->setToolTip(
       QStringLiteral("仅仓库精灵可用；移动前后会强制刷新背包/仓库，背包已满时需手动选择交换精灵"));
   moveBar->addWidget(moveToBackpack_);
@@ -487,6 +515,11 @@ void ShopWindow::focusGood(const QString& stableKey) {
       if (shopTabs_->currentIndex() != shopIndex)
         shopTabs_->setCurrentIndex(shopIndex);
       auto* table = qobject_cast<QTableWidget*>(shopTabs_->widget(shopIndex));
+      if (table && table->isRowHidden(row.tableRow) && goodSearch_) {
+        const QSignalBlocker blocker(goodSearch_);
+        goodSearch_->clear();
+        applyGoodSearch(false);
+      }
       if (table) {
         table->selectRow(row.tableRow);
         table->scrollToItem(table->item(row.tableRow, 0),
@@ -526,6 +559,91 @@ QString ShopWindow::costText(const ShopExchangeGood& good) const {
   return costs.join(QStringLiteral(" ＋ "));
 }
 
+ShopWindow::ResourceStatus ShopWindow::resourceStatus(const ShopExchangeGood& good) const {
+  struct Balance { QString name; qint64 required = 0; qint64 owned = -1; bool confirmed = false; };
+  QList<Balance> balances;
+  const auto addStandard = [&](const QList<ResourceRequirement>& requirements) {
+    for (const auto& requirement : requirements) {
+      const QString& key = requirement.resourceKey;
+      const bool readOnly = readOnlyMaterialTypes_.contains(key.section(QLatin1Char(':'), 0, 0));
+      const auto& counts = readOnly ? readOnlyMaterialCounts_ : materialCounts_;
+      const bool known = (readOnly || hasMaterialCounts_) && counts.contains(key) && counts.value(key) >= 0;
+      balances.append({resourceName(requirement, materialMetadata_), requirement.required,
+                       known ? counts.value(key) : -1, !readOnly});
+    }
+  };
+  const QString pending = QStringLiteral("只判断一次兑换所需的资源数量；兑换次数和解锁条件请另外确认。");
+  if (!good.sourceKey.isEmpty()) {
+    const auto cached = activityGoods_.constFind(&good == &currentGood_ ? currentGoodKey_ : good.stableKey());
+    if (cached == activityGoods_.cend())
+      return {QStringLiteral("未读取"), QStringLiteral("点击“刷新兑换次数”读取活动价格和余额。"), {}};
+    if (!cached->observation.priceKnown && !good.priceOptions.isEmpty())
+      return {QStringLiteral("价格档位未读取"),
+              QStringLiteral("该商品按活动购买次数分档计价，刷新兑换次数后才能判断资源是否足够。"), {}};
+    if (cached->observation.priceKnown) addStandard(cached->currencyRequirements);
+    for (const auto& cost : cached->observation.costs)
+      balances.append({cost.name, cost.required, cost.ownedKnown ? cost.owned : -1, cost.current});
+    if (balances.isEmpty())
+      return good.provenFree ? ResourceStatus{QStringLiteral("无需资源"), pending, QStringLiteral("#087a43")}
+                             : ResourceStatus{QStringLiteral("活动内查看"), QStringLiteral("活动没有提供可读取的价格。"), {}};
+  } else {
+    const auto* compiled = compiledGood(good);
+    if (!compiled || compiled->costCondition.effectiveState() != ShopConditionState::Satisfied)
+      return {QStringLiteral("成本待确认"), QStringLiteral("兑换目录没有给出可以解析的价格。"), {}};
+    if (compiled->requirements.isEmpty())
+      return {QStringLiteral("无需资源"), pending, QStringLiteral("#087a43")};
+    addStandard(compiled->requirements);
+  }
+
+  QStringList lines, shortages;
+  bool unknown = false, unconfirmed = false;
+  for (const auto& balance : balances) {
+    if (balance.owned < 0) {
+      unknown = true;
+      lines.append(QStringLiteral("%1：需要 %2，拥有 未读取").arg(balance.name).arg(balance.required));
+      continue;
+    }
+    unconfirmed |= !balance.confirmed;
+    const qint64 missing = qMax<qint64>(0, balance.required - balance.owned);
+    lines.append(missing > 0
+        ? QStringLiteral("%1：需要 %2，拥有 %3，还差 %4").arg(balance.name).arg(balance.required).arg(balance.owned).arg(missing)
+        : QStringLiteral("%1：需要 %2，拥有 %3").arg(balance.name).arg(balance.required).arg(balance.owned));
+    if (missing > 0) shortages.append(QStringLiteral("%1 %2").arg(balance.name).arg(missing));
+  }
+  if (unconfirmed) lines.append(QStringLiteral("部分余额是上次读取的数值，可能已变化。"));
+  if (unknown) lines.append(QStringLiteral("点击“刷新兑换次数”可读取余额。"));
+  lines.append(pending);
+  const QString tip = lines.join(QLatin1Char('\n'));
+  const QString suffix = unconfirmed ? QStringLiteral("（待确认）") : QString{};
+  if (!shortages.isEmpty())
+    return {QStringLiteral("还差 %1%2").arg(shortages.join(QStringLiteral("、")), suffix), tip, QStringLiteral("#b54708")};
+  if (unknown) return {QStringLiteral("余额未读取"), tip, {}};
+  // Only confirmed balances earn the green "enough" colour.
+  return {QStringLiteral("足够%1").arg(suffix), tip, unconfirmed ? QString{} : QStringLiteral("#087a43")};
+}
+
+void ShopWindow::applyGoodSearch(bool selectMatchingTab) {
+  const PetSearchQuery query = preparePetSearchQuery(goodSearch_ ? goodSearch_->text().trimmed() : QString{});
+  int firstMatchingTab = -1;
+  bool currentHasMatch = false;
+  for (int shopIndex = 0; shopIndex < shopRows_.size() && shopIndex < shopTabs_->count(); ++shopIndex) {
+    auto* table = qobject_cast<QTableWidget*>(shopTabs_->widget(shopIndex));
+    if (!table) continue;
+    int matches = 0;
+    for (const GoodRow& row : shopRows_.at(shopIndex)) {
+      const bool visible = query.needle.isEmpty() ||
+          petQueryMatches(query, preparePetSearchIndex({row.good.description, row.good.shopName}));
+      table->setRowHidden(row.tableRow, !visible);
+      if (visible) ++matches;
+    }
+    shopTabs_->tabBar()->setTabTextColor(shopIndex, matches > 0 || query.needle.isEmpty()
+        ? QColor{} : QColor(QStringLiteral("#9aa5b1")));
+    if (matches > 0 && firstMatchingTab < 0) firstMatchingTab = shopIndex;
+    if (matches > 0 && shopIndex == shopTabs_->currentIndex()) currentHasMatch = true;
+  }
+  if (selectMatchingTab && !currentHasMatch && firstMatchingTab >= 0) shopTabs_->setCurrentIndex(firstMatchingTab);
+}
+
 void ShopWindow::rebuildActivityGoods(const QJsonObject& packet) {
   activityGoods_.clear();
   for (const auto& compiled : compiledCatalog_.goods()) {
@@ -548,7 +666,7 @@ void ShopWindow::rebuildActivityGoods(const QJsonObject& packet) {
           costs.append(QStringLiteral("%1 ×%2").arg(resourceName(requirement,materialMetadata_)).arg(requirement.required));
         if (price.requirements.isEmpty()) costs.append(QStringLiteral("无需资源（目录已确认）"));
       } else costs.append(QStringLiteral("成本待确认：%1").arg(value.observation.standardCost));
-      if (!good.priceOptions.isEmpty() && !value.observation.priceCurrent) costs.prepend(QStringLiteral("观察档位"));
+      if (!good.priceOptions.isEmpty() && !value.observation.priceCurrent) costs.prepend(QStringLiteral("上次读取的档位"));
     } else if (!good.priceOptions.isEmpty()) {
       costs.append(good.costDescription.isEmpty() ? QStringLiteral("当前价格档位未读取") : good.costDescription);
       // Price tiers can differ in quantity while using the same currencies.
@@ -595,7 +713,7 @@ QString ShopWindow::shopCurrencyText(const ShopExchangeShop& shop) const {
         if (seen.contains(key)) continue;
         seen.insert(key);
         currencies.append(QStringLiteral("%1 %2").arg(cost.name,cost.ownedKnown
-            ? (cost.current ? QString{} : QStringLiteral("观察 ")) + QString::number(cost.owned) : QStringLiteral("未读取")));
+            ? QString::number(cost.owned) + (cost.current ? QString{} : QStringLiteral("（待确认）")) : QStringLiteral("未读取")));
       }
       continue;
     }
@@ -643,7 +761,7 @@ void ShopWindow::rebuild() {
     auto* table = makeTable(shopTabs_,
                             {QStringLiteral("兑换项目"), QStringLiteral("所需资源"),
                              QStringLiteral("限次"), QStringLiteral("剩余"),
-                             QStringLiteral("对应个体")});
+                             QStringLiteral("对应个体"), QStringLiteral("资源情况")});
     table->setObjectName(shop.sourceKey.isEmpty() ? QStringLiteral("KQShopGoodsTable-%1").arg(shop.shopId)
         : QStringLiteral("KQActivityGoodsTable-%1-%2").arg(shop.sourceKey).arg(shop.shopId));
     table->horizontalHeader()->setSectionResizeMode(QHeaderView::Interactive);
@@ -652,6 +770,7 @@ void ShopWindow::rebuild() {
     table->setColumnWidth(2, 110);
     table->setColumnWidth(3, 90);
     table->setColumnWidth(4, 90);
+    table->setColumnWidth(5, 170);
     QList<GoodRow> rows;
     table->setRowCount(shop.goods.size());
     int row = 0;
@@ -666,11 +785,11 @@ void ShopWindow::rebuild() {
           : good.limitCount > 0 ? QStringLiteral("%1限 %2 次").arg(good.limitLabel).arg(good.limitCount) : QStringLiteral("未标注")));
       QTableWidgetItem* quota = good.provenUnlimited ? textItem(QStringLiteral("不限次"))
           : remaining < 0 ? textItem(QStringLiteral("未查询"))
-          : textItem((current ? QString{} : QStringLiteral("观察 ")) +
-                     QStringLiteral("%1 / %2").arg(remaining).arg(good.limitCount), current && remaining > 0);
+          : textItem(QStringLiteral("%1 / %2").arg(remaining).arg(good.limitCount) +
+                     (current ? QString{} : QStringLiteral("（待确认）")), current && remaining > 0);
       if (!good.provenUnlimited && !current) {
         quota->setForeground(QBrush(QColor(QStringLiteral("#718096"))));
-        quota->setToolTip(period.reason.isEmpty() ? QStringLiteral("周期未核验；数值是之前的只读观察，不作为当前可处理依据") : period.reason);
+        quota->setToolTip(period.reason.isEmpty() ? QStringLiteral("次数周期未确认，数值是上次读取的结果，可能已变化") : period.reason);
       }
       table->setItem(row, 3, quota);
       if (!good.sourceKey.isEmpty()) {
@@ -680,9 +799,9 @@ void ShopWindow::rebuild() {
         const auto observation = cached == activityGoods_.cend() ? ActivityShopObservation{} : cached->observation;
         if (observation.applicabilityKnown && !observation.applicable) quota->setText(QStringLiteral("不适用当前活动等级"));
         else if (good.provenUnlimited) quota->setText(QStringLiteral("不限次"));
-        else if (observation.quotaKnown) quota->setText((observation.historical ? QStringLiteral("上次 ") :
-            cached != activityGoods_.cend() && cached->quotaVerified ? QString{} : QStringLiteral("观察 ")) +
-            QStringLiteral("%1 / %2").arg(observation.remaining).arg(good.limitCount));
+        else if (observation.quotaKnown) quota->setText(QStringLiteral("%1 / %2").arg(observation.remaining).arg(good.limitCount) +
+            (observation.historical ? QStringLiteral("（上次）") :
+             cached != activityGoods_.cend() && cached->quotaVerified ? QString{} : QStringLiteral("（待确认）")));
         else quota->setText(!hasQuotaRequest ? QStringLiteral("需在活动中查看") : QStringLiteral("未查询"));
         quota->setToolTip(observation.observedAt.isValid()
             ? QStringLiteral("对应活动的独立次数，数据时间：%1").arg(observation.observedAt.toLocalTime().toString(QStringLiteral("yyyy-MM-dd HH:mm:ss")))
@@ -691,6 +810,11 @@ void ShopWindow::rebuild() {
         title->setToolTip(good.shopName + (good.shelfDate.isValid() ? QString{} : QStringLiteral("\n活动配置未标注起始日期")));
       }
       table->setItem(row, 4, textItem(QString::number(eligiblePetCount(good))));
+      const ResourceStatus balance = resourceStatus(good);
+      auto* balanceItem = textItem(balance.text);
+      balanceItem->setToolTip(balance.tip);
+      if (!balance.color.isEmpty()) balanceItem->setForeground(QBrush(QColor(balance.color)));
+      table->setItem(row, 5, balanceItem);
       const QString stableKey = good.stableKey();
       goodLocations_.insert(stableKey,{int(shopRows_.size()),row});
       rows.append({good, row, stableKey});
@@ -714,6 +838,7 @@ void ShopWindow::rebuild() {
     shopRows_.append(rows);
   }
   if (current >= 0 && current < shopTabs_->count()) shopTabs_->setCurrentIndex(current);
+  applyGoodSearch(false);
   updateCurrencySummary();
 
   bool restoredGood = false;
@@ -742,7 +867,7 @@ void ShopWindow::rebuild() {
   }
   if (!restoredGood && !selectedGoodKey.isEmpty()) {
     showGoodPets({});
-    petTitle_->setText(QStringLiteral("当前兑换项目已不在冻结目录中，请重新选择"));
+    petTitle_->setText(QStringLiteral("该兑换项目已下架或目录已更新，请重新选择"));
   }
   if (!pendingFocusGoodKey_.isEmpty()) {
     const QString key = pendingFocusGoodKey_;
@@ -793,7 +918,7 @@ void ShopWindow::updateCurrencySummary() {
   const auto& shops = visibleShops_;
   const int index = shopTabs_ ? shopTabs_->currentIndex() : -1;
   if (index < 0 || index >= shops.size()) {
-    currencySummary_->setText(!catalogDate_.isValid() ? QStringLiteral("当前商店资源：业务日期尚未确认")
+    currencySummary_->setText(!catalogDate_.isValid() ? QStringLiteral("当前商店资源：正在确定商店日期")
         : QStringLiteral("当前商店资源：无可用商店"));
     return;
   }
@@ -950,10 +1075,10 @@ ShopPetEligibility ShopWindow::eligibilityFor(qint64 id) {
     currentRuleExpression_ = currentGood_.enhanceType; currentRuleKnown_ = true;
   }
   const auto facts = PetFactsUi::current(repository_,id);
-  if (!facts) return {ShopPetEligibilityState::Unknown,QStringLiteral("当前版本的完整培养派生结果尚未就绪"),{}};
+  if (!facts) return {ShopPetEligibilityState::Unknown,QStringLiteral("正在计算培养数据，请稍候"),{}};
   if (!currentGood_.raceIds.contains(facts->facts.eligibility.raceId) &&
       !currentGood_.raceIds.contains(facts->facts.eligibility.metadataRaceId))
-    return {ShopPetEligibilityState::Unknown,QStringLiteral("当前种族关联与派生结果尚未一致"),{}};
+    return {ShopPetEligibilityState::Unknown,QStringLiteral("精灵资料正在更新，请稍候"),{}};
   const auto observation = describeShopPetRule(currentRule_,facts->facts.eligibility);
   return observation;
 }
@@ -1003,7 +1128,7 @@ void ShopWindow::fillPetRow(int row, const QJsonObject& pet,
   for (int column = 0; column < values.size(); ++column) {
     QTableWidgetItem* item = textItem(values.at(column));
     item->setData(Qt::UserRole, id);
-    item->setToolTip(eligibility.reason + QStringLiteral("\n此处仅判断培养项适用性；资源、兑换次数与解锁条件需分别确认。"));
+    item->setToolTip(eligibility.reason + QStringLiteral("\n这里只判断这只精灵能否用上该商品；资源、兑换次数和解锁条件请另外确认。"));
     if (eligibility.state == ShopPetEligibilityState::Usable) {
       item->setBackground(QColor(QStringLiteral("#e9f2fc")));
       item->setForeground(QColor(QStringLiteral("#35638d")));
@@ -1024,7 +1149,7 @@ void ShopWindow::updatePetTitle() {
   for (const ShopPetEligibility& value : currentEligibility_)
     if (value.state == ShopPetEligibilityState::Usable) ++usableCount;
   petTitle_->setText(
-      QStringLiteral("%1 · %2 · 所需 %3（对应 %4 只，培养项适用 %5 只；资源、次数、解锁需分别确认）")
+      QStringLiteral("%1 · %2 · 所需 %3　｜　对应 %4 只，可用上 %5 只")
           .arg(currentGood_.shopName, currentGood_.description,
                costText(currentGood_))
           .arg(petTable_->rowCount()).arg(usableCount));
@@ -1063,7 +1188,7 @@ void ShopWindow::showPetDetail(qint64 instanceId, bool requestLatest) {
     const ShopPetEligibility eligibility = eligibilityFor(instanceId);
     currentEligibility_.insert(instanceId,eligibility);
     const bool usable = eligibility.state == ShopPetEligibilityState::Usable;
-    const QString state = usable ? QStringLiteral("培养项适用（兑换条件需另行确认）")
+    const QString state = usable ? QStringLiteral("可以用上（次数和资源请另外确认）")
                                  : eligibility.state == ShopPetEligibilityState::NotUsable
                                        ? QStringLiteral("当前已满/不需要使用")
                                        : QStringLiteral("本地数据不足，无法确认");
@@ -1157,7 +1282,7 @@ void ShopWindow::updateMoveButton() {
                          QStringLiteral("warehouse");
   moveToBackpack_->setEnabled(!moveRunning_ && warehouse);
   moveToBackpack_->setText(moveRunning_ ? QStringLiteral("移动处理中……")
-                                       : QStringLiteral("进入背包"));
+                                       : QStringLiteral("放入背包"));
 }
 
 void ShopWindow::moveCurrentToBackpack() {

@@ -19,6 +19,8 @@ class PetImageCache;
 class PetImageBrowser;
 class PetRawDataTree;
 class QLabel;
+class QLineEdit;
+class QTimer;
 class QPushButton;
 class QComboBox;
 class QPlainTextEdit;
@@ -106,6 +108,12 @@ private:
   void updateMoveButton();
   void moveCurrentToBackpack();
   QString costText(const ShopExchangeGood& good) const;
+  // Need / own / short for one exchange of a good; colour is invalid when neutral.
+  struct ResourceStatus { QString text; QString tip; QString color; };
+  ResourceStatus resourceStatus(const ShopExchangeGood& good) const;
+  // Hides goods that do not match the search box; optionally jumps to the first
+  // shop tab with a match when the current one has none.
+  void applyGoodSearch(bool selectMatchingTab);
   QString shopCurrencyText(const ShopExchangeShop& shop) const;
   const CompiledShopGood* compiledGood(const ShopExchangeGood& good) const;
   void changePetSort(int logicalColumn);
@@ -127,6 +135,8 @@ private:
   QPushButton* refresh_ = nullptr;
   QPushButton* refreshCatalog_ = nullptr;
   QComboBox* sourceFilter_ = nullptr;
+  QLineEdit* goodSearch_ = nullptr;
+  QTimer* goodSearchDebounce_ = nullptr;
   QLabel* status_ = nullptr;
   QLabel* currencySummary_ = nullptr;
   QTabWidget* shopTabs_ = nullptr;

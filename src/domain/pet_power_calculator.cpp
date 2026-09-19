@@ -316,7 +316,7 @@ PetBattlePowerState calculatePetBattlePower(const QJsonObject& pet, const PetPow
   astrolabe(pet,m,out);
   if (out.astrolabeApplicable || systemsForEra(m.eraResolved ? m.era : resolvePetEra(pet)).astrolabe) {
     if (!out.astrolabeApplicabilityKnown) reason(QStringLiteral("缺少星轮序列，无法确认本精灵是否适用星轮突破"));
-    else if (!out.astrolabePowerKnown) reason(QStringLiteral("星轮节点定义或状态不完整；点击检查数据更新后重算"));
+    else if (!out.astrolabePowerKnown) reason(QStringLiteral("星轮节点定义或状态不完整；点击“全部检查更新”后重算"));
     if (out.astrolabeApplicable && !out.breakthroughKnown) reason(QStringLiteral("星轮突破状态尚未提供"));
   }
   bool maxLevelKnown = false;

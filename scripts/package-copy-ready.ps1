@@ -51,7 +51,7 @@ $instructions = @'
 请保留 KQPetQuickStart 文件夹，不需要打开里面的程序。
 后续更新也按以上三步操作，不需要填写路径或输入命令。
 原客户端、现有账号缓存和数据目录配置会保留。
-首次使用可在设置中点击“检查数据更新”。
+首次使用可在设置中点击“全部检查更新”。
 '@
 [IO.File]::WriteAllText((Join-Path $root '精灵工作台-使用说明.txt'),$instructions,(New-Object Text.UTF8Encoding($true)))
 # Archive the contents, so extraction exposes the entry directly.

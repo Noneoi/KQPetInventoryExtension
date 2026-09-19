@@ -158,7 +158,7 @@ QString petEraDisplayName(PetEra era) {
     case PetEra::ShenZhi: return QStringLiteral("神职");
     case PetEra::ChaoShen: return QStringLiteral("超神");
     case PetEra::ShenShu: return QStringLiteral("神属");
-    case PetEra::Other: return QStringLiteral("其它");
+    case PetEra::Other: return QStringLiteral("其他");
     case PetEra::Unknown: break;
   }
   return {};

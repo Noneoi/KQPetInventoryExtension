@@ -33,6 +33,10 @@ public:
   void setTargetValidator(TargetValidator validator);
   void setTargetHandler(TargetHandler handler);
   void setAvailableLogicalSize(const QSize& size);
+  // Remembers window size/position; also called before the host exits.
+  void saveUiPreferences() const;
+  // The page the user last had open, or Pets when nothing is remembered.
+  static WorkbenchPage rememberedPage();
 
 public slots:
   bool showPage(WorkbenchPage page);
@@ -79,6 +83,7 @@ private:
   QLabel* account_ = nullptr;
   QLabel* source_ = nullptr;
   QLabel* version_ = nullptr;
+  QLabel* pluginVersion_ = nullptr;
   QLabel* notice_ = nullptr;
   QLabel* task_ = nullptr;
   QLabel* persistence_ = nullptr;

@@ -205,8 +205,8 @@ QString RoutineOverviewController::freshnessSummary() const {
   for (const auto& value : values) {
     known |= value.current(); stale |= value.state == ObservationValidityState::Invalidated;
   }
-  if (stale) return QStringLiteral("部分日常/活动周期已失效，保留只读观察");
-  return known ? QStringLiteral("已核验部分周期，其余保持待确认") : QStringLiteral("日常/活动周期未核验；当前数值仅为只读观察");
+  if (stale) return QStringLiteral("部分日常/活动数据已失效，显示的是上次读取的结果");
+  return known ? QStringLiteral("部分数据已确认，其余是上次读取的结果") : QStringLiteral("显示的是上次读取的结果，周期未确认，请以游戏内为准");
 }
 
 bool RoutineOverviewController::queueRequest(const QString& extension, const QString& command,

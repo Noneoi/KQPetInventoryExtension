@@ -504,7 +504,7 @@ int main(int argc, char* argv[]) {
     bool movesDisabled = true;
     int moveButtons = 0;
     for (QPushButton* button : window.findChildren<QPushButton*>()) {
-      if (button->text() != QStringLiteral("进入背包") &&
+      if (button->text() != QStringLiteral("放入背包") &&
           button->text() != QStringLiteral("放入仓库")) continue;
       ++moveButtons;
       movesDisabled &= !button->isEnabled();
@@ -757,7 +757,7 @@ int main(int argc, char* argv[]) {
       ok &= require(waitUntil([&] { return table() && table()->rowCount() == 6; }),
           "changed business date reused an expired shop item");
       window.setCatalogSnapshot(catalog,{});
-      ok &= require(waitUntil([&] { return !table() && currency->text().contains(QStringLiteral("业务日期尚未确认")); }),
+      ok &= require(waitUntil([&] { return !table() && currency->text().contains(QStringLiteral("正在确定商店日期")); }),
           "missing business date implicitly used the local clock");
     }
   }

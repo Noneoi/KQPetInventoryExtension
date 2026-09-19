@@ -44,6 +44,10 @@ RUNTIMES = {
 }
 COMPONENTS = {"pets": "pet-detail-data.json", "shop": "shop-exchange-data.json", "images": "pet-image-index.json",
               "icons": "public-icon-index.json", "routines": "routine-overview.json"}
+# Checked in this order; each part commits independently, so any subset can be
+# updated on its own and the rest keep their current files.
+COMPONENT_LABELS = (("pets", "精灵与养成资料"), ("shop", "指定精灵商店"), ("images", "精灵图片索引"),
+                    ("icons", "星神与属性图标"), ("routines", "日常任务与活动"))
 POWER_RULE_VERSION = 1
 CULTIVATION_RULE_VERSION = 1
 PET_RESOURCES = (("petDictionary", "pet/petdictionarydata", "mmo.pet.petdictionarydata.PetDictionaryDataContents"),
@@ -480,7 +484,10 @@ class Updater:
                 current.setdefault("source", {})["iconRules"] = rules
                 current["faceIdExceptions"] = exceptions
                 atomic_json(self.catalog / COMPONENTS["images"], current)
-            self.image_failures = refresh_cached_images(self.root, current, faces)
+            # Same index: only a revision change (or an earlier failed refresh,
+            # which never rewrote its metadata) needs a download. Skip hashing
+            # every cached picture on each repeated manual check.
+            self.image_failures = refresh_cached_images(self.root, current, faces, verify_content=False)
             return False
         atomic_json(self.catalog / COMPONENTS["images"], {"schemaVersion": 1, "revision": revision,
                     "source": {"kind": "aoqi-official-resource-manifest", "startVersion": self.start_version,
@@ -507,7 +514,10 @@ class Updater:
             raise ValueError("官方精灵外观规则无效")
         return exceptions, source
 
-    def run(self) -> dict:
+    def run(self, components=None) -> dict:
+        selected = [name for name, _ in COMPONENT_LABELS if components is None or name in components]
+        if not selected:
+            raise ValueError("没有选择要更新的数据")
         self.resource_cache.clear()
         self.image_failures = 0
         self.icon_failures = []
@@ -515,8 +525,9 @@ class Updater:
         self.activity_exchange_pending = []
         versions = self.versions()
         results = {}
-        for name, label in (("pets", "精灵与养成资料"), ("shop", "指定精灵商店"), ("images", "精灵图片索引"),
-                            ("icons", "星神与属性图标"), ("routines", "日常任务与活动")):
+        for name, label in COMPONENT_LABELS:
+            if name not in selected:
+                continue
             emit("progress", message="检查" + label)
             try:
                 changed = getattr(self, name)(versions)
@@ -566,8 +577,15 @@ class Updater:
             except Exception as error:
                 results[name] = {"status": "failed", "error": str(error)}
                 emit("component", component=name, **results[name])
-        atomic_json(self.catalog / "public-update-status.json", {"schema": 1, "startVersion": self.start_version,
-                    "components": results, "complete": all(v["status"] != "failed" and not v.get("error") for v in results.values())})
+        # A partial update keeps the last known result of the parts it skipped.
+        status_path = self.catalog / "public-update-status.json"
+        merged = read_object(status_path).get("components", {})
+        merged = {key: value for key, value in merged.items() if key in COMPONENTS and isinstance(value, dict)}
+        merged.update(results)
+        atomic_json(status_path, {"schema": 1, "startVersion": self.start_version, "checked": selected,
+                    "components": merged,
+                    "complete": len(merged) == len(COMPONENTS) and
+                                all(v.get("status") != "failed" and not v.get("error") for v in merged.values())})
         return results
 
     def icons(self, versions: dict) -> bool:
@@ -607,7 +625,7 @@ def installed_runtime(root: Path, name: str) -> Path:
     marker = read_object(directory / "verified.json")
     if (marker.get("archiveSha256") != definition["sha256"] or not entry.is_file()
             or marker.get("entrySha256") != digest(entry)):
-        raise ValueError("请先在设置中点击检查数据更新，准备本地图片解析工具")
+        raise ValueError("请先在设置中点击“全部检查更新”或“精灵图片索引”，准备本地图片解析工具")
     return entry
 
 
@@ -635,7 +653,7 @@ def extract_image(root: Path, visual_key: str, *, replace=False) -> dict:
     if output.is_file() and not replace:
         return {"status": "cached", "path": str(output)}
     if not entry:
-        raise ValueError("本地图片索引未收录此外观，请检查数据更新")
+        raise ValueError("本地图片索引未收录此外观，请在设置中点击“全部检查更新”")
     url, symbol = entry.get("swfUrl", ""), entry.get("symbol", "")
     if not re.fullmatch(r"https://aoqi\.100bt\.com/play/peticon/peticon[1-9]\d*~(?:2000|\d{8,20})\.swf", url):
         raise ValueError("unsupported official picture resource")
@@ -671,7 +689,7 @@ def extract_image(root: Path, visual_key: str, *, replace=False) -> dict:
     return {"status": "saved", "path": str(output)}
 
 
-def refresh_cached_images(root: Path, previous: dict, faces: dict) -> int:
+def refresh_cached_images(root: Path, previous: dict, faces: dict, *, verify_content: bool = True) -> int:
     directory = root / "images" / "pets"
     if not directory.exists():
         return 0
@@ -684,7 +702,7 @@ def refresh_cached_images(root: Path, previous: dict, faces: dict) -> int:
         entry = picture_entry(new, key)
         metadata = read_object(path.with_suffix(".json"))
         if not entry or (metadata.get("revision") == entry.get("revision")
-                         and metadata.get("pngSha256") == digest(path)):
+                         and (not verify_content or metadata.get("pngSha256") == digest(path))):
             continue
         try:
             emit("progress", message="更新已缓存图片 " + key)
@@ -723,7 +741,16 @@ def main() -> int:
     parser.add_argument("--extract-image", action="store_true")
     parser.add_argument("--visual-key")
     parser.add_argument("--replace", action="store_true")
+    parser.add_argument("--components", default="",
+                        help="comma-separated subset of: " + ",".join(COMPONENTS) + " (default: all)")
     args = parser.parse_args()
+    components = None
+    if args.components.strip():
+        components = {part.strip() for part in args.components.split(",") if part.strip()}
+        unknown = components - set(COMPONENTS)
+        if unknown:
+            emit("finished", success=False, error="未知的数据类别：" + "、".join(sorted(unknown)), components={})
+            return 1
     root = args.data_root.resolve()
     try:
         if args.extract_image:
@@ -734,9 +761,12 @@ def main() -> int:
             tools = root / "data-tools"
             tools.mkdir(exist_ok=True)
             with tempfile.TemporaryDirectory(prefix="update-", dir=tools) as scratch:
-                result = Updater(root, args.baseline.resolve(), Path(scratch)).run()
+                result = Updater(root, args.baseline.resolve(), Path(scratch)).run(components)
             success = all(v["status"] != "failed" and not v.get("error") for v in result.values())
-            message = "公共数据检查完成：精灵养成、兑换目录、精灵图片、图标、日常活动" if success else "已保留可用数据，仍有未完成或待补齐的项目"
+            checked = "、".join(label for name, label in COMPONENT_LABELS if name in result)
+            changed = [label for name, label in COMPONENT_LABELS if result.get(name, {}).get("status") == "updated"]
+            summary = ("，已更新：" + "、".join(changed)) if changed else "，均已是最新"
+            message = ("检查完成：" + checked + summary) if success else "已保留可用数据，仍有未完成或待补齐的项目"
             emit("finished", success=success, message=message, components=result)
             return 0 if success else 2
     except Exception as error:

@@ -276,7 +276,7 @@ QString PreparedPetDetailRenderer::render(const PreparedPetDetailHandle& detail,
     header = compact ? picture + header : QStringLiteral("<table width='100%'><tr><td>%1</td><td width='170'>%2</td></tr></table>").arg(header, picture);
   }
   if (fetching) header += QStringLiteral("<p class='muted'>正在获取最新详情……</p>");
-  if (!detail->sourceVerified) header += QStringLiteral("<p class='muted'>当前内容为缓存或只读观察，来源尚未核实。</p>");
+  if (!detail->sourceVerified) header += QStringLiteral("<p class='muted'>当前显示的是本地缓存，可能不是最新数据。</p>");
   if (detail->visualMismatch) header += QStringLiteral("<p class='muted'>形态已变化，培养信息待最新详情确认。</p>");
   QString navigation = link(DetailSection::Overview, 0, sectionName(DetailSection::Overview)) + QStringLiteral("　");
   QSet<int> seen;

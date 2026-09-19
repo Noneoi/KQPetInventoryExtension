@@ -231,8 +231,8 @@ QString ShopExchangeController::freshnessSummary() const {
     known |= value.state == ShopConditionState::Satisfied && value.freshness == ShopConditionFreshness::Current;
     stale |= value.freshness == ShopConditionFreshness::Invalidated;
   }
-  if (stale) return QStringLiteral("部分周期或时钟已失效；旧次数只读");
-  return known ? QStringLiteral("已核验部分限次周期，其余保持待确认") : QStringLiteral("限次周期未核验；当前数值仅为只读观察");
+  if (stale) return QStringLiteral("部分次数已失效，显示的是上次读取的结果");
+  return known ? QStringLiteral("部分次数已确认，其余是上次读取的结果") : QStringLiteral("次数周期未确认，显示的是上次读取的结果");
 }
 
 bool ShopExchangeController::queueRequest(const QString& extension, const QString& command,

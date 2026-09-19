@@ -164,6 +164,8 @@ QString PetMetadataView::resolvedEra(const QJsonObject& petObject) const {
   const QString resolved = petEraDisplayName(resolvePetEra(petObject,petDefinitions()));
   if (!resolved.isEmpty()) return resolved;
   const QString snapshot = petObject.value(QStringLiteral("_metaEra")).toString().trimmed();
+  // Older caches spell the fallback era "其它"; show one spelling everywhere.
+  if (snapshot == QStringLiteral("其它")) return QStringLiteral("其他");
   if (!snapshot.isEmpty()) return snapshot;
   const QStringList names = {resolvedOriginalName(petObject),
                              petName(liveRaceId(petObject)),
@@ -172,7 +174,7 @@ QString PetMetadataView::resolvedEra(const QJsonObject& petObject) const {
     const QString era = eraPrefix(name);
     if (!era.isEmpty()) return era;
   }
-  return QStringLiteral("其它");
+  return QStringLiteral("其他");
 }
 
 QJsonObject PetMetadataView::enrichMetadata(const QJsonObject& petObject,

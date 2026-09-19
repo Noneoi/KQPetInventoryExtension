@@ -93,6 +93,27 @@ class PublicDataUpdateTests(unittest.TestCase):
         self.assertEqual(set(second), {"pets","shop","images","icons","routines"})
         self.assertTrue(updater.read_object(self.root / "catalog/public-update-status.json")["complete"])
 
+    def test_selected_components_run_alone_and_keep_other_status(self):
+        with patch.object(updater, "runtime_entry", return_value=Path("synthetic-runtime")):
+            self.subject.run()
+            self.calls.clear()
+            original_images = self.subject.images
+            self.subject.images = lambda versions: self.fail("images ran although only shop was selected")
+            result = self.subject.run({"shop"})
+            self.subject.images = original_images
+        self.assertEqual(set(result), {"shop"})
+        status = updater.read_object(self.root / "catalog/public-update-status.json")
+        self.assertEqual(status["checked"], ["shop"])
+        self.assertEqual(set(status["components"]), {"pets", "shop", "images", "icons", "routines"})
+        self.assertTrue(status["complete"])
+        with self.assertRaises(ValueError):
+            self.subject.run(set())
+
+    def test_partial_first_run_is_not_reported_complete(self):
+        with patch.object(updater, "runtime_entry", return_value=Path("synthetic-runtime")):
+            self.subject.run({"pets"})
+        self.assertFalse(updater.read_object(self.root / "catalog/public-update-status.json")["complete"])
+
     def test_failed_component_preserves_old_file_other_components_finish(self):
         target = self.root / "catalog/shop-exchange-data.json"
         target.parent.mkdir()
@@ -313,6 +334,24 @@ class PublicDataUpdateTests(unittest.TestCase):
             updater.refresh_cached_images(self.root, same_index, faces)
         self.assertEqual(fetch_image.call_count, 2)
         self.assertEqual(target.read_bytes(), b"old")
+
+    def test_unchanged_index_skips_hashing_but_still_retries_stale_revisions(self):
+        target = self.root / "images/pets/7529_7529.png"
+        target.parent.mkdir(parents=True)
+        target.write_bytes(b"old")
+        faces = updater.image_entries(self.versions)
+        entry = updater.picture_entry({"faces": faces}, "7529_7529")
+        # Matching revision but a different hash: only a content check notices.
+        updater.atomic_json(target.with_suffix(".json"), {"revision": entry["revision"], "pngSha256": "0" * 64})
+        with patch.object(updater, "extract_image") as fetch_image:
+            updater.refresh_cached_images(self.root, {"faces": faces}, faces, verify_content=False)
+            self.assertEqual(fetch_image.call_count, 0)
+            updater.refresh_cached_images(self.root, {"faces": faces}, faces)
+            self.assertEqual(fetch_image.call_count, 1)
+        updater.atomic_json(target.with_suffix(".json"), {"revision": "1", "pngSha256": "0" * 64})
+        with patch.object(updater, "extract_image") as fetch_image:
+            updater.refresh_cached_images(self.root, {"faces": faces}, faces, verify_content=False)
+            self.assertEqual(fetch_image.call_count, 1)
 
     def test_face_lookup_uses_exact_resource_before_documented_display_suffix(self):
         index = {"faces": {"7529": {"symbol": "base"}, "17529": {"symbol": "exact"}}}

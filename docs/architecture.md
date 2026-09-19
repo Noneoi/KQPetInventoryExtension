@@ -66,7 +66,7 @@
 
 源码摘要覆盖 `src`、`assets`、`profiles`、`tools`、`scripts`、`tests`、`docs`、`cmake`、`third_party` 及顶层说明文件，所以**修改文档也会改变产物 identity**，测试报告需要在最后一次修改之后生成。
 
-`tools/build/` 是构建期工具（Profile 生成、两项边界检查）；`tools/` 根目录下的更新器与生成脚本会嵌入 DLL，供“检查数据更新”使用，它们之间按同目录相互引用，不能移动到子目录。
+`tools/build/` 是构建期工具（Profile 生成、两项边界检查）；`tools/` 根目录下的更新器与生成脚本会嵌入 DLL，供“全部检查更新”使用，它们之间按同目录相互引用，不能移动到子目录。
 
 ## 6. 测试
 

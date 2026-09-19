@@ -432,6 +432,11 @@ target_link_libraries(KQRoutineUiPreview PRIVATE KQPetUi KQPetApplication)
 kqpet_use_build_info(KQRoutineUiPreview)
 add_test(NAME routine_ui_preview_smoke COMMAND KQRoutineUiPreview)
 
+add_executable(KQUiPreferencesSmoke tests/ui/ui_preferences_smoke.cpp)
+target_compile_options(KQUiPreferencesSmoke PRIVATE $<$<CXX_COMPILER_ID:MSVC>:/utf-8 /wd4828>)
+target_link_libraries(KQUiPreferencesSmoke PRIVATE KQPetUi)
+add_test(NAME ui_preferences_smoke COMMAND KQUiPreferencesSmoke)
+
 add_executable(KQAssetAnalysisUiPreview tests/ui/asset_analysis_ui_preview.cpp src/extension/resources.qrc)
 target_compile_options(KQAssetAnalysisUiPreview PRIVATE $<$<CXX_COMPILER_ID:MSVC>:/utf-8 /wd4828>)
 target_link_libraries(KQAssetAnalysisUiPreview PRIVATE KQPetUi KQPetApplication)
@@ -440,13 +445,13 @@ add_test(NAME asset_analysis_ui_preview_smoke COMMAND KQAssetAnalysisUiPreview)
 
 set_tests_properties(
   pet_ui_preview_smoke shop_ui_preview_smoke routine_ui_preview_smoke
-  asset_analysis_ui_preview_smoke
+  asset_analysis_ui_preview_smoke ui_preferences_smoke
   PROPERTIES
     ENVIRONMENT "QT_QPA_PLATFORM=offscreen;KQPET_PREVIEW_SELF_TEST=1;KQPET_PREVIEW_EXIT_MS=3000"
     TIMEOUT 15
 )
 kqpet_use_qt_runtime(pet_ui_preview_smoke shop_ui_preview_smoke routine_ui_preview_smoke
-  asset_analysis_ui_preview_smoke)
+  asset_analysis_ui_preview_smoke ui_preferences_smoke)
 
 # =============================================================================
 # tests/performance (see scripts/run-performance.ps1 for the full matrix)

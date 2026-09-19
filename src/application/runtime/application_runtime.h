@@ -84,7 +84,8 @@ public:
   bool deliverPacket(const InboundEnvelope& envelope);
   bool deliverReceipt(const SendReceipt& receipt);
   bool closing() const;
-  void requestDataUpdate();
+  // Empty updates every public data part; otherwise only the named parts.
+  void requestDataUpdate(const QStringList& components = {});
   void requestCacheAction(const QString& action, const QJsonObject& options = {});
   void requestMissingImages();
   void pauseImageBatch(bool paused);

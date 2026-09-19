@@ -56,7 +56,7 @@ PreparedShopGoodConditions prepareGood(const CompiledShopGood& compiled,
       const auto catalog = CompiledShopCatalog::compile({priced});
       result.requirements = catalog.goods().first().requirements;
       result.costCondition = catalog.goods().first().costCondition;
-      if (!observed.priceCurrent) result.costCondition = condition(ShopConditionState::Unknown,QStringLiteral("价格为只读或历史观察，需刷新确认"));
+      if (!observed.priceCurrent) result.costCondition = condition(ShopConditionState::Unknown,QStringLiteral("价格是上次读取的，请刷新确认"));
     }
     if (!good.activityCosts.isEmpty() && observed.costs.size() == good.activityCosts.size()) {
       if (good.cost.isEmpty() && good.priceOptions.isEmpty()) result.costCondition = condition(ShopConditionState::Satisfied,QStringLiteral("官方活动货币费用"));
@@ -130,7 +130,7 @@ PreparedShopGoodConditions prepareGood(const CompiledShopGood& compiled,
     if (!current) {
       result.limitCondition.state = ShopConditionState::Unknown;
       result.limitCondition.reason = validity != context.quotaValidity.cend() && !validity->reason.isEmpty()
-          ? validity->reason : QStringLiteral("限次周期未核验；此数值仅为只读观察");
+          ? validity->reason : QStringLiteral("次数周期未确认；数值是上次读取的结果，可能已变化");
       result.limitCondition.freshness = validity == context.quotaValidity.cend()
           ? ShopConditionFreshness::Unknown : validity->freshness;
       result.remainingCount = -1;
@@ -146,7 +146,7 @@ PreparedShopGoodConditions prepareGood(const CompiledShopGood& compiled,
     const auto observed = observeActivityShopGood(good,shopPacket);
     result.remainingCount = -1;
     result.limitCondition = condition(ShopConditionState::Unknown,
-        observed.quotaKnown ? QStringLiteral("已读取剩余观察 %1 / %2；活动周期仍需确认").arg(observed.remaining).arg(good.limitCount)
+        observed.quotaKnown ? QStringLiteral("上次读取剩余 %1 / %2；活动周期未确认").arg(observed.remaining).arg(good.limitCount)
                             : QStringLiteral("活动兑换次数尚未查询或未有效返回"),good.shopName,observed.observedAt);
   }
 
