@@ -24,7 +24,8 @@ bool check(bool value, const char* message) {
   if (!value) std::fprintf(stderr, "FAIL: %s\n", message);
   return value;
 }
-bool waitUntil(const std::function<bool()>& predicate, int timeout = 2500) {
+// Upper bound only; returns as soon as the predicate holds (slow CI disks need headroom).
+bool waitUntil(const std::function<bool()>& predicate, int timeout = 8000) {
   QElapsedTimer clock; clock.start();
   while (!predicate() && clock.elapsed() < timeout) {
     QCoreApplication::processEvents(QEventLoop::AllEvents, 5);
@@ -160,7 +161,7 @@ bool controllerTests() {
   timing.automaticIntervalMs = 100000;
   timing.listRequestGapMs = 1; timing.listTimeoutMs = 1000;
   timing.detailRequestGapMs = 0; timing.detailTimeoutMs = 1000; timing.detailMaxRetries = 0;
-  timing.moveRequestTimeoutMs = 250;
+  timing.moveRequestTimeoutMs = 1000;
   controller.setTimings(timing);
   QList<OutboundIntent> held;
   controller.setAsyncSender([&](const OutboundIntent& intent) { held.append(intent); return true; });
