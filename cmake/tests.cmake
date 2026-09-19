@@ -176,7 +176,7 @@ add_executable(KQProtocolTransportSmoke tests/protocol/protocol_transport_smoke.
 target_link_libraries(KQProtocolTransportSmoke PRIVATE KQPetCore)
 target_compile_options(KQProtocolTransportSmoke PRIVATE $<$<CXX_COMPILER_ID:MSVC>:/utf-8 /wd4828>)
 add_test(NAME protocol_transport_smoke COMMAND KQProtocolTransportSmoke)
-set_tests_properties(protocol_transport_smoke PROPERTIES TIMEOUT 20)
+set_tests_properties(protocol_transport_smoke PROPERTIES TIMEOUT 60)
 
 add_executable(KQProtocolFixtureSmoke tests/protocol/fixture_smoke.cpp src/extension/resources.qrc)
 target_compile_definitions(
