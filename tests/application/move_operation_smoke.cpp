@@ -1,6 +1,8 @@
 #include "application/pet/move_operation.h"
 #include "storage/storage_service.h"
 
+#include <QJsonArray>
+
 #include <QCoreApplication>
 #include <QDir>
 #include <QElapsedTimer>
@@ -90,6 +92,17 @@ int main(int argc, char** argv) {
   check(recovered.value(QStringLiteral("recordRevision")).toString() == QString::number(original.revision()) &&
         recovered.value(QStringLiteral("account")) == QStringLiteral("A"),
         "older operation state overwrote latest revision or moved account");
+  // A realistic backpack (77 pets plus the one being moved in) is journaled
+  // and recoverable; the old 12-instance cap rejected every real move.
+  QList<qint64> largeBackpack;
+  for (qint64 id = 1001; id <= 1078; ++id) largeBackpack.append(id);
+  MoveOperationJournal large(&storage, accountA);
+  const auto largeIntent = large.begin(1, 4, 1078, largeBackpack);
+  check(largeIntent.accepted && waitUntil([&] { return results.contains(largeIntent.taskId); }) &&
+        results.value(largeIntent.taskId).status == StorageStatus::Saved &&
+        MoveOperationJournal::recoveryRecord(readRecord(large))
+            .value(QStringLiteral("targetSequence")).toArray().size() == 78,
+        "a realistic 78-pet move intent was rejected or not recoverable");
   MoveOperationJournal invalid(&storage, storage.createSharedContext());
   check(!invalid.begin(1, 1, 1, {1}).accepted, "shared root capability authorized personal operation intent");
   check(MoveOperationJournal::recoveryRecord("{broken").isEmpty(), "invalid recovery JSON was accepted");

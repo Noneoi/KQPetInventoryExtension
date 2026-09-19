@@ -1,5 +1,6 @@
 #include "packet_contract.h"
 #include "domain/checked_json_numbers.h"
+#include "domain/pet_move_policy.h"
 
 #include <QJsonArray>
 #include <QJsonDocument>
@@ -150,8 +151,8 @@ bool validateFlash(const QString& method, const QString& argument, QString* erro
   if (method != QStringLiteral("batchpet"))
     return fail(QStringLiteral("Flash method is not registered"));
   const QStringList entries = argument.split(QLatin1Char('#'), Qt::KeepEmptyParts);
-  if (entries.isEmpty() || entries.size() > 12)
-    return fail(QStringLiteral("pet sequence must contain 1 to 12 instances"));
+  if (entries.isEmpty() || entries.size() > PetMovePolicy::kMaxSequenceInstances)
+    return fail(QStringLiteral("pet sequence must contain 1 to %1 instances").arg(PetMovePolicy::kMaxSequenceInstances));
   QSet<qint64> ids;
   for (const QString& entry : entries) {
     qint64 id = 0;

@@ -1,4 +1,5 @@
 #include "protocol/packet_contract.h"
+#include "domain/pet_move_policy.h"
 
 #include <QCoreApplication>
 #include <QJsonArray>
@@ -112,16 +113,26 @@ int main(int argc, char** argv) {
       QStringLiteral("1008_20260522_nf_0"), QStringLiteral("{\"un\":\"-1\"}")),
       "wrong literal or numeric-string farm target was accepted");
 
-  QStringList twelve;
-  for (int id = 1; id <= 12; ++id) twelve.append(QString::number(id));
-  const QString maximumSequence = twelve.join(QLatin1Char('#'));
-  ok &= check(PacketContracts::validateFlash(QStringLiteral("batchpet"), maximumSequence) &&
+  // Real backpacks hold far more than one 12-pet UI page (a 78-pet move was
+  // rejected in the field). The server capacity is enforced by the preflight;
+  // the contract only bounds obviously malformed input.
+  const auto sequenceOf = [](int count) {
+    QStringList ids;
+    for (int id = 1; id <= count; ++id) ids.append(QString::number(id));
+    return ids.join(QLatin1Char('#'));
+  };
+  const QString realisticSequence = sequenceOf(78);
+  const QString maximumSequence = sequenceOf(PetMovePolicy::kMaxSequenceInstances);
+  ok &= check(PacketContracts::validateFlash(QStringLiteral("batchpet"), realisticSequence) &&
+      PacketContracts::validateOutbound(QStringLiteral("PJXExtension"), QStringLiteral("2_1_11"),
+          json({{QStringLiteral("pps"), realisticSequence}, {QStringLiteral("ppt"), 0}})) &&
+      PacketContracts::validateFlash(QStringLiteral("batchpet"), maximumSequence) &&
       PacketContracts::validateFlash(QStringLiteral("batchpet"), QStringLiteral("9223372036854775807")),
-      "valid 12-slot sequence or exact int64 string was rejected");
+      "a realistic 78-pet or maximum-bound sequence, or an exact int64 string, was rejected");
   for (const QString& bad : {QString(), QStringLiteral("0"), QStringLiteral("-1"),
        QStringLiteral("1#1"), QStringLiteral("1##2"), QStringLiteral("#1"), QStringLiteral("1#"),
        QStringLiteral("1.5"), QStringLiteral("1e2"), QStringLiteral("01"), QStringLiteral("+1"),
-       QStringLiteral("1 2"), QStringLiteral("9223372036854775808"), maximumSequence + QStringLiteral("#13"),
+       QStringLiteral("1 2"), QStringLiteral("9223372036854775808"), maximumSequence + QStringLiteral("#") + QString::number(PetMovePolicy::kMaxSequenceInstances + 1),
        QStringLiteral("1');alert(1);//"), QStringLiteral("1\n2"), QStringLiteral("1|2")}) {
     ok &= check(!PacketContracts::validateFlash(QStringLiteral("batchpet"), bad),
                 "unsafe, empty, duplicate or over-capacity Flash sequence was accepted");

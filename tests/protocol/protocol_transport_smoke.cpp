@@ -286,10 +286,22 @@ bool repeatedWeakLoginTests() {
     // is borrowed from the currently selected Core account.
     repository.handleEnvelope(envelope);
   };
-  const QJsonObject backpack{{QStringLiteral("_cmd"), QStringLiteral("2_1_10")},
-      {QStringLiteral("pl"), QJsonArray{QJsonObject{{QStringLiteral("id"), 1},
-          {QStringLiteral("r"), 7001}, {QStringLiteral("lv"), 100}, {QStringLiteral("n"), QStringLiteral("observed backpack")}}}},
-      {QStringLiteral("pps"), QJsonArray{QStringLiteral("1"), QJsonValue::Null}}, {QStringLiteral("ppc"), 12}};
+  // Real accounts keep far more than one 12-pet UI page in the backpack; the
+  // field failure that a 1-pet fixture hid was a 78-pet move sequence.
+  QList<qint64> backpackIds{1};
+  for (qint64 id = 1001; id <= 1076; ++id) backpackIds.append(id);
+  const auto backpackPacket = [](const QList<qint64>& ids) {
+    QJsonArray pets;
+    for (qint64 id : ids)
+      pets.append(QJsonObject{{QStringLiteral("id"), id}, {QStringLiteral("r"), 7000 + (id % 900)},
+                              {QStringLiteral("lv"), 100},
+                              {QStringLiteral("n"), id == 2 ? QStringLiteral("observed warehouse")
+                                                            : QStringLiteral("observed backpack")}});
+    return QJsonObject{{QStringLiteral("_cmd"), QStringLiteral("2_1_10")}, {QStringLiteral("pl"), pets},
+        {QStringLiteral("pps"), QJsonArray{PetMovePolicy::serializeSequence(ids), QJsonValue::Null}},
+        {QStringLiteral("ppc"), 100}};
+  };
+  const QJsonObject backpack = backpackPacket(backpackIds);
   const QJsonObject warehouse{{QStringLiteral("_cmd"), QStringLiteral("2_1_S")},
       {QStringLiteral("ns"), QJsonArray{QJsonObject{{QStringLiteral("id"), 2},
           {QStringLiteral("ri"), 7002}, {QStringLiteral("lv"), 100}, {QStringLiteral("n"), QStringLiteral("observed warehouse")}}}},
@@ -311,7 +323,7 @@ bool repeatedWeakLoginTests() {
   controller.requestManualListRefresh();
   ok &= check(oldIntents.size() == 1, "first weak login could not queue manual read");
   deliverWeak(backpack);
-  ok &= check(repository.backpackPets().size() == 1, "first weak observation was not visible before renewal");
+  ok &= check(repository.backpackPets().size() == 77, "first weak observation was not visible before renewal");
   deliverWeak(login);
   const quint64 secondEpoch = repository.sessionGeneration();
   ok &= check(repository.isAuthenticated() && secondEpoch > batchEpoch &&
@@ -332,13 +344,8 @@ bool repeatedWeakLoginTests() {
 
   int listReads = 0, detailReads = 0, writes = 0;
   bool moved = false;  // the simulated server state after an accepted move
-  const QJsonObject movedBackpack{{QStringLiteral("_cmd"), QStringLiteral("2_1_10")},
-      {QStringLiteral("pl"), QJsonArray{
-          QJsonObject{{QStringLiteral("id"), 1}, {QStringLiteral("r"), 7001}, {QStringLiteral("lv"), 100},
-                      {QStringLiteral("n"), QStringLiteral("observed backpack")}},
-          QJsonObject{{QStringLiteral("id"), 2}, {QStringLiteral("r"), 7002}, {QStringLiteral("lv"), 100},
-                      {QStringLiteral("n"), QStringLiteral("observed warehouse")}}}},
-      {QStringLiteral("pps"), QJsonArray{QStringLiteral("1#2"), QJsonValue::Null}}, {QStringLiteral("ppc"), 12}};
+  const QList<qint64> movedIds = PetMovePolicy::append(backpackIds, 2);
+  const QJsonObject movedBackpack = backpackPacket(movedIds);
   const QJsonObject movedWarehouse{{QStringLiteral("_cmd"), QStringLiteral("2_1_S")},
       {QStringLiteral("ns"), QJsonArray{}}, {QStringLiteral("rb"), QJsonArray{}}, {QStringLiteral("es"), QJsonArray{}}};
   bool detailFinished = false, detailSucceeded = false, repositorySaved = false;
@@ -370,7 +377,7 @@ bool repeatedWeakLoginTests() {
   });
   controller.requestManualListRefresh();
   ok &= check(waitUntil([&] { return listReads == 2 && !controller.listRefreshRunning(); }) &&
-                  repository.backpackPets().size() == 1 && repository.warehousePets().size() == 1 &&
+                  repository.backpackPets().size() == 77 && repository.warehousePets().size() == 1 &&
                   repository.backpackPet(1).value(QStringLiteral("_unverifiedObservation")).toBool() &&
                   repository.warehousePet(2).value(QStringLiteral("_unverifiedObservation")).toBool(),
               "two weak logins did not allow Controller -> Transport -> Repository manual inventory reading");
@@ -396,7 +403,7 @@ bool repeatedWeakLoginTests() {
   weakHost.allowUnverifiedWrite = true;
   controller.requestMoveToBackpack(2);
   ok &= check(waitUntil([&] { return moveFinishedCount == 2; }) && moveSucceeded && writes == 1 &&
-                  repository.backpackIds() == QList<qint64>{1, 2} && repository.warehousePet(2).isEmpty() &&
+                  movedIds.size() == 78 && repository.backpackIds() == movedIds && repository.warehousePet(2).isEmpty() &&
                   !repository.sessionContext().canPersist(),
               qPrintable(QStringLiteral("unverified but uninterrupted session did not complete exactly one "
                                         "verified move: %1").arg(moveMessage)));

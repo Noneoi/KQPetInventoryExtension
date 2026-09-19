@@ -6,6 +6,12 @@
 
 namespace PetMovePolicy {
 
+// Sanity bound for a backpack sequence in a move request or intent journal.
+// The real limit is the server-reported capacity (ppc), which the move
+// preflight enforces; real backpacks hold far more than the 12 pets one UI
+// page shows, so this only rejects obviously malformed input.
+constexpr int kMaxSequenceInstances = 1000;
+
 QString restriction(const QJsonObject& pet);
 QString deploymentText(const QJsonObject& pet);
 QList<qint64> parseSequence(const QString& sequence);

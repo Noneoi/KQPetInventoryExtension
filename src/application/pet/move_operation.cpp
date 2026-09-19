@@ -2,6 +2,7 @@
 
 #include "storage/storage_service.h"
 #include "protocol/packet_contract.h"
+#include "domain/pet_move_policy.h"
 
 #include <QDateTime>
 #include <QDir>
@@ -27,7 +28,8 @@ StorageSubmission MoveOperationJournal::begin(quint64 epoch, quint64 inventoryRe
     unique.insert(id);
   }
   if (!path_.isEmpty() || !context_ || context_->isShared() || context_->account().isEmpty() ||
-      !epoch || !inventoryRevision || instanceId <= 0 || sequence.isEmpty() || sequence.size() > 12) {
+      !epoch || !inventoryRevision || instanceId <= 0 || sequence.isEmpty() ||
+      sequence.size() > PetMovePolicy::kMaxSequenceInstances) {
     error_ = QStringLiteral("invalid operation intent/context");
     return {0, false, StorageStatus::InvalidRequest, error_};
   }
@@ -89,7 +91,7 @@ QJsonObject MoveOperationJournal::recoveryRecord(const QByteArray& bytes) {
       !record.value(QStringLiteral("targetSequence")).isArray() ||
       (outcome != QStringLiteral("Submitted") && outcome != QStringLiteral("Unknown"))) return {};
   const QJsonArray sequence = record.value(QStringLiteral("targetSequence")).toArray();
-  if (sequence.isEmpty() || sequence.size() > 12) return {};
+  if (sequence.isEmpty() || sequence.size() > PetMovePolicy::kMaxSequenceInstances) return {};
   QSet<qint64> unique;
   for (const auto& value : sequence) {
     qint64 instance = 0;
