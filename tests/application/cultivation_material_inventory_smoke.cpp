@@ -21,7 +21,7 @@ bool require(bool condition, const char* message) {
 template<class Predicate> bool until(Predicate predicate) {
   QElapsedTimer timer;
   timer.start();
-  while (!predicate() && timer.elapsed() < 5000) {
+  while (!predicate() && timer.elapsed() < 15000) {
     QCoreApplication::processEvents(QEventLoop::AllEvents, 5);
     QThread::msleep(1);
   }

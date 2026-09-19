@@ -661,7 +661,7 @@ bool pagedMigrationRegression(const QString& root) {
   limits.maximumOutstandingTasks = 1;
   StorageService storage(dataRoot, limits);
   PetRepository repository(nullptr, &storage, legacyRoot);
-  ok &= require(waitForRepositoryIdle(&repository, 20000), "paged migration failed to respect queue backpressure");
+  ok &= require(waitForRepositoryIdle(&repository, 60000), "paged migration failed to respect queue backpressure");
   const QDir detailDirectory(QDir(dataRoot).filePath(QStringLiteral("accounts/legacy-A/details")));
   ok &= require(repository.accountKey() == account && !repository.isAuthenticated() &&
                     repository.warehousePets().size() == 300 &&

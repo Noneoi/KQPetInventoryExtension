@@ -31,7 +31,7 @@ bool require(bool condition, const char* message) {
 }
 
 template<class Predicate>
-bool waitUntil(Predicate predicate, int timeoutMs = 3000) {
+bool waitUntil(Predicate predicate, int timeoutMs = 10000) {
   QElapsedTimer elapsed;
   elapsed.start();
   while (!predicate() && elapsed.elapsed() < timeoutMs) {

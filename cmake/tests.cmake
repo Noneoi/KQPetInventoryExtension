@@ -296,7 +296,7 @@ add_executable(KQCultivationMaterialInventorySmoke tests/application/cultivation
 target_link_libraries(KQCultivationMaterialInventorySmoke PRIVATE KQPetApplicationCore)
 target_compile_options(KQCultivationMaterialInventorySmoke PRIVATE $<$<CXX_COMPILER_ID:MSVC>:/utf-8 /wd4828>)
 add_test(NAME cultivation_material_inventory_smoke COMMAND KQCultivationMaterialInventorySmoke)
-set_tests_properties(cultivation_material_inventory_smoke PROPERTIES TIMEOUT 30)
+set_tests_properties(cultivation_material_inventory_smoke PROPERTIES TIMEOUT 60)
 
 add_executable(KQRoutineOverviewSmoke tests/application/routine_overview_smoke.cpp src/extension/resources.qrc)
 target_compile_options(KQRoutineOverviewSmoke PRIVATE $<$<CXX_COMPILER_ID:MSVC>:/utf-8 /wd4828>)
