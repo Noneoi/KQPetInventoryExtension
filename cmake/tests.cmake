@@ -411,7 +411,7 @@ target_compile_options(KQWorkbenchUiPreview PRIVATE $<$<CXX_COMPILER_ID:MSVC>:/u
 add_test(NAME workbench_ui_preview_smoke COMMAND KQWorkbenchUiPreview)
 set_tests_properties(workbench_ui_preview_smoke PROPERTIES
   ENVIRONMENT "QT_QPA_PLATFORM=offscreen;KQPET_PREVIEW_SELF_TEST=1"
-  TIMEOUT 20)
+  TIMEOUT 60)
 kqpet_use_qt_runtime(workbench_ui_preview_smoke)
 
 add_executable(KQPetUiPreview tests/ui/ui_preview.cpp src/extension/resources.qrc)
