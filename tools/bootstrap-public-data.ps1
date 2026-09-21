@@ -2,7 +2,7 @@ param(
   [Parameter(Mandatory=$true)][string]$DataRoot,
   [switch]$ExtractImage,
   [string]$VisualKey,
-  # Comma-separated subset (pets,shop,images,icons,routines); empty checks all.
+  # Comma-separated subset (pets,skills,shop,images,icons,routines); empty checks all.
   [string]$Components = ''
 )
 $ErrorActionPreference = 'Stop'

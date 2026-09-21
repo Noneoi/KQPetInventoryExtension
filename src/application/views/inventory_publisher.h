@@ -13,6 +13,7 @@ class PetDetailPreparationService;
 class PetDerivationCache;
 struct InventoryViewSnapshot;
 struct PetDetailCatalogSnapshot;
+struct PetSkillCatalogSnapshot;
 
 // Construct on Core alongside Repository. Captures one immutable view per
 // event-loop batch and hands it to the bounded GUI projection mailbox.
@@ -26,6 +27,7 @@ public:
   void factsUpdated(qint64 id, const PetDerivedFactsHandle& facts);
   void factsFailed(const PetDerivationKey& key, const QString& error);
   void metadataUpdated(std::shared_ptr<const PetDetailCatalogSnapshot> metadata);
+  void skillMetadataUpdated(std::shared_ptr<const PetSkillCatalogSnapshot> skills);
   void setDetailService(PetDetailPreparationService* service, PetDerivationCache* derivations);
   void selectDetail(int consumer, qint64 id);
   void requestDetailPage(int consumer, DetailSection section, int pageIndex);
@@ -47,6 +49,7 @@ private:
   QHash<qint64, FactFailure> factFailures_;
   std::shared_ptr<const InventoryViewSnapshot> last_;
   std::shared_ptr<const PetDetailCatalogSnapshot> metadata_;
+  std::shared_ptr<const PetSkillCatalogSnapshot> skills_;
   QHash<qint64, int> backpackRows_;
   QHash<qint64, int> warehouseRows_;
   QPointer<PetDetailPreparationService> detailService_;

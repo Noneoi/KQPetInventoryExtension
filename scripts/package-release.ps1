@@ -63,8 +63,16 @@ $toolsDir = Get-KqChildPath $packageRoot 'tools'
 [IO.Directory]::CreateDirectory($toolsDir) | Out-Null
 Copy-KqVerifiedFile $checker (Join-Path $toolsDir 'KQPetReleaseCheck.exe')
 Copy-KqVerifiedFile (Join-Path $bin 'KQPetCompatibilityCheck.exe') (Join-Path $toolsDir 'KQPetCompatibilityCheck.exe')
-foreach ($script in @('release-tools.ps1', 'target-tools.ps1', 'verify-target.ps1', 'deploy.ps1', 'rollback.ps1', 'uninstall.ps1')) {
-    Copy-KqVerifiedFile (Join-Path $PSScriptRoot $script) (Join-Path $toolsDir $script)
+foreach ($script in @('release-tools.ps1', 'auto-update-tools.ps1', 'auto-update.ps1',
+        'target-tools.ps1', 'verify-target.ps1', 'deploy.ps1', 'rollback.ps1', 'uninstall.ps1')) {
+    $scriptSource = Join-Path $PSScriptRoot $script
+    $scriptTarget = Join-Path $toolsDir $script
+    # Windows PowerShell 5.1 treats BOM-less UTF-8 as the active ANSI codepage.
+    # Always ship scripts as UTF-8 with BOM so Chinese diagnostics cannot alter
+    # quote characters and make otherwise valid scripts fail to parse.
+    $scriptText = [IO.File]::ReadAllText($scriptSource)
+    [IO.File]::WriteAllText($scriptTarget, $scriptText, (New-Object Text.UTF8Encoding($true)))
+    if ([IO.File]::ReadAllText($scriptTarget) -cne $scriptText) { throw "Packaged script verification failed: $script" }
 }
 Copy-KqVerifiedFile (Join-Path $projectRoot 'profiles\legacy-baselines.json') (Join-Path $toolsDir 'legacy-baselines.json')
 foreach ($document in @('README.md', 'RELEASE_NOTES.md')) { Copy-KqVerifiedFile (Join-Path $projectRoot $document) (Join-Path $packageRoot $document) }

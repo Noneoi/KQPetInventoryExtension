@@ -42,11 +42,13 @@ RUNTIMES = {
               "sha256": "0333b56998a55bd83f4e0deb678a811fcdc45607582b4f5dd438309c8c3ad5ce",
               "entry": "ffdec.jar"},
 }
-COMPONENTS = {"pets": "pet-detail-data.json", "shop": "shop-exchange-data.json", "images": "pet-image-index.json",
+COMPONENTS = {"pets": "pet-detail-data.json", "skills": "pet-skill-data.json",
+              "shop": "shop-exchange-data.json", "images": "pet-image-index.json",
               "icons": "public-icon-index.json", "routines": "routine-overview.json"}
 # Checked in this order; each part commits independently, so any subset can be
 # updated on its own and the rest keep their current files.
-COMPONENT_LABELS = (("pets", "精灵与养成资料"), ("shop", "指定精灵商店"), ("images", "精灵图片索引"),
+COMPONENT_LABELS = (("pets", "精灵与养成资料"), ("skills", "精灵技能资料"),
+                    ("shop", "指定精灵商店"), ("images", "精灵图片索引"),
                     ("icons", "星神与属性图标"), ("routines", "日常任务与活动"))
 POWER_RULE_VERSION = 1
 CULTIVATION_RULE_VERSION = 1
@@ -302,7 +304,8 @@ class Updater:
     def current(self, component: str) -> dict:
         filename = COMPONENTS[component]
         existing = read_object(self.catalog / filename)
-        field = {"pets": "pets", "shop": "shops", "images": "faces", "icons": "stargods", "routines": "tasks"}[component]
+        field = {"pets": "pets", "skills": "skills", "shop": "shops", "images": "faces",
+                 "icons": "stargods", "routines": "tasks"}[component]
         if existing.get(field) and isinstance(existing.get("source", {}), dict):
             return existing
         return read_object(self.baseline / filename)
@@ -465,6 +468,10 @@ class Updater:
         from public_activity_exchange_updater import update_activity_exchanges
         return update_activity_exchanges(self, versions)
 
+    def skills(self, versions: dict) -> bool:
+        from public_skill_updater import update_skills
+        return update_skills(self, atomic_json, versions)
+
     def images(self, versions: dict) -> bool:
         # Filled from the official, versioned resource manifest; never infer a
         # race from a translated name or reuse another pet's picture.
@@ -548,8 +555,15 @@ class Updater:
                 if name == "shop":
                     catalog = self.current("shop")
                     activity_shops = [shop for shop in catalog.get("shops", []) if shop.get("sourceKey")]
-                    results[name]["activityCounts"] = {"shops": len(activity_shops), "goods": sum(len(shop.get("goods", [])) for shop in activity_shops)}
-                    supported = {"11","31","32","34","39","39$1","41","42","43","44","62","84","85","86","89","91","92","94","95"}
+                    activity_goods = [good for shop in activity_shops for good in shop.get("goods", [])]
+                    results[name]["activityCounts"] = {
+                        "shops": len(activity_shops), "goods": len(activity_goods),
+                        "activityShopGoods": sum(good.get("exchangeKind") != "diamond" for good in activity_goods),
+                        "diamondActivityGoods": sum(good.get("exchangeKind") == "diamond" for good in activity_goods),
+                        "hudShops": sum(shop.get("activityEvidence") == "hud" for shop in activity_shops),
+                        "recentReleaseShops": sum(shop.get("activityEvidence") == "recent-release" for shop in activity_shops),
+                        "linkedShops": sum(shop.get("activityEvidence") == "referenced" for shop in activity_shops)}
+                    supported = {"11","31","32","34","39","39$1","39$3","41","42","43","44","62","84","85","86","89","89$1","91","92","94","95"}
                     def supported_code(code):
                         if code in supported or code == "33":
                             return True
@@ -567,6 +581,10 @@ class Updater:
                         problems.append(f"{len(self.activity_exchange_pending)} 条活动兑换配置待识别")
                     if problems:
                         results[name]["error"] = "；".join(filter(None,[results[name].get("error"),*problems[:4]]))
+                if name == "skills":
+                    catalog = self.current("skills")
+                    results[name]["counts"] = {key: len(catalog.get(key, {})) for key in
+                                                ("pets", "skills", "entries", "buffs")}
                 if name == "routines":
                     catalog = read_object(self.catalog / COMPONENTS[name])
                     results[name]["counts"] = catalog.get("source", {}).get("counts", {})

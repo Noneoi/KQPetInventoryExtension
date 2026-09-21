@@ -44,13 +44,20 @@ class DesignatedPetCatalog(unittest.TestCase):
         self.assertEqual(shop["goods"][0]["removalTime"], "20260929")
         self.assertEqual(shop["goods"][0]["officialRemovalTime"], "2026929")
 
+    def test_full_official_timestamp_is_validated_and_reduced_to_business_date(self):
+        self.assertEqual(generator.official_date("20261009 02:00:00"), "20261009")
+        for invalid in ("20261009 24:00:00", "20260230 02:00:00", "20261009T02:00:00"):
+            with self.assertRaises(ValueError):
+                generator.official_date(invalid)
+
     def test_current_official_catalog_and_enhancement_coverage(self):
         data = json.loads((ROOT / "assets/shop-exchange-data.json").read_text(encoding="utf-8"))
-        goods = [g for s in data["shops"] for g in s["goods"]]
+        fixed_shops = [s for s in data["shops"] if not s.get("sourceKey")]
+        goods = [g for s in fixed_shops for g in s["goods"]]
         self.assertEqual(len(goods), 26)
         self.assertEqual(sum(g["shelfTime"] <= "20260913" and
                              (not g["removalTime"] or g["removalTime"] >= "20260913") for g in goods), 25)
-        self.assertEqual({s["shopId"] for s in data["shops"]}, {1, 2, 3, 4, 5, 6})
+        self.assertEqual({s["shopId"] for s in fixed_shops}, {1, 2, 3, 4, 5, 6})
         self.assertTrue(all(g["raceIds"] for g in goods))
         self.assertEqual({g["enhanceType"] for g in goods if "金星" in g["description"]}, {"31"})
         self.assertEqual(data["source"]["shopVersion"], "2026091011614836")

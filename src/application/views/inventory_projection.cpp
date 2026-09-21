@@ -44,6 +44,7 @@ void InventoryProjection::drain() {
   const bool sessionChanged = !snapshot_ || snapshot_->account != next->account ||
                               snapshot_->sessionEpoch != next->sessionEpoch;
   const bool metadataChanged = next->metadata && (!snapshot_ || snapshot_->metadata != next->metadata);
+  const bool skillMetadataChanged = next->skills && (!snapshot_ || snapshot_->skills != next->skills);
   const bool sourceChanged = !snapshot_ || snapshot_->sourceVerified != next->sourceVerified ||
       snapshot_->sessionState != next->sessionState || snapshot_->authenticated != next->authenticated;
   const auto previous = snapshot_; // Keep old payload leases until synchronous observers have updated.
@@ -76,6 +77,8 @@ void InventoryProjection::drain() {
     if (!alive) return;
   }
   if (metadataChanged) emit this->metadataChanged(snapshot_->metadata->revision);
+  if (!alive) return;
+  if (skillMetadataChanged) emit this->skillMetadataChanged(snapshot_->skills->revision);
   if (!alive) return;
   if (membership || sessionChanged || sourceChanged) emit dataChanged();
   if (!alive) return;

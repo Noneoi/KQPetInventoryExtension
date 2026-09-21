@@ -45,6 +45,8 @@ add_library(KQPetUi STATIC
   src/ui/detail/prepared_pet_detail_renderer.h
   src/ui/detail/pet_power_analysis_renderer.cpp
   src/ui/detail/pet_power_analysis_renderer.h
+  src/ui/detail/pet_skill_renderer.cpp
+  src/ui/detail/pet_skill_renderer.h
   src/ui/detail/stargod_ring_object.cpp
   src/ui/detail/stargod_ring_object.h
   src/ui/detail/pet_raw_data_tree.cpp
@@ -80,13 +82,14 @@ set(KQPET_RCC_BINARY "${CMAKE_CURRENT_BINARY_DIR}/KQPetInventory.rcc")
 add_custom_command(OUTPUT "${KQPET_RCC_BINARY}"
   COMMAND Qt6::rcc --binary "${CMAKE_CURRENT_SOURCE_DIR}/src/extension/resources.qrc"
           -o "${KQPET_RCC_BINARY}"
-  DEPENDS src/extension/resources.qrc assets/pet-detail-data.json assets/pet-image-urls.json
+  DEPENDS src/extension/resources.qrc assets/pet-detail-data.json assets/pet-skill-data.json assets/pet-image-urls.json
           assets/attribute-icons.png assets/shop-exchange-data.json ${KQPET_STARGOD_ICON_FILES}
           assets/activity-exchange-data.json
           tools/cache-manager.ps1 tools/public_data_updater.py tools/bootstrap-public-data.ps1
           tools/public_names_updater.py tools/public_icon_updater.py tools/public_routine_updater.py assets/stargod-icons/sources.json
           tools/public_activity_exchange_updater.py tools/activity_evolution_selector.py
-          tools/generate_pet_detail_data.py tools/generate_shop_exchange_data.py tools/generate_stargod_icons.py VERBATIM)
+          tools/generate_pet_detail_data.py tools/generate_pet_skill_data.py tools/public_skill_updater.py
+          tools/generate_shop_exchange_data.py tools/generate_stargod_icons.py VERBATIM)
 configure_file(src/extension/embedded_resources.rc.in
   "${CMAKE_CURRENT_BINARY_DIR}/embedded_resources.rc" @ONLY)
 set_source_files_properties("${CMAKE_CURRENT_BINARY_DIR}/embedded_resources.rc"

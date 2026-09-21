@@ -62,7 +62,7 @@ int main(int argc, char* argv[]) {
                 "shop extension mismatch");
   ok &= require(catalog.getInfoCommand() == QStringLiteral("1008_20260313_es_0"),
                 "shop getInfo command mismatch");
-  const QDate date(2026, 9, 13);
+  const QDate date(2026, 9, 20);
   // Freeze the six established SEF shops separately from independently named
   // activity sources; local shopId values may overlap across those sources.
   const QList<ShopExchangeShop> shops = catalog.protocolShops(date);
@@ -80,10 +80,31 @@ int main(int argc, char* argv[]) {
     for (const auto& good : shop.goods)
       ok &= require(good.sourceKey == shop.sourceKey, "activity good lost its parent source identity");
   }
-  ok &= require(activityShopCount == 8 && activityGoodCount == 72,
+  ok &= require(activityShopCount == 9 && activityGoodCount == 76,
       "the frozen public activity snapshot is incomplete");
   ok &= require(catalog.shops(date).size() == shops.size() + activityShopCount,
       "merged catalog omitted established or independent activity shops");
+  const ShopExchangeShop* kunwuSale = nullptr;
+  for (const auto& shop : catalog.snapshot()->allShops)
+    if (shop.sourceKey.contains(QStringLiteral("lingchukunwudiscountstoretab3"))) {
+      kunwuSale = &shop;
+      break;
+    }
+  ok &= require(kunwuSale && kunwuSale->goods.size() == 4 &&
+                    kunwuSale->navigationLink == QStringLiteral("btnNewAct_lingchukunwudiscountstore_showMainPanel_3") &&
+                    kunwuSale->activityEvidence == QStringLiteral("recent-release"),
+                "current cultivation sale or its official navigation evidence is missing");
+  if (kunwuSale) {
+    const auto breakthrough = findGood({*kunwuSale}, kunwuSale->shopId, QStringLiteral("装备星迹突破"));
+    const auto threeStars = findGood({*kunwuSale}, kunwuSale->shopId, QStringLiteral("装备任选红星3颗"));
+    ok &= require(breakthrough.cost == QStringLiteral("8:2:29") && breakthrough.limitCount == 3 &&
+                      breakthrough.enhanceType == QStringLiteral("89$1") && !breakthrough.quotaObservation.isEmpty() &&
+                      threeStars.cost == QStringLiteral("8:2:109") && threeStars.limitCount == 1 &&
+                      threeStars.enhanceType == QStringLiteral("39$3") &&
+                      breakthrough.section == ShopExchangeSection::DiamondActivity &&
+                      threeStars.section == ShopExchangeSection::DiamondActivity,
+                  "current diamond prices, limits, cultivation meaning, or quota paths are incomplete");
+  }
 
   const ShopExchangeGood redStar =
       findGood(shops, 1, QStringLiteral("指定通灵师装备1颗红星"));
@@ -250,10 +271,13 @@ int main(int argc, char* argv[]) {
     return true;
   });
   ok &= require(controller.requestInfo(), "manual shop refresh did not start");
-  ok &= require(requests.size() == 2 &&
+  ok &= require(requests.size() == 3 &&
                     requests.at(1).service == QStringLiteral("MaterialExtension") &&
-                    requests.at(1).command == QStringLiteral("3_11"),
-                "manual shop refresh must request material counts exactly once");
+                    requests.at(1).command == QStringLiteral("3_11") &&
+                    requests.at(2).service == QStringLiteral("LeagueExtension") &&
+                    requests.at(2).command == QStringLiteral("1015_2A") &&
+                    requests.at(2).params == QStringLiteral("null"),
+                "manual shop refresh must request material and personal contribution exactly once");
   const auto sendControllerPacket = [&repository](const QJsonObject& value) {
     deliverVerifiedFixture(&repository, value);
   };
@@ -261,14 +285,20 @@ int main(int argc, char* argv[]) {
                         {QStringLiteral("r"), 1},
                         {QStringLiteral("4"),
                          QJsonArray{QJsonObject{{QStringLiteral("i"), 3237},
-                                                {QStringLiteral("n"), 456}}}}});
+                                                {QStringLiteral("n"), 456}}}},
+                        {QStringLiteral("8"),
+                         QJsonArray{QJsonObject{{QStringLiteral("i"), 25},
+                                                {QStringLiteral("n"), 120}},
+                                    QJsonObject{{QStringLiteral("i"), 26},
+                                                {QStringLiteral("n"), 34}}}}});
   sendControllerPacket({{QStringLiteral("_cmd"), catalog.getInfoCommand()},
                         {QStringLiteral("r"), 1},
                         {QStringLiteral("si1"), QJsonObject{}}});
   ok &= require(controller.hasMaterialCounts() &&
                     controller.materialCounts().value(QStringLiteral("4:3237")) == 456 &&
+                    controller.materialCounts().value(QStringLiteral("8:2")) == 154 &&
                     !controller.materialCounts().contains(QStringLiteral("134:1")),
-                "manual material response was not cached by material identity");
+                "manual material response or official diamond total was not cached by material identity");
   sendControllerPacket(
       {{QStringLiteral("_cmd"), QStringLiteral("1015_2A")},
        {QStringLiteral("r"), 1},
@@ -301,6 +331,12 @@ int main(int argc, char* argv[]) {
     return QJsonArray{QJsonObject{{QStringLiteral("i"), 3237},
                                   {QStringLiteral("n"), count}}};
   };
+  const auto leagueReply = [](const QJsonValue& count = QJsonValue(192147)) {
+    return QJsonObject{{QStringLiteral("_cmd"), QStringLiteral("1015_2A")},
+        {QStringLiteral("r"), 1},
+        {QStringLiteral("infos"), QJsonObject{{QStringLiteral("UnionMemberInfo"),
+            QJsonObject{{QStringLiteral("lCToken"), count}}}}}};
+  };
   const auto withUnrelatedInventories = [](QJsonObject packet) {
     packet.insert(QStringLiteral("1"), QJsonObject{{QStringLiteral("wearing"), QJsonArray{}}});
     packet.insert(QStringLiteral("128"), QJsonArray{QStringLiteral("another-inventory-schema")});
@@ -324,6 +360,7 @@ int main(int argc, char* argv[]) {
     sendControllerPacket(materials(invalid));
     // A malformed material reply must not abort the successful sibling.
     sendControllerPacket(completeShop);
+    sendControllerPacket(leagueReply());
     ok &= require(!controller.isRunning() && controller.hasPacket() &&
                       controller.cachedMaterialCounts().value(QStringLiteral("4:3237")) == 456 &&
                       !controller.materialCounts().contains(QStringLiteral("4:3237")) &&
@@ -338,6 +375,7 @@ int main(int argc, char* argv[]) {
   partialMaterial.insert(QStringLiteral("9876"), QJsonObject{});
   sendControllerPacket(partialMaterial);
   sendControllerPacket(completeShop);
+  sendControllerPacket(leagueReply());
   ok &= require(controller.materialCounts().contains(QStringLiteral("4:3237")) &&
                     controller.materialCounts().value(QStringLiteral("4:3237")) == 0 &&
                     !controller.materialCounts().contains(QStringLiteral("4:3189")) &&
@@ -348,6 +386,7 @@ int main(int argc, char* argv[]) {
   ok &= require(controller.requestInfo(), "empty-material batch did not start");
   sendControllerPacket(materials(QJsonArray{}));
   sendControllerPacket(completeShop);
+  sendControllerPacket(leagueReply());
   ok &= require(controller.hasMaterialCounts() &&
                     !controller.cachedMaterialCounts().contains(QStringLiteral("4:3237")) &&
                     controller.fieldState(QStringLiteral("material:4")) == PacketFieldState::Empty,
@@ -361,6 +400,7 @@ int main(int argc, char* argv[]) {
                             QJsonObject{{QStringLiteral("pl"), 0}}}}},
                         {QStringLiteral("si2"), QStringLiteral("wrong-type")}});
   sendControllerPacket(materials(material(17)));
+  sendControllerPacket(leagueReply());
   ok &= require(!controller.hasPacket() &&
                     ShopExchangeCatalog::usedCount(controller.packet(), redStar) == 0 &&
                     controller.packet().value(QStringLiteral("si2")).toObject() == oldSecondShop &&
@@ -384,6 +424,7 @@ int main(int argc, char* argv[]) {
     ok &= require(controller.requestInfo(), "bad-shop batch did not start");
     sendControllerPacket(value);
     sendControllerPacket(materials(material(17)));
+    sendControllerPacket(leagueReply());
     ok &= require(controller.packet() == before && !controller.hasPacket(),
                   "invalid or conflicting shop counter overwrote accepted history");
   }
@@ -391,6 +432,7 @@ int main(int argc, char* argv[]) {
   sendControllerPacket({{QStringLiteral("_cmd"), catalog.getInfoCommand()},
                         {QStringLiteral("r"), false}});
   sendControllerPacket(materials(material(QStringLiteral("9223372036854775807"))));
+  sendControllerPacket(leagueReply());
   ok &= require(!controller.isRunning() &&
                     controller.materialCounts().value(QStringLiteral("4:3237")) ==
                         std::numeric_limits<qint64>::max(),
@@ -478,7 +520,7 @@ int main(int argc, char* argv[]) {
     QObject::connect(&weak, &ShopExchangeController::statusChanged, &weak,
                      [&](const QString& value) { status = value; });
     weak.setAsyncSender([&](const OutboundIntent& intent) { requests.append(intent); return true; });
-    ok &= require(weak.requestInfo() && requests.size() == 2, "weak shop request batch did not start");
+    ok &= require(weak.requestInfo() && requests.size() == 3, "weak shop request batch did not start");
     quint64 sequence = 1;
     const auto sendWeak = [&](const QJsonObject& value, quint64 epoch) {
       InboundEnvelope envelope;
@@ -501,10 +543,13 @@ int main(int argc, char* argv[]) {
     // A response can beat its queued receipt; the shared permit is sufficient.
     sendWeak(completeShop, 0); // actual host capture has no verified epoch
     sendWeak(withUnrelatedInventories(materials(material(99))), 0);
+    sendWeak(leagueReply(77), 0);
     const QString weakRefreshStatus = status;
     ok &= require(!weak.isRunning() && weak.unverifiedPackets().contains(catalog.getInfoCommand()) &&
                       weak.unverifiedPackets().value(QStringLiteral("3_11")).toObject()
                           .value(QStringLiteral("4")).toObject().value(QStringLiteral("3237")).toString() == QStringLiteral("99") &&
+                      weak.unverifiedPackets().value(QStringLiteral("1015_2A")).toObject()
+                          .value(QStringLiteral("134")).toObject().value(QStringLiteral("1")).toString() == QStringLiteral("77") &&
                       weak.packet().isEmpty() && weak.cachedMaterialCounts().isEmpty() &&
                       waitUntil([&] { return weak.pendingWriteCount() == 0; }) &&
                       !QFile::exists(QDir(weakRepository.storageContext()->directory()).filePath(QStringLiteral("cultivation-materials.json"))) &&
@@ -525,6 +570,7 @@ int main(int argc, char* argv[]) {
               {QStringLiteral("si1"), QStringLiteral("bad")}}, weakRepository.sessionGeneration());
     sendWeak({{QStringLiteral("_cmd"), QStringLiteral("3_11")},
               {QStringLiteral("4"), QStringLiteral("bad")}}, weakRepository.sessionGeneration());
+    sendWeak(leagueReply(QJsonValue(QJsonValue::Null)), weakRepository.sessionGeneration());
     ok &= require(!weak.isRunning() && weak.unverifiedPackets() == observations &&
                       status.contains(QStringLiteral("无效")) && !status.contains(QStringLiteral("超时")),
                   "malformed weak shop reply became data or was mislabeled as a timeout");

@@ -546,8 +546,8 @@ int main(int argc, char* argv[]) {
   }
   window.showPage(WorkbenchPage::Pets);
   for (QTabWidget* tabs : petsPage->findChildren<QTabWidget*>()) {
-    if (tabs->count() == 2 && tabs->tabText(1) == QStringLiteral("原始数据")) {
-      tabs->setCurrentIndex(1);
+    if (tabs->count() == 4 && tabs->tabText(2) == QStringLiteral("原始数据")) {
+      tabs->setCurrentIndex(2);
       QCoreApplication::processEvents();
       const QString path = QDir(outputRoot).absoluteFilePath(QStringLiteral("workbench-raw-%1.png").arg(dpi));
       ok &= require(window.grab().save(path), "failed to export raw-data PNG");
@@ -587,8 +587,8 @@ int main(int argc, char* argv[]) {
   ok &= require(window.grab().save(smallDetailPath), "failed to export compact selected-detail PNG");
   std::fprintf(stdout, "PNG: %s\n", smallDetailPath.toUtf8().constData());
   for (QTabWidget* tabs : petsPage->findChildren<QTabWidget*>()) {
-    if (tabs->count() == 2 && tabs->tabText(1) == QStringLiteral("原始数据")) {
-      tabs->setCurrentIndex(1);
+    if (tabs->count() == 4 && tabs->tabText(2) == QStringLiteral("原始数据")) {
+      tabs->setCurrentIndex(2);
       QCoreApplication::processEvents();
       const QString path = QDir(outputRoot).absoluteFilePath(QStringLiteral("workbench-small-raw-%1.png").arg(dpi));
       ok &= require(window.grab().save(path), "failed to export compact raw-data PNG");

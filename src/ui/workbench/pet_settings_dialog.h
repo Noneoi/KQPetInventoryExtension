@@ -12,6 +12,11 @@ class QComboBox;
 class QCheckBox;
 class QPushButton;
 class QProgressBar;
+class QTextBrowser;
+class QNetworkAccessManager;
+class QNetworkReply;
+class QProcess;
+class QDialogButtonBox;
 
 class PetSettingsDialog final : public QDialog {
   Q_OBJECT
@@ -38,11 +43,21 @@ private:
   void applyTimings(const RefreshTimings& timings);
   QWidget* createCachePage();
   QWidget* createDataPage();
+  QWidget* createSoftwareUpdatePage();
   QWidget* createTimingPage();
+  void checkSoftwareUpdate();
+  void checkSoftwareUpdateFallback(const QString& reason);
+  void installSoftwareUpdate();
+  void finishSoftwareUpdate();
+  void setSoftwareUpdateBusy(bool busy, const QString& status);
   void requestCacheAction(const QString& action, const QJsonObject& options = {});
   bool confirmRemoval(const QString& description);
   QString selectedAccount() const;
 
+protected:
+  void reject() override;
+
+private:
   QSpinBox* listRequestGapMs_ = nullptr;
   QSpinBox* listTimeoutSeconds_ = nullptr;
   QSpinBox* detailRequestGapMs_ = nullptr;
@@ -68,6 +83,20 @@ private:
   QLabel* imageStatus_ = nullptr;
   QPushButton* imagePause_ = nullptr;
   QPushButton* imageCancel_ = nullptr;
+  QLabel* softwareUpdateTitle_ = nullptr;
+  QLabel* softwareUpdateStatus_ = nullptr;
+  QTextBrowser* softwareUpdateNotes_ = nullptr;
+  QPushButton* softwareUpdateCheck_ = nullptr;
+  QPushButton* softwareUpdateInstall_ = nullptr;
+  QPushButton* softwareUpdateReleasePage_ = nullptr;
+  QProgressBar* softwareUpdateProgress_ = nullptr;
+  QDialogButtonBox* dialogButtons_ = nullptr;
+  QNetworkAccessManager* softwareUpdateNetwork_ = nullptr;
+  QNetworkReply* softwareUpdateReply_ = nullptr;
+  QProcess* softwareUpdateProcess_ = nullptr;
+  QString softwareUpdateTag_;
+  QString softwareUpdatePageUrl_;
+  bool softwareUpdateAvailable_ = false;
   bool imageBatchRunning_ = false;
   bool dataUpdateBusy_ = false;
 };

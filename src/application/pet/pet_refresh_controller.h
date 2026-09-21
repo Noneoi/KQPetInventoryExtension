@@ -155,6 +155,7 @@ private:
   void deferMoveVerification(quint64 requestGeneration,
                              const QString& status);
   void startMoveVerification(const QString& status);
+  bool scheduleMoveVerificationRetry(const QString& reason);
   void finishMoveVerification(bool listsSucceeded);
   void finishMove(bool succeeded, const QString& message);
   void finishMove(MoveOutcome outcome, const QString& message);
@@ -191,6 +192,8 @@ private:
   MoveOutcome moveOutcome_ = MoveOutcome::NotSent;
   MoveOutcome lastMoveOutcome_ = MoveOutcome::NotSent;
   quint64 movePreflightRevision_ = 0;
+  int movePreflightAttempts_ = 0;
+  int moveVerificationAttempts_ = 0;
   bool terminalNotificationGuard_ = false;
   Timings timings_;
   ControllerCacheStorage* timingsStorage_ = nullptr;

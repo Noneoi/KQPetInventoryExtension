@@ -47,9 +47,9 @@ int main(int argc, char** argv) {
        QStringLiteral("11-62-31-91"),QStringLiteral("11-62-31-91-41"),QStringLiteral("11-62-31-91-41-85"),
        QStringLiteral("11-62-31-91-94-41-42-86"),QStringLiteral("11-62-32-91-94-41-42-86-89"),
        QStringLiteral("11-91-31-62-41"),QStringLiteral("31"),QStringLiteral("33"),QStringLiteral("33$1"),
-       QStringLiteral("34"),QStringLiteral("39"),QStringLiteral("39$1"),QStringLiteral("41"),QStringLiteral("41-42"),
+       QStringLiteral("34"),QStringLiteral("39"),QStringLiteral("39$1"),QStringLiteral("39$3"),QStringLiteral("41"),QStringLiteral("41-42"),
        QStringLiteral("43"),QStringLiteral("44"),QStringLiteral("62"),QStringLiteral("84"),QStringLiteral("85"),
-       QStringLiteral("89"),QStringLiteral("91"),QStringLiteral("91-94"),QStringLiteral("92"),QStringLiteral("95")}) {
+       QStringLiteral("89"),QStringLiteral("89$1"),QStringLiteral("91"),QStringLiteral("91-94"),QStringLiteral("92"),QStringLiteral("95")}) {
     for (const auto& component : compileShopPetRule(expression).components)
       ok &= check(component.componentIndex >= 0,"a current official offer expression still has an unsupported component");
   }
@@ -58,7 +58,8 @@ int main(int argc, char** argv) {
       parsed.components[0].targetLevel == 5 && parsed.components[1].code == QStringLiteral("39$1"),
       "official parameter strings were stripped or target level was discarded");
   ok &= check(state(QStringLiteral("33"),p,m) == S::Usable && state(QStringLiteral("33$1"),p,m) == S::Usable &&
-      state(QStringLiteral("39"),p,m) == S::Usable && state(QStringLiteral("39$1"),p,m) == S::Usable,
+      state(QStringLiteral("39"),p,m) == S::Usable && state(QStringLiteral("39$1"),p,m) == S::Usable &&
+      state(QStringLiteral("39$3"),p,m) == S::Usable,
       "default/level-one red and changeable offers did not recognize real missing resources");
   p.insert(QStringLiteral("sgsp"),QJsonArray{11,80});
   ok &= check(state(QStringLiteral("39$1"),p,m) == S::NotUsable && state(QStringLiteral("33$1"),p,m) == S::NotUsable &&

@@ -80,6 +80,23 @@ QDate officialDate(const QString& text) {
       .addDays(text.mid(6, 2).toInt() - 1);
 }
 
+bool isDiamondCost(const QString& cost) {
+  return cost.startsWith(QStringLiteral("8:2:"));
+}
+
+bool hasDiamondEvidence(const QJsonObject& good) {
+  if (isDiamondCost(good.value(QStringLiteral("cost")).toString())) return true;
+  for (const auto& value : good.value(QStringLiteral("priceOptions")).toArray())
+    if (isDiamondCost(value.toObject().value(QStringLiteral("cost")).toString())) return true;
+  return false;
+}
+
+bool validNavigationLink(const QString& link) {
+  static const QRegularExpression expression(
+      QStringLiteral("^btnNewAct_[A-Za-z][A-Za-z0-9]{1,100}(?:_[A-Za-z0-9]{1,64}){1,8}$"));
+  return link.size() <= 256 && expression.match(link).hasMatch();
+}
+
 QJsonObject embeddedRoot() {
   QFile file(QStringLiteral(":/kqpet/shop-exchange-data.json"));
   if (!file.open(QIODevice::ReadOnly)) return {};
@@ -133,6 +150,15 @@ std::shared_ptr<const ShopCatalogSnapshot> ShopExchangeCatalog::prepare(const QJ
         !shopObject.value(QStringLiteral("goods")).isArray()) return invalid();
     shopIds.insert(shop.sourceKey + QLatin1Char(':') + QString::number(shop.shopId));
     shop.name = shopObject.value(QStringLiteral("name")).toString();
+    shop.navigationLink = shopObject.value(QStringLiteral("navigationLink")).toString();
+    shop.activityEvidence = shopObject.value(QStringLiteral("activityEvidence")).toString();
+    shop.activityEvidenceDate = shopObject.value(QStringLiteral("activityEvidenceDate")).toString();
+    if ((!shop.navigationLink.isEmpty() && !validNavigationLink(shop.navigationLink)) ||
+        shop.activityEvidence.size() > 64 || shop.activityEvidenceDate.size() > 16) return invalid();
+    // The six permanent SEF shops share the official activity panel.  Keeping
+    // this fallback in the typed catalog also supports older on-disk catalogs.
+    if (shop.sourceKey.isEmpty() && shop.navigationLink.isEmpty() && shop.shopId >= 1 && shop.shopId <= 6)
+      shop.navigationLink = QStringLiteral("btnNewAct_storeexchangeframework_showMainPanel_%1").arg(shop.shopId);
     if (!shop.sourceKey.isEmpty() && shopObject.contains(QStringLiteral("observation"))) {
       if (!shopObject.value(QStringLiteral("observation")).isObject()) return invalid();
       shop.observation = shopObject.value(QStringLiteral("observation")).toObject();
@@ -167,9 +193,22 @@ std::shared_ptr<const ShopCatalogSnapshot> ShopExchangeCatalog::prepare(const QJ
         if (goodObject.contains(QStringLiteral("observationWhen")) && !goodObject.value(QStringLiteral("observationWhen")).isObject()) return invalid();
         good.costDescription = goodObject.value(QStringLiteral("costDescription")).toString();
         good.activityCosts = goodObject.value(QStringLiteral("activityCosts")).toArray();
-        good.priceOptions = goodObject.value(QStringLiteral("priceOptions")).toArray();
+      good.priceOptions = goodObject.value(QStringLiteral("priceOptions")).toArray();
         good.quotaObservation = goodObject.value(QStringLiteral("quotaObservation")).toObject();
-        good.observationWhen = goodObject.value(QStringLiteral("observationWhen")).toObject();
+      good.observationWhen = goodObject.value(QStringLiteral("observationWhen")).toObject();
+      }
+      if (good.sourceKey.isEmpty()) {
+        good.section = ShopExchangeSection::Permanent;
+      } else {
+        const QString kind = goodObject.value(QStringLiteral("exchangeKind")).toString();
+        if (!kind.isEmpty() && kind != QStringLiteral("activity") && kind != QStringLiteral("diamond"))
+          return invalid();
+        const bool diamond = hasDiamondEvidence(goodObject);
+        // Old caches did not carry exchangeKind, so derive only from a concrete
+        // 8:2 price.  A declared diamond kind must have the same evidence.
+        if (kind == QStringLiteral("diamond") && !diamond) return invalid();
+        good.section = diamond ? ShopExchangeSection::DiamondActivity
+                               : ShopExchangeSection::ActivityShop;
       }
       if (!DomainNumeric::checkedCount(goodObject.value(QStringLiteral("itemServerId")),
                         &good.itemServerId) || (shop.sourceKey.isEmpty() && good.itemServerId <= 0) ||
@@ -383,6 +422,9 @@ QList<ShopExchangeShop> ShopExchangeCatalog::shops(const QDate& date) const {
     copy.siKey = shop.siKey;
     copy.sourceKey = shop.sourceKey;
     copy.observation = shop.observation;
+    copy.navigationLink = shop.navigationLink;
+    copy.activityEvidence = shop.activityEvidence;
+    copy.activityEvidenceDate = shop.activityEvidenceDate;
     for (const ShopExchangeGood& good : shop.goods)
       if (good.isOnlineOn(date)) copy.goods.append(good);
     result.append(copy);

@@ -334,6 +334,28 @@ QWidget* ExtensionContext::createPage(WorkbenchPage page, QWidget* parent) {
     // The shop button only needs the exchange catalog, not every public data part.
     connect(widget, &ShopWindow::catalogRefreshRequested, runtime_,
             [this] { runtime_->requestDataUpdate({QStringLiteral("shop")}); });
+    connect(widget, &ShopWindow::openShopRequested, this, [this, widget](const QString& link) {
+      const SubmissionOutcome outcome = bridge_->openGameNavigation(link);
+      if (outcome == SubmissionOutcome::Submitted) {
+        widget->setStatus(QStringLiteral("正在调用游戏官方商店入口……"));
+      }
+      else if (outcome == SubmissionOutcome::Unknown)
+        widget->setStatus(QStringLiteral("游戏已接收跳转请求，但结果未确认"), bridge_->lastError());
+      else
+        widget->setStatus(QStringLiteral("无法打开游戏商店"), bridge_->lastError());
+    });
+    connect(bridge_, &OriginalBridge::gameNavigationFinished, widget,
+            [this, widget](bool opened, const QString& message) {
+      if (!opened) {
+        widget->setStatus(QStringLiteral("游戏商店没有打开"), message);
+        return;
+      }
+      widget->setStatus(QStringLiteral("已打开游戏商店；工作台仍在后台运行"));
+      if (originalWindow_) {
+        originalWindow_->raise();
+        originalWindow_->activateWindow();
+      }
+    });
     connect(widget, &ShopWindow::detailRequested, this, [this](qint64 id) { postCurrent([id](const CoreServices& c) { c.repo->requestCachedDetail(id); c.refresh->requestSingleDetail(id); }); });
     connect(widget, &ShopWindow::moveToBackpackRequested, this, [this](qint64 id) { requestMove(id, true); });
     refreshPageStates(); return widget;

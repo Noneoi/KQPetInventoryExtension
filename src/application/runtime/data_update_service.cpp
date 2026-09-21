@@ -122,13 +122,16 @@ private:
     const QStringList names{QStringLiteral("public_data_updater.py"), QStringLiteral("bootstrap-public-data.ps1"),
         QStringLiteral("public_names_updater.py"),QStringLiteral("public_icon_updater.py"),QStringLiteral("public_routine_updater.py"),
         QStringLiteral("public_activity_exchange_updater.py"),QStringLiteral("activity_evolution_selector.py"),
-        QStringLiteral("generate_pet_detail_data.py"), QStringLiteral("generate_shop_exchange_data.py"), QStringLiteral("generate_stargod_icons.py")};
+        QStringLiteral("generate_pet_detail_data.py"), QStringLiteral("generate_pet_skill_data.py"),
+        QStringLiteral("public_skill_updater.py"), QStringLiteral("generate_shop_exchange_data.py"),
+        QStringLiteral("generate_stargod_icons.py")};
     for (const QString& name : names) {
       if (!copyResource(QStringLiteral(":/kqpet/data-updater/") + name, QDir(scripts).filePath(name))) {
         finish(false, {}, QStringLiteral("无法准备内置更新工具：") + name); return;
       }
     }
-    for (const QString& name : {QStringLiteral("pet-detail-data.json"), QStringLiteral("shop-exchange-data.json"),QStringLiteral("activity-exchange-data.json")}) {
+    for (const QString& name : {QStringLiteral("pet-detail-data.json"), QStringLiteral("pet-skill-data.json"),
+         QStringLiteral("shop-exchange-data.json"),QStringLiteral("activity-exchange-data.json")}) {
       if (!copyResource(QStringLiteral(":/kqpet/") + name, QDir(scripts).filePath(QStringLiteral("baseline/") + name))) {
         finish(false, {}, QStringLiteral("无法准备内置公共数据")); return;
       }
@@ -183,6 +186,7 @@ private:
       const QString component = object.value(QStringLiteral("component")).toString();
       if ((status == QStringLiteral("updated") || status == QStringLiteral("unchanged")) && !components_.contains(component)) components_.append(component);
       static const QHash<QString,QString> labels{{QStringLiteral("pets"),QStringLiteral("精灵与养成资料")},
+          {QStringLiteral("skills"),QStringLiteral("精灵技能资料")},
           {QStringLiteral("shop"),QStringLiteral("指定精灵兑换")},{QStringLiteral("images"),QStringLiteral("精灵图片")},
           {QStringLiteral("icons"),QStringLiteral("星神与属性图标")},{QStringLiteral("routines"),QStringLiteral("日常与活动")}};
       const QString error = object.value(QStringLiteral("error")).toString();
@@ -250,7 +254,7 @@ DataUpdateService::DataUpdateService(StorageService* storage, QObject* parent)
 DataUpdateService::~DataUpdateService() { close(); }
 bool DataUpdateService::busy() const { return impl_->busy; }
 QStringList DataUpdateService::componentNames() {
-  return {QStringLiteral("pets"), QStringLiteral("shop"), QStringLiteral("images"),
+  return {QStringLiteral("pets"), QStringLiteral("skills"), QStringLiteral("shop"), QStringLiteral("images"),
           QStringLiteral("icons"), QStringLiteral("routines")};
 }
 bool DataUpdateService::requestUpdate(const QStringList& components) {

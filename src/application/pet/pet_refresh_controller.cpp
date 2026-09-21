@@ -383,6 +383,8 @@ void PetRefreshController::resetForAccount(const QString& account,
   moveDetailPersistenceInstanceId_ = 0;
   moveIntentTaskId_ = 0;
   moveOutcome_ = MoveOutcome::NotSent;
+  movePreflightAttempts_ = 0;
+  moveVerificationAttempts_ = 0;
   account_ = account;
   sessionGeneration_ = sessionGeneration;
   pendingList_ = PendingList::None;

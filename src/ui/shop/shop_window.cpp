@@ -73,6 +73,24 @@ QTableWidgetItem* textItem(const QString& text, bool emphasize = false) {
   return item;
 }
 
+void styleAvailableExchangeRow(QTableWidget* table, int row, bool available) {
+  if (!table || row < 0 || row >= table->rowCount() || !available) return;
+  const QBrush background(QColor(QStringLiteral("#e8f2ff")));
+  for (int column = 0; column < table->columnCount(); ++column) {
+    QTableWidgetItem* item = table->item(row, column);
+    if (item) item->setBackground(background);
+  }
+  // Colour the project itself, rather than making only the remaining-count
+  // number blue.  The light row background keeps the other account values
+  // readable and still lets Qt's normal selection colour take precedence.
+  if (QTableWidgetItem* title = table->item(row, 0)) {
+    QFont font = title->font();
+    font.setBold(true);
+    title->setFont(font);
+    title->setForeground(QBrush(QColor(QStringLiteral("#2563eb"))));
+  }
+}
+
 // The backpack adds its grid position; everything else is the shared rule.
 QString locationText(const QJsonObject& pet) {
   if (pet.value(QStringLiteral("_location")).toString() == QStringLiteral("backpack")) {
@@ -123,6 +141,26 @@ QString resourceName(const ResourceRequirement& requirement, const PetMetadataVi
       ? metadata.materialName(type,id) : requirement.resourceKey;
 }
 
+bool sectionMatches(int filter, ShopExchangeSection section) {
+  if (filter == 0) return true;
+  if (filter == 1) return section == ShopExchangeSection::Permanent;
+  if (filter == 2) return section == ShopExchangeSection::ActivityShop;
+  if (filter == 3) return section == ShopExchangeSection::DiamondActivity;
+  return true;
+}
+
+QString evidenceText(const ShopExchangeShop& shop) {
+  if (shop.sourceKey.isEmpty()) return QStringLiteral("常驻商店");
+  QString label;
+  if (shop.activityEvidence == QStringLiteral("hud")) label = QStringLiteral("当前活动入口");
+  else if (shop.activityEvidence == QStringLiteral("emergency")) label = QStringLiteral("官方临时活动入口");
+  else if (shop.activityEvidence == QStringLiteral("recent-release")) label = QStringLiteral("近期发布活动");
+  else if (shop.activityEvidence == QStringLiteral("referenced")) label = QStringLiteral("由当前/近期活动关联发现");
+  else label = QStringLiteral("官方活动配置");
+  if (!shop.activityEvidenceDate.isEmpty()) label += QStringLiteral(" · %1").arg(shop.activityEvidenceDate);
+  return label;
+}
+
 }  // namespace
 
 ShopWindow::ShopWindow(InventoryReadView* repository, QWidget* parent, PetImageCache* sharedImages)
@@ -138,9 +176,13 @@ ShopWindow::ShopWindow(InventoryReadView* repository, QWidget* parent, PetImageC
   refresh_ = new QPushButton(QStringLiteral("刷新兑换次数"), this);
   refreshCatalog_ = new QPushButton(QStringLiteral("更新兑换项目/适用精灵"), this);
   refreshCatalog_->setToolTip(QStringLiteral("只检查兑换商店数据；其他数据请在设置里更新"));
+  openShop_ = new QPushButton(QStringLiteral("直达游戏商店"), this);
+  openShop_->setObjectName(QStringLiteral("KQOpenGameShop"));
+  openShop_->setEnabled(false);
   sourceFilter_ = new QComboBox(this);
   sourceFilter_->setObjectName(QStringLiteral("KQShopSourceFilter"));
-  sourceFilter_->addItems({QStringLiteral("全部兑换"),QStringLiteral("常驻兑换"),QStringLiteral("活动兑换")});
+  sourceFilter_->addItems({QStringLiteral("全部兑换"),QStringLiteral("常驻商店"),
+                           QStringLiteral("活动商店"),QStringLiteral("钻石兑换活动")});
   UiPreferences::bindComboBox(sourceFilter_, QStringLiteral("shop/sourceFilter"));
   connect(sourceFilter_,&QComboBox::currentIndexChanged,this,[this](int) {
     auto catalog = catalogSnapshot_; const auto date = catalogDate_;
@@ -151,8 +193,9 @@ ShopWindow::ShopWindow(InventoryReadView* repository, QWidget* parent, PetImageC
   toolbarLayout_->addWidget(refresh_, 0, 0);
   toolbarLayout_->addWidget(refreshCatalog_, 0, 1);
   toolbarLayout_->addWidget(sourceFilter_, 0, 2);
-  toolbarLayout_->addWidget(status_, 0, 3);
-  toolbarLayout_->setColumnStretch(3, 1);
+  toolbarLayout_->addWidget(openShop_, 0, 3);
+  toolbarLayout_->addWidget(status_, 0, 4);
+  toolbarLayout_->setColumnStretch(4, 1);
   root->addLayout(toolbarLayout_);
   detailToggle_ = new QPushButton(QStringLiteral("查看精灵详情"), this);
   detailToggle_->setObjectName(QStringLiteral("KQShopCompactDetailToggle"));
@@ -278,6 +321,11 @@ ShopWindow::ShopWindow(InventoryReadView* repository, QWidget* parent, PetImageC
   connect(refresh_, &QPushButton::clicked, this, &ShopWindow::refreshRequested);
   connect(refreshCatalog_, &QPushButton::clicked, this,
           &ShopWindow::catalogRefreshRequested);
+  connect(openShop_, &QPushButton::clicked, this, [this] {
+    const int index = shopTabs_ ? shopTabs_->currentIndex() : -1;
+    if (index >= 0 && index < visibleShops_.size() && !visibleShops_.at(index).navigationLink.isEmpty())
+      emit openShopRequested(visibleShops_.at(index).navigationLink);
+  });
   connect(petTable_, &QTableWidget::cellClicked, this, [this](int row, int) {
     if (petRowsPreparing_) return;
     QTableWidgetItem* item = petTable_->item(row, 0);
@@ -289,6 +337,7 @@ ShopWindow::ShopWindow(InventoryReadView* repository, QWidget* parent, PetImageC
           &ShopWindow::moveCurrentToBackpack);
   connect(shopTabs_, &QTabWidget::currentChanged, this, [this]() {
     updateCurrencySummary();
+    updateOpenShopButton();
     currentEligibility_.clear();
     currentGood_ = {};
     currentGoodKey_.clear();
@@ -378,12 +427,14 @@ void ShopWindow::setWorkbenchMode(bool embedded, bool compact) {
   while (QLayoutItem* item = toolbarLayout_->takeAt(0)) delete item;
   toolbarLayout_->setColumnStretch(2, 0);
   toolbarLayout_->setColumnStretch(3, 0);
+  toolbarLayout_->setColumnStretch(4, 0);
   toolbarLayout_->addWidget(refresh_, 0, 0);
   toolbarLayout_->addWidget(refreshCatalog_, 0, 1);
   toolbarLayout_->addWidget(sourceFilter_, 0, 2);
-  toolbarLayout_->addWidget(status_, workbenchCompact_ ? 1 : 0, workbenchCompact_ ? 0 : 3,
-                             1, workbenchCompact_ ? 3 : 1);
-  toolbarLayout_->setColumnStretch(workbenchCompact_ ? 1 : 3, 1);
+  toolbarLayout_->addWidget(openShop_, 0, 3);
+  toolbarLayout_->addWidget(status_, workbenchCompact_ ? 1 : 0, workbenchCompact_ ? 0 : 4,
+                             1, workbenchCompact_ ? 4 : 1);
+  toolbarLayout_->setColumnStretch(workbenchCompact_ ? 1 : 4, 1);
   status_->setWordWrap(embedded);
   status_->setSizePolicy(QSizePolicy::Ignored, QSizePolicy::Preferred);
   for (QTableWidget* table : findChildren<QTableWidget*>()) {
@@ -428,7 +479,8 @@ void ShopWindow::setReadOnlyObservations(const QJsonObject& packets) {
   readOnlyMaterialTypes_.clear();
   for (auto packet = packets.begin(); packet != packets.end(); ++packet) {
     const QJsonObject object = packet.value().toObject();
-    if (packet.key() == QStringLiteral("3_11")) {
+    if (packet.key() == QStringLiteral("3_11") ||
+        packet.key() == QStringLiteral("1015_2A")) {
       for (auto group = object.begin(); group != object.end(); ++group) {
         if (!group.value().isObject()) continue;
         readOnlyMaterialTypes_.insert(group.key());
@@ -458,15 +510,17 @@ void ShopWindow::setCatalogSnapshot(std::shared_ptr<const ShopCatalogSnapshot> c
   if (catalogSnapshot_ && catalogDate_.isValid()) {
     visibleShops_.reserve(catalogSnapshot_->allShops.size());
     for (const auto& source : catalogSnapshot_->allShops) {
-      if ((sourceFilter_->currentIndex() == 1 && !source.sourceKey.isEmpty()) ||
-          (sourceFilter_->currentIndex() == 2 && source.sourceKey.isEmpty())) continue;
       ShopExchangeShop shop;
       shop.shopId = source.shopId; shop.name = source.name; shop.siKey = source.siKey; shop.sourceKey = source.sourceKey;
       shop.observation = source.observation;
-      for (const auto& good : source.goods) if (good.isOnlineOn(catalogDate_)) {
+      shop.navigationLink = source.navigationLink;
+      shop.activityEvidence = source.activityEvidence;
+      shop.activityEvidenceDate = source.activityEvidenceDate;
+      for (const auto& good : source.goods)
+        if (good.isOnlineOn(catalogDate_) && sectionMatches(sourceFilter_->currentIndex(), good.section)) {
         shop.goods.append(good); goods.append(good);
       }
-      visibleShops_.append(std::move(shop));
+      if (!shop.goods.isEmpty()) visibleShops_.append(std::move(shop));
     }
   }
   compiledCatalog_ = CompiledShopCatalog::compile(goods);
@@ -503,8 +557,7 @@ void ShopWindow::setRefreshRunning(bool running) {
 
 void ShopWindow::focusGood(const QString& stableKey) {
   if (stableKey.isEmpty()) return;
-  const bool activity = stableKey.startsWith(QStringLiteral("activity:"));
-  if ((sourceFilter_->currentIndex() == 1 && activity) || (sourceFilter_->currentIndex() == 2 && !activity)) {
+  if (sourceFilter_->currentIndex() != 0 && !goodLocations_.contains(stableKey)) {
     pendingFocusGoodKey_ = stableKey; sourceFilter_->setCurrentIndex(0); return;
   }
   const auto location = goodLocations_.constFind(stableKey);
@@ -550,8 +603,8 @@ QString ShopWindow::costText(const ShopExchangeGood& good) const {
   }
   const auto* compiled = compiledGood(good);
   if (!compiled || compiled->costCondition.effectiveState() != ShopConditionState::Satisfied)
-    return good.cost.isEmpty() ? QStringLiteral("成本待确认（目录未明确免费）")
-        : QStringLiteral("成本待确认：%1").arg(good.cost);
+    return good.cost.isEmpty() ? QStringLiteral("价格未收录（目录未明确免费）")
+        : QStringLiteral("价格格式无法读取：%1").arg(good.cost);
   if (compiled->requirements.isEmpty()) return QStringLiteral("无需资源（目录已确认）");
   QStringList costs;
   for (const auto& requirement : compiled->requirements)
@@ -589,17 +642,18 @@ ShopWindow::ResourceStatus ShopWindow::resourceStatus(const ShopExchangeGood& go
   } else {
     const auto* compiled = compiledGood(good);
     if (!compiled || compiled->costCondition.effectiveState() != ShopConditionState::Satisfied)
-      return {QStringLiteral("成本待确认"), QStringLiteral("兑换目录没有给出可以解析的价格。"), {}};
+      return {QStringLiteral("价格未收录"), QStringLiteral("兑换目录没有给出可以解析的价格。"), {}};
     if (compiled->requirements.isEmpty())
       return {QStringLiteral("无需资源"), pending, QStringLiteral("#087a43")};
     addStandard(compiled->requirements);
   }
 
-  QStringList lines, shortages;
+  QStringList lines, shortages, balancesText;
   bool unknown = false, unconfirmed = false;
   for (const auto& balance : balances) {
     if (balance.owned < 0) {
       unknown = true;
+      balancesText.append(QStringLiteral("%1 未读取").arg(balance.name));
       lines.append(QStringLiteral("%1：需要 %2，拥有 未读取").arg(balance.name).arg(balance.required));
       continue;
     }
@@ -608,18 +662,21 @@ ShopWindow::ResourceStatus ShopWindow::resourceStatus(const ShopExchangeGood& go
     lines.append(missing > 0
         ? QStringLiteral("%1：需要 %2，拥有 %3，还差 %4").arg(balance.name).arg(balance.required).arg(balance.owned).arg(missing)
         : QStringLiteral("%1：需要 %2，拥有 %3").arg(balance.name).arg(balance.required).arg(balance.owned));
+    balancesText.append(QStringLiteral("%1 有 %2").arg(balance.name).arg(balance.owned));
     if (missing > 0) shortages.append(QStringLiteral("%1 %2").arg(balance.name).arg(missing));
   }
   if (unconfirmed) lines.append(QStringLiteral("部分余额是上次读取的数值，可能已变化。"));
   if (unknown) lines.append(QStringLiteral("点击“刷新兑换次数”可读取余额。"));
   lines.append(pending);
   const QString tip = lines.join(QLatin1Char('\n'));
-  const QString suffix = unconfirmed ? QStringLiteral("（待确认）") : QString{};
   if (!shortages.isEmpty())
-    return {QStringLiteral("还差 %1%2").arg(shortages.join(QStringLiteral("、")), suffix), tip, QStringLiteral("#b54708")};
-  if (unknown) return {QStringLiteral("余额未读取"), tip, {}};
-  // Only confirmed balances earn the green "enough" colour.
-  return {QStringLiteral("足够%1").arg(suffix), tip, unconfirmed ? QString{} : QStringLiteral("#087a43")};
+    return {QStringLiteral("%1；还差 %2").arg(balancesText.join(QStringLiteral(" / ")),
+              shortages.join(QStringLiteral("、"))), tip, QStringLiteral("#b54708")};
+  if (unknown) return {balancesText.join(QStringLiteral(" / ")), tip, {}};
+  // Keep freshness detail in the tooltip without cluttering a known value
+  // with a misleading "pending confirmation" suffix.
+  return {QStringLiteral("%1；足够").arg(balancesText.join(QStringLiteral(" / "))),
+          tip, unconfirmed ? QString{} : QStringLiteral("#087a43")};
 }
 
 void ShopWindow::applyGoodSearch(bool selectMatchingTab) {
@@ -665,7 +722,7 @@ void ShopWindow::rebuildActivityGoods(const QJsonObject& packet) {
         for (const auto& requirement : price.requirements)
           costs.append(QStringLiteral("%1 ×%2").arg(resourceName(requirement,materialMetadata_)).arg(requirement.required));
         if (price.requirements.isEmpty()) costs.append(QStringLiteral("无需资源（目录已确认）"));
-      } else costs.append(QStringLiteral("成本待确认：%1").arg(value.observation.standardCost));
+      } else costs.append(QStringLiteral("价格格式无法读取：%1").arg(value.observation.standardCost));
       if (!good.priceOptions.isEmpty() && !value.observation.priceCurrent) costs.prepend(QStringLiteral("上次读取的档位"));
     } else if (!good.priceOptions.isEmpty()) {
       costs.append(good.costDescription.isEmpty() ? QStringLiteral("当前价格档位未读取") : good.costDescription);
@@ -713,7 +770,7 @@ QString ShopWindow::shopCurrencyText(const ShopExchangeShop& shop) const {
         if (seen.contains(key)) continue;
         seen.insert(key);
         currencies.append(QStringLiteral("%1 %2").arg(cost.name,cost.ownedKnown
-            ? QString::number(cost.owned) + (cost.current ? QString{} : QStringLiteral("（待确认）")) : QStringLiteral("未读取")));
+            ? QString::number(cost.owned) : QStringLiteral("未读取")));
       }
       continue;
     }
@@ -724,7 +781,7 @@ QString ShopWindow::shopCurrencyText(const ShopExchangeShop& shop) const {
     confirmedFree |= compiled->requirements.isEmpty();
     addStandard(compiled->requirements);
   }
-  if (unknownCosts) currencies.append(QStringLiteral("部分项目成本待确认"));
+  if (unknownCosts) currencies.append(QStringLiteral("部分项目价格需在活动内查看"));
   if (currencies.isEmpty() && confirmedFree) return QStringLiteral("无需资源（目录已确认）");
   return currencies.join(QStringLiteral(" / "));
 }
@@ -760,17 +817,17 @@ void ShopWindow::rebuild() {
   for (const ShopExchangeShop& shop : shops) {
     auto* table = makeTable(shopTabs_,
                             {QStringLiteral("兑换项目"), QStringLiteral("所需资源"),
-                             QStringLiteral("限次"), QStringLiteral("剩余"),
-                             QStringLiteral("对应个体"), QStringLiteral("资源情况")});
+                             QStringLiteral("次数规则"), QStringLiteral("已用 / 剩余"),
+                             QStringLiteral("对应个体"), QStringLiteral("拥有 / 缺口")});
     table->setObjectName(shop.sourceKey.isEmpty() ? QStringLiteral("KQShopGoodsTable-%1").arg(shop.shopId)
         : QStringLiteral("KQActivityGoodsTable-%1-%2").arg(shop.sourceKey).arg(shop.shopId));
     table->horizontalHeader()->setSectionResizeMode(QHeaderView::Interactive);
     table->horizontalHeader()->setSectionResizeMode(0, QHeaderView::Stretch);
     table->setColumnWidth(1, 220);
     table->setColumnWidth(2, 110);
-    table->setColumnWidth(3, 90);
+    table->setColumnWidth(3, 150);
     table->setColumnWidth(4, 90);
-    table->setColumnWidth(5, 170);
+    table->setColumnWidth(5, 240);
     QList<GoodRow> rows;
     table->setRowCount(shop.goods.size());
     int row = 0;
@@ -783,15 +840,19 @@ void ShopWindow::rebuild() {
       const bool current = !readOnly && period.state == ShopConditionState::Satisfied && period.freshness == ShopConditionFreshness::Current;
       table->setItem(row, 2, textItem(good.provenUnlimited ? QStringLiteral("不限次")
           : good.limitCount > 0 ? QStringLiteral("%1限 %2 次").arg(good.limitLabel).arg(good.limitCount) : QStringLiteral("未标注")));
+      const int used = remaining >= 0 && good.limitCount >= remaining ? good.limitCount - remaining : -1;
       QTableWidgetItem* quota = good.provenUnlimited ? textItem(QStringLiteral("不限次"))
-          : remaining < 0 ? textItem(QStringLiteral("未查询"))
-          : textItem(QStringLiteral("%1 / %2").arg(remaining).arg(good.limitCount) +
-                     (current ? QString{} : QStringLiteral("（待确认）")), current && remaining > 0);
+          : remaining < 0 || used < 0 ? textItem(QStringLiteral("未查询"))
+          : textItem(QStringLiteral("已用 %1｜剩 %2").arg(used).arg(remaining));
       if (!good.provenUnlimited && !current) {
         quota->setForeground(QBrush(QColor(QStringLiteral("#718096"))));
         quota->setToolTip(period.reason.isEmpty() ? QStringLiteral("次数周期未确认，数值是上次读取的结果，可能已变化") : period.reason);
       }
       table->setItem(row, 3, quota);
+      // The blue row answers only "is there a displayed exchange left?".
+      // Period freshness remains visible through the grey quota text/tooltip,
+      // but must not suppress the user's requested whole-row marker.
+      bool hasRemainingQuota = !good.provenUnlimited && remaining > 0;
       if (!good.sourceKey.isEmpty()) {
         const QString quotaRequest = good.quotaObservation.value(QStringLiteral("requestKey")).toString();
         const bool hasQuotaRequest = !quotaRequest.isEmpty() && good.activityQueries.value(quotaRequest).isObject();
@@ -799,15 +860,17 @@ void ShopWindow::rebuild() {
         const auto observation = cached == activityGoods_.cend() ? ActivityShopObservation{} : cached->observation;
         if (observation.applicabilityKnown && !observation.applicable) quota->setText(QStringLiteral("不适用当前活动等级"));
         else if (good.provenUnlimited) quota->setText(QStringLiteral("不限次"));
-        else if (observation.quotaKnown) quota->setText(QStringLiteral("%1 / %2").arg(observation.remaining).arg(good.limitCount) +
-            (observation.historical ? QStringLiteral("（上次）") :
-             cached != activityGoods_.cend() && cached->quotaVerified ? QString{} : QStringLiteral("（待确认）")));
+        else if (observation.quotaKnown) quota->setText(QStringLiteral("已用 %1｜剩 %2").arg(observation.used).arg(observation.remaining) +
+            (observation.historical ? QStringLiteral("（上次）") : QString{}));
         else quota->setText(!hasQuotaRequest ? QStringLiteral("需在活动中查看") : QStringLiteral("未查询"));
+        hasRemainingQuota = !good.provenUnlimited && observation.quotaKnown &&
+            (!observation.applicabilityKnown || observation.applicable) && observation.remaining > 0;
         quota->setToolTip(observation.observedAt.isValid()
             ? QStringLiteral("对应活动的独立次数，数据时间：%1").arg(observation.observedAt.toLocalTime().toString(QStringLiteral("yyyy-MM-dd HH:mm:ss")))
             : !hasQuotaRequest ? QStringLiteral("官方项目保留限次总额；对应活动没有可自动读取的次数入口") : QStringLiteral("对应活动的兑换次数尚未读取"));
         auto* title = table->item(row,0);
-        title->setToolTip(good.shopName + (good.shelfDate.isValid() ? QString{} : QStringLiteral("\n活动配置未标注起始日期")));
+        title->setToolTip(good.shopName + QStringLiteral("\n识别依据：") + evidenceText(shop) +
+            (good.shelfDate.isValid() ? QString{} : QStringLiteral("\n活动配置未标注起始日期；是否仍开放以游戏内入口为准")));
       }
       table->setItem(row, 4, textItem(QString::number(eligiblePetCount(good))));
       const ResourceStatus balance = resourceStatus(good);
@@ -815,6 +878,7 @@ void ShopWindow::rebuild() {
       balanceItem->setToolTip(balance.tip);
       if (!balance.color.isEmpty()) balanceItem->setForeground(QBrush(QColor(balance.color)));
       table->setItem(row, 5, balanceItem);
+      styleAvailableExchangeRow(table, row, hasRemainingQuota);
       const QString stableKey = good.stableKey();
       goodLocations_.insert(stableKey,{int(shopRows_.size()),row});
       rows.append({good, row, stableKey});
@@ -831,15 +895,16 @@ void ShopWindow::rebuild() {
     const QString currency = shopCurrencyText(shop);
     table->setProperty("currencyText",currency);
     const int tabIndex = shopTabs_->addTab(table, shop.name);
-    shopTabs_->setTabToolTip(tabIndex,
-                             currency.isEmpty() ? shop.name
-                                                : QStringLiteral("%1｜账号拥有：%2")
-                                                      .arg(shop.name, currency));
+    const QString evidence = evidenceText(shop);
+    shopTabs_->setTabToolTip(tabIndex, currency.isEmpty()
+        ? QStringLiteral("%1｜%2").arg(shop.name, evidence)
+        : QStringLiteral("%1｜%2｜账号拥有：%3").arg(shop.name, evidence, currency));
     shopRows_.append(rows);
   }
   if (current >= 0 && current < shopTabs_->count()) shopTabs_->setCurrentIndex(current);
   applyGoodSearch(false);
   updateCurrencySummary();
+  updateOpenShopButton();
 
   bool restoredGood = false;
   const auto restoredLocation = goodLocations_.constFind(selectedGoodKey);
@@ -924,10 +989,26 @@ void ShopWindow::updateCurrencySummary() {
   }
   const auto cached = shopTabs_->widget(index)->property("currencyText");
   const QString currency = cached.isValid() ? cached.toString() : shopCurrencyText(shops.at(index));
+  const QString evidence = evidenceText(shops.at(index));
   currencySummary_->setText(
       currency.isEmpty()
-          ? QStringLiteral("%1 · 暂无资源信息").arg(shops.at(index).name)
-          : QStringLiteral("%1 · 账号拥有：%2").arg(shops.at(index).name, currency));
+          ? QStringLiteral("%1 · %2 · 暂无资源信息").arg(shops.at(index).name, evidence)
+          : QStringLiteral("%1 · %2 · 账号拥有：%3").arg(shops.at(index).name, evidence, currency));
+}
+
+void ShopWindow::updateOpenShopButton() {
+  if (!openShop_ || !shopTabs_) return;
+  const int index = shopTabs_->currentIndex();
+  const bool available = index >= 0 && index < visibleShops_.size() &&
+      !visibleShops_.at(index).navigationLink.isEmpty();
+  openShop_->setEnabled(available);
+  if (!available) {
+    openShop_->setToolTip(QStringLiteral("当前目录没有经过验证的游戏内入口"));
+    return;
+  }
+  const auto& shop = visibleShops_.at(index);
+  openShop_->setToolTip(QStringLiteral("通过游戏自己的活动按钮入口打开“%1”\n%2")
+                            .arg(shop.name, evidenceText(shop)));
 }
 
 void ShopWindow::ensureImageCache() {

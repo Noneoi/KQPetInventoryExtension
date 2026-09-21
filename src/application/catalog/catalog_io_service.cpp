@@ -1,5 +1,6 @@
 #include "catalog_io_service.h"
 #include "pet_detail_catalog.h"
+#include "pet_skill_catalog.h"
 #include "routine_overview_catalog.h"
 #include "shop_exchange_catalog.h"
 #include "protocol/protocol_transport.h"
@@ -46,6 +47,7 @@ struct Candidate {
   std::shared_ptr<const ShopCatalogSnapshot> shop;
   std::shared_ptr<const RoutineCatalogSnapshot> routine;
   std::shared_ptr<const PetDetailCatalogSnapshot> detail;
+  std::shared_ptr<const PetSkillCatalogSnapshot> skill;
   quint64 scanned = 0;
   qint64 maximumSliceUs = 0;
 };
@@ -65,6 +67,7 @@ namespace {
 QString relativePath(CatalogKind kind) {
   if (kind == CatalogKind::Shop) return QStringLiteral("catalog/shop-exchange-data.json");
   if (kind == CatalogKind::Routine) return QStringLiteral("catalog/routine-overview.json");
+  if (kind == CatalogKind::PetSkill) return QStringLiteral("catalog/pet-skill-data.json");
   return QStringLiteral("catalog/pet-detail-data.json");
 }
 bool reparse(const QString& path) {
@@ -85,18 +88,20 @@ bool safeInput(const QString& path) {
     current = parent;
   }
 }
-bool boundedObject(const QJsonValue& value, int* nodes, qint64* stringUnits, int depth = 0) {
-  if (depth > 64 || ++*nodes > 200000) return false;
+bool boundedObject(const QJsonValue& value, int* nodes, qint64* stringUnits, int depth = 0,
+                   int maximumNodes = 200000, qint64 maximumStringUnits = 4 * 1024 * 1024) {
+  if (depth > 64 || ++*nodes > maximumNodes) return false;
   if (value.isString()) *stringUnits += value.toString().size();
-  if (*stringUnits > 4 * 1024 * 1024) return false;
+  if (*stringUnits > maximumStringUnits) return false;
   if (value.isArray()) {
     const auto array = value.toArray();
-    for (const auto& item : array) if (!boundedObject(item, nodes, stringUnits, depth + 1)) return false;
+    for (const auto& item : array)
+      if (!boundedObject(item, nodes, stringUnits, depth + 1, maximumNodes, maximumStringUnits)) return false;
   } else if (value.isObject()) {
     const auto object = value.toObject();
     for (auto item = object.begin(); item != object.end(); ++item) {
       *stringUnits += item.key().size();
-      if (!boundedObject(item.value(), nodes, stringUnits, depth + 1)) return false;
+      if (!boundedObject(item.value(), nodes, stringUnits, depth + 1, maximumNodes, maximumStringUnits)) return false;
     }
   }
   return true;
@@ -165,10 +170,13 @@ public:
   IoJob(std::shared_ptr<State> state, Request request, CatalogIoOptions options,
         QString dataRoot, QJsonObject protocol,
         std::shared_ptr<const PetDetailCatalogSnapshot> embedded,
-        std::shared_ptr<const PetDetailCatalogSnapshot> currentDetail, QObject* parent)
+        std::shared_ptr<const PetDetailCatalogSnapshot> currentDetail,
+        std::shared_ptr<const PetSkillCatalogSnapshot> embeddedSkill,
+        std::shared_ptr<const PetSkillCatalogSnapshot> currentSkill, QObject* parent)
       : QObject(parent), state_(std::move(state)), request_(std::move(request)),
         options_(std::move(options)), dataRoot_(std::move(dataRoot)), protocol_(std::move(protocol)),
-        embedded_(std::move(embedded)), currentDetail_(std::move(currentDetail)), timer_(this) {
+        embedded_(std::move(embedded)), currentDetail_(std::move(currentDetail)),
+        embeddedSkill_(std::move(embeddedSkill)), currentSkill_(std::move(currentSkill)), timer_(this) {
     timer_.setSingleShot(true);
     connect(&timer_, &QTimer::timeout, this, [this] { step(); });
     elapsed_.start();
@@ -184,6 +192,9 @@ public:
   }
 private:
   bool cancelled() const { return state_->closing.load() || request_.cancelled->load(); }
+  qint64 sourceLimit() const {
+    return request_.kind == CatalogKind::PetSkill ? 32 * 1024 * 1024 : options_.maximumSourceBytes;
+  }
   void finish(StorageStatus status, const QString& error = {}, std::shared_ptr<Candidate> candidate = {}) {
     if (!candidate) candidate = std::make_shared<Candidate>();
     candidate->request = request_;
@@ -257,7 +268,7 @@ private:
       if (!safeInput(path)) { finish(StorageStatus::PathRejected, QStringLiteral("目录文件路径包含链接或越界形式")); return false; }
       if (!QFileInfo::exists(path)) { finish(StorageStatus::NotFound, QStringLiteral("尚无本地目录覆盖文件")); return false; }
       file_ = std::make_unique<QFile>(path);
-      if (!file_->open(QIODevice::ReadOnly) || file_->size() > options_.maximumSourceBytes) {
+      if (!file_->open(QIODevice::ReadOnly) || file_->size() > sourceLimit()) {
         finish(StorageStatus::ReadFailed, QStringLiteral("目录文件不可读或超过大小限制")); return false;
       }
       openedSize_ = file_->size();
@@ -265,9 +276,9 @@ private:
       updatedAt_ = std::max(updatedAt_, openedModified_);
       bytes_.clear();
     }
-    const QByteArray part = file_->read(std::min<qint64>(64 * 1024, options_.maximumSourceBytes + 1 - bytes_.size()));
+    const QByteArray part = file_->read(std::min<qint64>(64 * 1024, sourceLimit() + 1 - bytes_.size()));
     bytes_.append(part);
-    if (file_->error() != QFileDevice::NoError || bytes_.size() > options_.maximumSourceBytes ||
+    if (file_->error() != QFileDevice::NoError || bytes_.size() > sourceLimit() ||
         (part.isEmpty() && !file_->atEnd())) {
       finish(StorageStatus::ReadFailed, QStringLiteral("目录文件读取失败或读取期间增长超限")); return false;
     }
@@ -308,7 +319,9 @@ private:
     } else candidate->root = RoutineOverviewCatalog::parseOfficialTexts(QString::fromUtf8(contents_.value(0)),
         QString::fromUtf8(contents_.value(1)), QString::fromUtf8(contents_.value(2)), &error);
     int nodes = 0; qint64 strings = 0;
-    if (candidate->root.isEmpty() || !boundedObject(candidate->root, &nodes, &strings)) {
+    const int maximumNodes = request_.kind == CatalogKind::PetSkill ? 1000000 : 200000;
+    const qint64 maximumStrings = request_.kind == CatalogKind::PetSkill ? 16 * 1024 * 1024 : 4 * 1024 * 1024;
+    if (candidate->root.isEmpty() || !boundedObject(candidate->root, &nodes, &strings, 0, maximumNodes, maximumStrings)) {
       finish(StorageStatus::ReadFailed, error.isEmpty() ? QStringLiteral("目录结构超过节点、深度或字符串预算") : error); return;
     }
     if (request_.kind == CatalogKind::Shop) {
@@ -339,8 +352,11 @@ private:
         !officialShopDate(candidate->root).isValid()) label = QStringLiteral("本地目录（未提供可比较的官方版本）");
     if (request_.kind == CatalogKind::Shop) candidate->shop = ShopExchangeCatalog::prepare(candidate->root, label, updatedAt_, &error);
     else if (request_.kind == CatalogKind::Routine) candidate->routine = RoutineOverviewCatalog::prepare(candidate->root, label, updatedAt_, &error);
+    else if (request_.kind == CatalogKind::PetSkill) candidate->skill = PetSkillCatalog::prepare(candidate->root, label, updatedAt_, &error);
     else candidate->detail = PetDetailCatalog::prepareOverlay(embedded_, candidate->root, label, updatedAt_, &error);
-    if (!candidate->shop && !candidate->routine && !candidate->detail) { finish(StorageStatus::ReadFailed, error); return; }
+    if (!candidate->shop && !candidate->routine && !candidate->detail && !candidate->skill) {
+      finish(StorageStatus::ReadFailed, error); return;
+    }
     if (cancelled()) { finish(StorageStatus::Cancelled); return; }
     finish(StorageStatus::Loaded, {}, candidate);
   }
@@ -364,6 +380,8 @@ private:
   QJsonObject protocol_;
   std::shared_ptr<const PetDetailCatalogSnapshot> embedded_;
   std::shared_ptr<const PetDetailCatalogSnapshot> currentDetail_;
+  std::shared_ptr<const PetSkillCatalogSnapshot> embeddedSkill_;
+  std::shared_ptr<const PetSkillCatalogSnapshot> currentSkill_;
   QTimer timer_;
   QElapsedTimer elapsed_, slice_;
   bool scanning_ = true;
@@ -427,7 +445,8 @@ CatalogIoService::CatalogIoService(StorageService* storage, CatalogIoOptions opt
   }
   // Resource-only controlled defaults are initialized on Core before any I/O
   // candidate is created, never lazily by a Compute job or a paint callback.
-  ShopExchangeCatalog::instance(); RoutineOverviewCatalog::instance(); PetDetailCatalog::instance();
+  ShopExchangeCatalog::instance(); RoutineOverviewCatalog::instance();
+  PetDetailCatalog::instance(); PetSkillCatalog::instance();
 }
 CatalogIoService::~CatalogIoService() { close(); }
 void CatalogIoService::close() {
@@ -443,8 +462,10 @@ quint64 CatalogIoService::requestReload(CatalogKind kind) { return request(kind,
 quint64 CatalogIoService::requestOfficialUpdate(CatalogKind kind) { return request(kind, CatalogRequestMode::OfficialUpdate); }
 quint64 CatalogIoService::request(CatalogKind kind, CatalogRequestMode mode) {
   if (!impl_->storage || impl_->state->closing.load() ||
-      (kind != CatalogKind::Shop && kind != CatalogKind::Routine && kind != CatalogKind::PetDetail) ||
-      (mode == CatalogRequestMode::OfficialUpdate && kind == CatalogKind::PetDetail)) return 0;
+      (kind != CatalogKind::Shop && kind != CatalogKind::Routine && kind != CatalogKind::PetDetail &&
+       kind != CatalogKind::PetSkill) ||
+      (mode == CatalogRequestMode::OfficialUpdate &&
+       (kind == CatalogKind::PetDetail || kind == CatalogKind::PetSkill))) return 0;
   Request next; next.id = nextTransportTaskId(); next.kind = kind; next.mode = mode;
   QList<Request> superseded;
   for (auto it = impl_->waiting.begin(); it != impl_->waiting.end();) {
@@ -492,8 +513,12 @@ void CatalogIoService::pump() {
   const auto protocol = ShopExchangeCatalog::instance().snapshot()->root.value(QStringLiteral("protocol")).toObject();
   const auto embedded = PetDetailCatalog::instance().embeddedSnapshot();
   const auto currentDetail = PetDetailCatalog::instance().snapshot();
-  impl_->submitted = impl_->storage->postAuxiliary([state, active, options, dataRoot, protocol, embedded, currentDetail](QObject* ioRoot) {
-    new IoJob(state, active, options, dataRoot, protocol, embedded, currentDetail, ioRoot);
+  const auto embeddedSkill = PetSkillCatalog::instance().embeddedSnapshot();
+  const auto currentSkill = PetSkillCatalog::instance().snapshot();
+  impl_->submitted = impl_->storage->postAuxiliary(
+      [state, active, options, dataRoot, protocol, embedded, currentDetail, embeddedSkill, currentSkill](QObject* ioRoot) {
+    new IoJob(state, active, options, dataRoot, protocol, embedded, currentDetail,
+              embeddedSkill, currentSkill, ioRoot);
   });
   if (!impl_->submitted) {
     if (impl_->storage->state().closing) complete(StorageStatus::Closing, QStringLiteral("存储正在退出"));
@@ -518,6 +543,7 @@ void CatalogIoService::publish(const std::shared_ptr<Candidate>& candidate) {
   if (candidate->shop) { revision = candidate->shop->revision; ShopExchangeCatalog::instance().publish(candidate->shop); }
   else if (candidate->routine) { revision = candidate->routine->revision; RoutineOverviewCatalog::instance().publish(candidate->routine); }
   else if (candidate->detail) { revision = candidate->detail->revision; PetDetailCatalog::instance().publish(candidate->detail); }
+  else if (candidate->skill) { revision = candidate->skill->revision; PetSkillCatalog::instance().publish(candidate->skill); }
   emit catalogUpdated(candidate->request.kind, revision);
 }
 void CatalogIoService::complete(StorageStatus status, const QString& error) {

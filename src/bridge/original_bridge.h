@@ -23,6 +23,7 @@ public:
   SubmissionOutcome sendSubmission(const QString& extension, const QString& command,
                                    const QString& json);
   SubmissionOutcome invokeFlashSubmission(const QString& method, const QString& argument);
+  SubmissionOutcome openGameNavigation(const QString& link);
   void disableCapture();
   static bool closing() { return shutdownRequested_.load(std::memory_order_acquire); }
   bool captureHealthy() const { return inbound_.healthy(); }
@@ -34,6 +35,11 @@ public:
 signals:
   void packetCaptured(const InboundEnvelope& envelope);
   void captureUncertain(const QString& reason);
+  void gameNavigationFinished(bool opened, const QString& message);
+
+private slots:
+  void handleJavascriptResult(int browserId, qint64 frameId,
+                              const QString& context, const QVariant& result);
 
 private:
   using DispatchFunction = void(__fastcall*)(quintptr, quintptr, quintptr,
@@ -59,6 +65,10 @@ private:
   ServiceGetter serviceGetter_ = nullptr;
   CommandSender commandSender_ = nullptr;
   QString lastError_;
+  QString navigationContext_;
+  QString navigationFailure_;
+  class QTimer* navigationTimer_ = nullptr;
+  quint64 navigationSequence_ = 0;
   InboundQueue inbound_;
   std::atomic_bool drainScheduled_{false};
   std::atomic_bool uncertaintyReported_{false};

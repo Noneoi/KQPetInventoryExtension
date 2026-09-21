@@ -91,6 +91,8 @@ add_library(KQPetApplicationCore STATIC
   src/application/catalog/catalog_io_service.h
   src/application/catalog/pet_detail_catalog.cpp
   src/application/catalog/pet_detail_catalog.h
+  src/application/catalog/pet_skill_catalog.cpp
+  src/application/catalog/pet_skill_catalog.h
   src/application/catalog/routine_overview_catalog.cpp
   src/application/catalog/routine_overview_catalog.h
   src/application/catalog/shop_exchange_catalog.cpp

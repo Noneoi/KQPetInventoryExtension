@@ -143,7 +143,7 @@ int main(int argc, char** argv) {
 
   const auto savedMaterialBytes = readFile(materialPath);
   requests.clear();
-  ok &= require(controller.requestInfo() && requests.size() == 2 &&
+  ok &= require(controller.requestInfo() && requests.size() == 3 &&
       !controller.cultivationMaterialInventory().running,
       "shop refresh was treated as a manual cultivation material refresh");
   deliver(controller, materials(99, 88), 0);
@@ -152,6 +152,10 @@ int main(int argc, char** argv) {
   for (const auto& shop : catalog.protocolShops())
     shopReply.insert(QStringLiteral("si%1").arg(shop.shopId), QJsonObject{});
   deliver(controller, shopReply, 0);
+  deliver(controller, {{QStringLiteral("_cmd"), QStringLiteral("1015_2A")},
+      {QStringLiteral("r"), 1}, {QStringLiteral("infos"),
+       QJsonObject{{QStringLiteral("UnionMemberInfo"),
+                    QJsonObject{{QStringLiteral("lCToken"), 12}}}}}}, 0);
   ok &= require(!controller.isRunning() && controller.cultivationMaterialInventory().counts == snapshot.counts &&
       controller.cultivationMaterialInventory().observedTimes == snapshot.observedTimes &&
       until([&] { return controller.pendingWriteCount() == 0; }) &&

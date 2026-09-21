@@ -2,6 +2,7 @@
 #include "inventory_projection.h"
 #include "application/pet/pet_repository.h"
 #include "application/catalog/pet_detail_catalog.h"
+#include "application/catalog/pet_skill_catalog.h"
 #include "application/pet/pet_detail_preparation_service.h"
 #include "application/pet/pet_derivation_cache.h"
 #include <QFileInfo>
@@ -14,6 +15,7 @@ InventoryPublisher::InventoryPublisher(PetRepository* repository, InventoryProje
                                        QObject* parent)
     : QObject(parent), repository_(repository), projection_(projection) {
   metadata_ = PetDetailCatalog::instance().snapshot();
+  skills_ = PetSkillCatalog::instance().snapshot();
   connect(repository_, &PetRepository::dataChanged, this, [this] {
     requestPublication();
     if (detailService_) detailDependenciesChanged(QSet<qint64>{});
@@ -90,6 +92,13 @@ void InventoryPublisher::metadataUpdated(std::shared_ptr<const PetDetailCatalogS
   // Rebuild the projection to drop old metadata leases as well as making old
   // keys unreadable. Outstanding GUI snapshots keep their own tracked leases.
   requestPublication();
+}
+
+void InventoryPublisher::skillMetadataUpdated(std::shared_ptr<const PetSkillCatalogSnapshot> skills) {
+  Q_ASSERT(thread() == QThread::currentThread());
+  if (!skills || (skills_ && skills->revision < skills_->revision) || skills == skills_) return;
+  skills_ = std::move(skills);
+  requestPublication(false);
 }
 
 void InventoryPublisher::factsUpdated(qint64 id, const PetDerivedFactsHandle& facts) {
@@ -286,6 +295,7 @@ void InventoryPublisher::publish() {
   snapshot->sessionEpoch = repository_->sessionGeneration();
   snapshot->inventoryRevision = repository_->inventoryRevision();
   snapshot->metadata = metadata_;
+  snapshot->skills = skills_;
   snapshot->preparedDetails = preparedDetails_;
   snapshot->detailErrors = detailErrors_;
   snapshot->account = repository_->accountKey();

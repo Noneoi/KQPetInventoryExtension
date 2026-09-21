@@ -21,7 +21,7 @@ import zlib
 from public_routine_updater import _atomic_json, _arguments, _balanced, _declaration, _read
 from generate_shop_exchange_data import official_date
 
-PARSER_VERSION = 3
+PARSER_VERSION = 7
 FILENAME = "activity-exchange-data.json"
 CONFIG_RESOURCE = "config/config"
 EMERGENCY_RESOURCE = "configinemergency/configinemergency"
@@ -153,11 +153,14 @@ def build_discovery(root: ET.Element, hud_text: str) -> dict:
     if not latest:
         raise ValueError("官方活动注册表没有发布日期")
     cutoff = (datetime.strptime(latest, "%Y%m%d") - timedelta(days=35)).strftime("%Y%m%d")
-    for node in reversed(list(root.iter("a"))):
-        alias = node.get("name", "")
-        if re.fullmatch(r"[A-Za-z][A-Za-z0-9_]{2,100}", alias):
-            entries[alias] = dict(node.attrib)
-    for week in weeks:
+    # An alias can be reissued in a later week.  Preserve the newest official
+    # row and the week that supplied it instead of relying on XML traversal
+    # order (which used to make "new activity" detection ambiguous).
+    for week in sorted(weeks, key=lambda value: value.get("version", "")):
+        for node in week.findall("a"):
+            alias = node.get("name", "")
+            if re.fullmatch(r"[A-Za-z][A-Za-z0-9_]{2,100}", alias):
+                entries[alias] = {**node.attrib, "releaseVersion": week.get("version", "")}
         if week.get("version") >= cutoff:
             recent.update(node.get("name") for node in week.findall("a"))
     hud = json.loads(_declaration(hud_text, "DATA", "{"))
@@ -167,18 +170,44 @@ def build_discovery(root: ET.Element, hud_text: str) -> dict:
         if isinstance(value, dict):
             service = value.get("tryGetService", "")
             pieces = service.split("#") if isinstance(service, str) else []
-            if len(pieces) >= 3 and pieces[0] == "NewActivityService":
+            if len(pieces) >= 3 and pieces[0] == "NewActivityService" and re.fullmatch(r"[A-Za-z][A-Za-z0-9_]{2,100}", pieces[2]):
                 alias = pieces[2]
-                hud_entries[alias] = {"name": value.get("name", ""), "startTime": value.get("startTime", "")}
+                hud_entries[alias] = {"name": value.get("name", ""), "startTime": value.get("startTime", ""),
+                                      "endTime": value.get("endTime", ""), "tryGetService": service}
             pending.extend(value.values())
         elif isinstance(value, list):
             pending.extend(value)
+    evidence = {alias: {"kind": "recent-release", "date": entries.get(alias, {}).get("releaseVersion", "")}
+                for alias in recent if alias}
+    for alias, value in hud_entries.items():
+        evidence[alias] = {"kind": "hud", "date": value.get("startTime", "") or latest}
     return {"latestRelease": latest, "recentSince": cutoff, "entries": entries,
-            "hud": hud_entries, "roots": sorted(recent | set(hud_entries))}
+            "hud": hud_entries, "rootEvidence": evidence,
+            "roots": sorted(recent | set(hud_entries))}
+
+
+def navigation_link(alias: str, row: dict, hud: dict) -> str:
+    service = hud.get("tryGetService", "") if isinstance(hud, dict) else ""
+    pieces = service.split("#") if isinstance(service, str) else []
+    if len(pieces) >= 4 and pieces[:2] == ["NewActivityService", "loadAndInitNormalActivity"] and pieces[2] == alias:
+        candidate = "btnNewAct_" + alias + "_" + "_".join(pieces[3:])
+    else:
+        candidate = row.get("link", "")
+        if not isinstance(candidate, str) or not candidate.startswith("btnNewAct_"):
+            # A likely showMainPanel name is not proof that the activity
+            # actually exposes that action.  Leave navigation disabled unless
+            # the official HUD/registry or the module's RESHOW_SELF_ACT_KEY
+            # supplies an exact route.
+            return ""
+    return candidate if len(candidate) <= 256 and re.fullmatch(
+        r"btnNewAct_[A-Za-z][A-Za-z0-9]{1,100}(?:_[A-Za-z0-9]{1,64}){1,8}", candidate) else ""
 
 
 def resolve_alias(alias: str, discovery: dict) -> tuple[str, dict] | None:
     seen = set()
+    requested = alias
+    requested_evidence = discovery.get("rootEvidence", {}).get(requested, {"kind": "referenced", "date": ""})
+    direct_link = ""
     while alias not in seen:
         seen.add(alias)
         if alias in discovery.get("blocked", []):
@@ -192,10 +221,20 @@ def resolve_alias(alias: str, discovery: dict) -> tuple[str, dict] | None:
             hud = discovery.get("hud", {}).get(alias, {})
             metadata["activityName"] = hud.get("name") or row.get("desc") or alias
             metadata["startTime"] = hud.get("startTime") or row.get("startTime", "")
+            metadata["endTime"] = hud.get("endTime") or row.get("endTime", "")
+            metadata["activityAlias"] = alias
+            metadata["navigationLink"] = direct_link or navigation_link(alias, row, hud)
+            target_evidence = discovery.get("rootEvidence", {}).get(alias, {})
+            evidence = target_evidence if target_evidence.get("kind") == "hud" else requested_evidence
+            metadata["activityEvidence"] = evidence.get("kind", "referenced")
+            metadata["activityEvidenceDate"] = evidence.get("date", "")
             return path, metadata
-        match = re.match(r"btnNewAct_([A-Za-z0-9]+)_", row.get("link", ""))
+        link = row.get("link", "")
+        match = re.match(r"btnNewAct_([A-Za-z0-9]+)_", link)
         if not match:
             return None
+        if not direct_link:
+            direct_link = link if navigation_link(match[1], {"link": link}, {}) else ""
         alias = match[1]
     return None
 
@@ -220,11 +259,16 @@ def apply_discovery_overrides(updater, versions: dict, discovery: dict) -> dict:
                     alias = node.get("name", "")
                     if re.fullmatch(r"[A-Za-z][A-Za-z0-9_]{2,100}", alias):
                         discovery["entries"][alias] = {**discovery["entries"].get(alias, {}), **node.attrib}
+                        discovery.setdefault("rootEvidence", {})[alias] = {
+                            "kind": "emergency", "date": discovery.get("latestRelease", "")}
                         roots.add(alias)
             for node in xml.iter("hud"):
                 pieces = node.get("tryGetService", "").split("#")
                 if len(pieces) >= 3 and pieces[0] == "NewActivityService":
-                    discovery["hud"][pieces[2]] = {"name": node.get("name", ""), "startTime": node.get("startTime", "")}
+                    discovery["hud"][pieces[2]] = {"name": node.get("name", ""), "startTime": node.get("startTime", ""),
+                                                    "endTime": node.get("endTime", ""), "tryGetService": node.get("tryGetService", "")}
+                    discovery.setdefault("rootEvidence", {})[pieces[2]] = {
+                        "kind": "hud", "date": node.get("startTime", "") or discovery.get("latestRelease", "")}
                     roots.add(pieces[2])
         if not activity_document:
             raise ValueError("官方紧急活动目录格式已改变，保留原目录")
@@ -243,7 +287,7 @@ def apply_discovery_overrides(updater, versions: dict, discovery: dict) -> dict:
 
 class LiteralReader:
     """Small literal parser: no eval, function calls, arithmetic or AS runtime."""
-    pattern = re.compile(r'\s*("(?:\\.|[^"\\])*"|-?\d+(?:\.\d+)?|[A-Za-z_$][A-Za-z0-9_$.]*|[][{}:,])')
+    pattern = re.compile(r'\s*("(?:\\.|[^"\\])*"|-?\d+(?:\.\d+)?|[A-Za-z_$][A-Za-z0-9_$.]*|[][{}:,+])')
     def __init__(self, text):
         self.tokens, self.at = [], 0
         cursor = 0
@@ -261,7 +305,7 @@ class LiteralReader:
         token = self.tokens[self.at]
         self.at += 1
         return token
-    def value(self, depth=0):
+    def atom(self, depth=0):
         if depth > 64:
             raise ValueError("静态配置嵌套过深")
         token = self.take()
@@ -292,6 +336,23 @@ class LiteralReader:
         if token in ("true", "false", "null"):
             return {"true": True, "false": False, "null": None}[token]
         return {"$ref": token}
+    def value(self, depth=0):
+        result = self.atom(depth)
+        if self.at >= len(self.tokens) or self.tokens[self.at] != "+":
+            return result
+        pieces = [result]
+        while self.at < len(self.tokens) and self.tokens[self.at] == "+":
+            self.take()
+            pieces.append(self.atom(depth))
+        # AS '+' is intentionally supported only for a visibly string-based
+        # constant concatenation.  Numeric arithmetic and runtime expressions
+        # remain rejected rather than being evaluated or guessed.
+        if not any(isinstance(piece, str) for piece in pieces) or any(
+                not isinstance(piece, str) and not (
+                    isinstance(piece, dict) and set(piece) == {"$ref"})
+                for piece in pieces):
+            raise ValueError("只支持静态字符串常量拼接")
+        return {"$concat": pieces}
     def parse(self):
         result = self.value()
         if self.at != len(self.tokens):
@@ -317,18 +378,28 @@ def parse_tables(scripts: dict[str, str]) -> tuple[dict, dict]:
                     tables[key] = (filename, value)
             except (ValueError, IndexError, json.JSONDecodeError):
                 continue
-    def resolve(value, stack=()):
+    def resolve(value, namespace="", stack=()):
         if isinstance(value, dict):
             if set(value) == {"$ref"}:
                 name = value["$ref"]
-                if name in constants and name not in stack:
-                    return resolve(constants[name], stack + (name,))
+                qualified = name if name in constants else namespace + "." + name
+                if qualified in constants and qualified not in stack:
+                    return resolve(constants[qualified], qualified.split(".", 1)[0], stack + (qualified,))
                 return value
-            return {key: resolve(child, stack) for key, child in value.items()}
+            if set(value) == {"$concat"}:
+                pieces = [resolve(child, namespace, stack) for child in value["$concat"]]
+                return "".join(pieces) if all(isinstance(piece, str) for piece in pieces) else {"$concat": pieces}
+            return {key: resolve(child, namespace, stack) for key, child in value.items()}
         if isinstance(value, list):
-            return [resolve(child, stack) for child in value]
+            return [resolve(child, namespace, stack) for child in value]
         return value
-    return {key: (filename, resolve(value)) for key, (filename, value) in tables.items()}, constants
+    def symbolic(value):
+        if isinstance(value, dict):
+            return "$ref" in value or "$concat" in value or any(symbolic(child) for child in value.values())
+        return isinstance(value, list) and any(symbolic(child) for child in value)
+    resolved = {key: (filename, resolve(value, key.split(".", 1)[0]))
+                for key, (filename, value) in tables.items()}
+    return {key: pair for key, pair in resolved.items() if not symbolic(pair[1])}, constants
 
 
 def positive_ids(value) -> list[int]:
@@ -341,7 +412,10 @@ def supported_enhancement_expression(value) -> bool:
     # These optional parameters have been checked against the official
     # StrengthenComboItem / star-flow implementations. Other $ arguments stay
     # explicit pending instead of being silently discarded.
-    token = r"(?:[1-9]\d*|33\$[1-9]\d*|39\$1)"
+    # Parameter variants stay evidence-bound.  39$3 and 89$1 are present in
+    # the official 2026-09-18 cultivation sale; other new variants remain
+    # pending until an official table gives them a concrete meaning.
+    token = r"(?:[1-9]\d*|33\$[1-9]\d*|39\$(?:1|3)|89\$1)"
     return isinstance(value, str) and bool(re.fullmatch(token + r"(?:-" + token + r")*", value))
 
 
@@ -477,6 +551,10 @@ def trade_profile(scripts: dict, constants: dict, tables: dict, cls: str, rows: 
                 if direct_nested or model_nested:
                     profile["quotaStyle"] = "simple-bi"
                     profile["missingQuotaZero"] = bool(direct_nested and re.search(r"function\s+parseBought\([\s\S]{0,450}?return 0;", text))
+                elif (any(type(row.get("buyId")) is int and type(row.get("index")) is int for row in rows) and
+                      re.search(r'(\w+)\s*=\s*\w+\["b"\s*\+\s*(\w+)\.buyId\][\s\S]{0,400}?'
+                                r'int\(\s*\1\["by"\s*\+\s*\2\.index\]\s*\)', text)):
+                    profile["quotaStyle"] = "nested-buy-index"
             elif any(type(row.get("daibi")) is int for row in rows) and re.search(r'\w+\s*=\s*\w+\["li"\]', text):
                 profile["quotaStyle"] = "li"
             elif any(type(row.get("price")) is int for row in rows) and re.search(r'\w+\s*=\s*\w+\["bt"\]', text):
@@ -587,6 +665,8 @@ def enrich_trade_item(item: dict, row: dict, profile: dict) -> None:
             observation.update(path=["li", str(row.get("dataIndex", identity))])
         elif style == "bt":
             observation.update(path=["bt", str(row.get("index", identity))])
+        elif style == "nested-buy-index":
+            observation.update(path=["b" + str(row["buyId"]), "by" + str(row["index"])])
         elif style == "p-index":
             observation.update(path=["p", {"find": "i", "equals": row.get("index", identity)}, "l"], missingValue=0)
         if observation.get("path") and maximum >= 0:
@@ -638,12 +718,26 @@ def enrich_trade_item(item: dict, row: dict, profile: dict) -> None:
             item.pop("quotaObservation", None)
             item["observationUnavailableReason"] = "该条目的活动等级条件尚未识别"
 
+    # Only direct evidence from the official price/currency implementation may
+    # place an entry in the diamond activity section.  Names such as "特惠" are
+    # deliberately ignored because they are not a currency contract.
+    standard_costs = [item.get("cost", "")]
+    standard_costs.extend(option.get("cost", "") for option in item.get("priceOptions", [])
+                          if isinstance(option, dict))
+    item["exchangeKind"] = "diamond" if any(
+        isinstance(cost, str) and cost.startswith("8:2:") for cost in standard_costs) else "activity"
+
 
 def parse_module(scripts: dict[str, str], module: str, activity: dict, expand=None) -> tuple[list, list, bool]:
     tables, constants = parse_tables(scripts)
     pending, shops = [], []
     all_text = "\n".join(scripts.values())
     commands = {match[1]: match[2] for match in re.finditer(r'\b(?:const|var)\s+(\w+)\s*:\s*String\s*=\s*"(\d+(?:_[A-Za-z0-9]+)+)"', all_text)}
+    direct_links = {value for key, value in constants.items()
+                    if key.endswith(".RESHOW_SELF_ACT_KEY") and isinstance(value, str) and
+                    re.fullmatch(r"btnNewAct_[A-Za-z0-9]+_[A-Za-z0-9_]+", value)}
+    direct_navigation = next(iter(direct_links)) if len(direct_links) == 1 else activity.get("navigationLink", "")
+    navigation_source = "module" if len(direct_links) == 1 else "activity" if direct_navigation else ""
     has_evolution = False
     for filename, text in scripts.items():
         for match in re.finditer(r"\bstatic\s+(?:const|var)\s+(\w+)\s*:\s*[\w.<>]+\s*=\s*", text):
@@ -712,18 +806,19 @@ def parse_module(scripts: dict[str, str], module: str, activity: dict, expand=No
                         label = constants.get(cls + ".DaibiName")
                         if isinstance(label, str):
                             cost_description = str(row["daibi"]) + " " + label
-                    start = row.get("shelfTime") or activity.get("startTime", "")
-                    end = row.get("removalTime") or activity.get("endTime", "")
-                    start = official_date(start) if isinstance(start, str) and start else ""
-                    end = official_date(end) if isinstance(end, str) and end else ""
+                    raw_start = row.get("shelfTime") or activity.get("startTime", "")
+                    raw_end = row.get("removalTime") or activity.get("endTime", "")
+                    start = official_date(raw_start) if isinstance(raw_start, str) and raw_start else ""
+                    end = official_date(raw_end) if isinstance(raw_end, str) and raw_end else ""
                     item = {"id": row.get("id", identity), "itemServerId": identity,
                             "description": row.get("basicDescription") or row.get("desc") or row.get("name") or "指定精灵养成",
                             "tab": row.get("tab", row.get("tabId", 0)), "cost": cost if cost_known else "", "costKnown": cost_known,
                             "costRaw": raw_cost, "costDescription": cost_description, "enhanceType": codes, "raceIds": races,
-                            "shelfTime": start, "removalTime": end, "availableKnown": bool(start),
+                             "shelfTime": start, "removalTime": end, "availableKnown": bool(start),
+                             "officialShelfTime": raw_start, "officialRemovalTime": raw_end,
                             "limit": str(row.get("limit", "")), "limitIndex": -1, "limitCount": -1,
                             "limitKey": "", "limitLabel": "", "quotaKnown": False,
-                            "quotaRaw": {key: row[key] for key in ("limit", "maxNum", "limitType", "specBi", "baseOnId", "unlock", "ypFlag", "lvFlag", "lv") if key in row},
+                            "quotaRaw": {key: row[key] for key in ("limit", "maxNum", "limitType", "specBi", "baseOnId", "unlock", "ypFlag", "lvFlag", "lv", "buyId", "gainId", "addGainTimesNum") if key in row},
                             "unlock": ("关联条目 %s 的条件兑换，适用状态待确认" % row["baseOnId"] if conditional else row.get("unlock") or row.get("lvFlag", "")),
                             "conditionsRaw": {key: row[key] for key in ("index", "baseOnId", "specBi", "filter", "lvFlag", "ypFlag") if key in row},
                             "rewardRaw": simple or row,
@@ -746,8 +841,13 @@ def parse_module(scripts: dict[str, str], module: str, activity: dict, expand=No
                 shops.append({"sourceKey": module + "#" + table + branch, "shopId": shop_id,
                               "name": "活动·" + activity.get("activityName", activity.get("name", "")),
                               "activityName": activity.get("activityName", ""), "goods": goods, "observation": observation,
-                              "source": {"module": module, "activityAlias": activity.get("name", ""),
-                                         "class": table, "commands": commands, "quotaSupported": any("quotaObservation" in good for good in goods)}})
+                              "navigationLink": direct_navigation,
+                              "activityEvidence": activity.get("activityEvidence", "referenced"),
+                              "activityEvidenceDate": activity.get("activityEvidenceDate", ""),
+                              "source": {"module": module, "activityAlias": activity.get("activityAlias", activity.get("name", "")),
+                                         "class": table, "commands": commands,
+                                         "navigationLinkSource": navigation_source,
+                                         "quotaSupported": any("quotaObservation" in good for good in goods)}})
     if "CommonEnhancePrize" in all_text and not shops and not pending:
         # Normal rewards are explicitly recognized as non-exchanges, while a
         # dynamic cost/reward construction remains visible for later support.
@@ -871,6 +971,17 @@ def update_activity_exchanges(updater, versions: dict) -> bool:
             for shop in record.get("shops", []):
                 shop["activityName"] = activity.get("activityName", "")
                 shop["name"] = "活动·" + shop["activityName"]
+                # A module-owned RESHOW_SELF_ACT_KEY remains valid while that
+                # exact module version is reused. Activity-owned HUD/registry
+                # routes follow the current discovery metadata instead.
+                if shop.get("source", {}).get("navigationLinkSource") != "module":
+                    shop["navigationLink"] = activity.get("navigationLink", "")
+                    if isinstance(shop.get("source"), dict):
+                        shop["source"]["navigationLinkSource"] = "activity" if shop["navigationLink"] else ""
+                shop["activityEvidence"] = activity.get("activityEvidence", "referenced")
+                shop["activityEvidenceDate"] = activity.get("activityEvidenceDate", "")
+                if isinstance(shop.get("source"), dict):
+                    shop["source"]["activityAlias"] = activity.get("activityAlias", activity.get("name", ""))
                 for good in shop.get("goods", []):
                     if good.get("source", {}).get("shelfTimeSource") == "activity":
                         date = activity.get("startTime", "")
@@ -934,6 +1045,8 @@ def update_activity_exchanges(updater, versions: dict) -> bool:
     if result != on_disk:
         _atomic_json(cache_path, result)
     updater.activity_exchange_pending = pending
-    emit(f"活动兑换：{len(shops)} 个目录、{sum(len(shop['goods']) for shop in shops)} 项；本次检查 {checked} 个变更模块" +
+    activity_goods = sum(1 for shop in shops for good in shop.get("goods", []) if good.get("exchangeKind") != "diamond")
+    diamond_goods = sum(1 for shop in shops for good in shop.get("goods", []) if good.get("exchangeKind") == "diamond")
+    emit(f"活动兑换：活动商店 {activity_goods} 项、钻石兑换 {diamond_goods} 项；本次检查 {checked} 个变更模块" +
          (f"；{len(pending)} 项规则待适配" if pending else ""))
     return changed

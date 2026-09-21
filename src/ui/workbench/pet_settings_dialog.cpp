@@ -4,26 +4,40 @@
 
 #include <QCheckBox>
 #include <QComboBox>
+#include <QCoreApplication>
 #include <QDateTime>
 #include <QDesktopServices>
 #include <QDialogButtonBox>
 #include <QDir>
+#include <QFile>
 #include <QFileDialog>
+#include <QFont>
 #include <QFormLayout>
 #include <QGridLayout>
 #include <QGroupBox>
 #include <QHBoxLayout>
 #include <QJsonArray>
+#include <QJsonDocument>
 #include <QLabel>
 #include <QLineEdit>
 #include <QMessageBox>
+#include <QNetworkAccessManager>
+#include <QNetworkReply>
+#include <QNetworkRequest>
+#include <QProcess>
 #include <QProgressBar>
 #include <QPushButton>
 #include <QRegularExpressionValidator>
+#include <QSet>
 #include <QSpinBox>
 #include <QTabWidget>
+#include <QTextBrowser>
+#include <QTextDocument>
+#include <QTimer>
 #include <QUrl>
 #include <QVBoxLayout>
+#include <QVersionNumber>
+#include <QXmlStreamReader>
 
 #include <tuple>
 
@@ -52,6 +66,31 @@ QString sizeText(qint64 bytes) {
   if (bytes >= 1024 * 1024) return QStringLiteral("%1 MB").arg(double(bytes) / (1024.0 * 1024), 0, 'f', 1);
   return QStringLiteral("%1 KB").arg(double(bytes) / 1024, 0, 'f', 1);
 }
+QString softwareClientRoot() {
+  const QString configured = qEnvironmentVariable("KQPET_CLIENT_ROOT");
+  return QDir::cleanPath(configured.isEmpty() ? QCoreApplication::applicationDirPath() : configured);
+}
+QString releaseVersionText(const QString& tag) {
+  const QString trimmed = tag.trimmed();
+  return trimmed.startsWith(QLatin1Char('v'), Qt::CaseInsensitive) ? trimmed.mid(1) : trimmed;
+}
+bool officialUpdateAssetsReady(const QJsonArray& assets) {
+  static const QRegularExpression archiveName(QStringLiteral(
+      "^KQPetInventory-[0-9]+\\.[0-9]+\\.[0-9]+-[0-9A-Fa-f]{12}-[0-9]{8}T[0-9]{6}Z-win-x64-copy-ready\\.zip$"));
+  QString archive;
+  QSet<QString> uploaded;
+  for (const auto& value : assets) {
+    const auto asset = value.toObject();
+    if (asset.value(QStringLiteral("state")).toString() != QStringLiteral("uploaded")) continue;
+    const QString name = asset.value(QStringLiteral("name")).toString();
+    const QUrl url(asset.value(QStringLiteral("browser_download_url")).toString());
+    if (name.isEmpty() || url.scheme() != QStringLiteral("https") ||
+        url.host().compare(QStringLiteral("github.com"), Qt::CaseInsensitive) != 0) continue;
+    uploaded.insert(name);
+    if (archiveName.match(name).hasMatch()) archive = name;
+  }
+  return !archive.isEmpty() && uploaded.contains(archive + QStringLiteral(".sha256"));
+}
 }
 
 PetSettingsDialog::PetSettingsDialog(const RefreshTimings& timings, QWidget* parent)
@@ -65,19 +104,20 @@ PetSettingsDialog::PetSettingsDialog(const RefreshTimings& timings, QWidget* par
   tabs->setObjectName(QStringLiteral("KQSettingsTabs"));
   tabs->addTab(createCachePage(), QStringLiteral("本地缓存"));
   tabs->addTab(createDataPage(), QStringLiteral("数据更新"));
+  tabs->addTab(createSoftwareUpdatePage(), QStringLiteral("软件更新"));
   tabs->addTab(createTimingPage(), QStringLiteral("刷新参数"));
   root->addWidget(tabs);
   root->addWidget(explanation(QStringLiteral("缓存管理和数据更新立即执行；刷新参数点击“保存”后生效。"), this));
-  auto* buttons = new QDialogButtonBox(QDialogButtonBox::Save | QDialogButtonBox::Cancel |
-                                      QDialogButtonBox::RestoreDefaults, this);
-  buttons->button(QDialogButtonBox::Save)->setText(QStringLiteral("保存"));
-  buttons->button(QDialogButtonBox::Cancel)->setText(QStringLiteral("关闭"));
-  buttons->button(QDialogButtonBox::RestoreDefaults)->setText(QStringLiteral("重置刷新参数"));
-  connect(buttons, &QDialogButtonBox::accepted, this, &QDialog::accept);
-  connect(buttons, &QDialogButtonBox::rejected, this, &QDialog::reject);
-  connect(buttons->button(QDialogButtonBox::RestoreDefaults), &QPushButton::clicked,
+  dialogButtons_ = new QDialogButtonBox(QDialogButtonBox::Save | QDialogButtonBox::Cancel |
+                                        QDialogButtonBox::RestoreDefaults, this);
+  dialogButtons_->button(QDialogButtonBox::Save)->setText(QStringLiteral("保存"));
+  dialogButtons_->button(QDialogButtonBox::Cancel)->setText(QStringLiteral("关闭"));
+  dialogButtons_->button(QDialogButtonBox::RestoreDefaults)->setText(QStringLiteral("重置刷新参数"));
+  connect(dialogButtons_, &QDialogButtonBox::accepted, this, &QDialog::accept);
+  connect(dialogButtons_, &QDialogButtonBox::rejected, this, &QDialog::reject);
+  connect(dialogButtons_->button(QDialogButtonBox::RestoreDefaults), &QPushButton::clicked,
           this, [this] { applyTimings(RefreshTimings{}); });
-  root->addWidget(buttons);
+  root->addWidget(dialogButtons_);
   applyTimings(timings);
 }
 
@@ -244,14 +284,16 @@ QWidget* PetSettingsDialog::createDataPage() {
       "也可以只更新某一类数据，其余数据保持不变。首次检查需要准备解析工具，可能需要几分钟。"), catalogs));
   dataUpdateButton_ = button(QStringLiteral("全部检查更新"), catalogs);
   dataUpdateButton_->setObjectName(QStringLiteral("KQCheckDataUpdate"));
-  dataUpdateButton_->setToolTip(QStringLiteral("依次检查下面全部五类数据"));
+  dataUpdateButton_->setToolTip(QStringLiteral("依次检查下面全部六类数据"));
   catalogLayout->addWidget(dataUpdateButton_, 0, Qt::AlignLeft);
   auto* partial = new QGridLayout;
   partial->addWidget(new QLabel(QStringLiteral("单独更新："), catalogs), 0, 0);
   const QList<std::tuple<QString, QString, QString>> parts{
       {QStringLiteral("pets"), QStringLiteral("精灵与养成资料"),
        QStringLiteral("精灵字典、星神、星轮、元魂、源兽规则，以及属性/职业/货币名称")},
-      {QStringLiteral("shop"), QStringLiteral("兑换商店"), QStringLiteral("指定精灵兑换目录和活动兑换")},
+      {QStringLiteral("skills"), QStringLiteral("精灵技能资料"),
+       QStringLiteral("普通技、超杀技、神运/灵初技能、英雄/通灵/元素技、词条、召唤与契约关系")},
+      {QStringLiteral("shop"), QStringLiteral("兑换商店"), QStringLiteral("常驻商店、活动商店与钻石兑换活动")},
       {QStringLiteral("images"), QStringLiteral("精灵图片索引"),
        QStringLiteral("新精灵的图片来源；已缓存图片版本变化时一并更新")},
       {QStringLiteral("icons"), QStringLiteral("星神与属性图标"), QStringLiteral("星神和属性的小图标")},
@@ -309,6 +351,322 @@ QWidget* PetSettingsDialog::createDataPage() {
   layout->addWidget(images);
   layout->addStretch();
   return page;
+}
+
+QWidget* PetSettingsDialog::createSoftwareUpdatePage() {
+  auto* page = new QWidget(this);
+  page->setObjectName(QStringLiteral("KQSoftwareUpdatePage"));
+  page->setStyleSheet(QStringLiteral(
+      "QGroupBox#KQSoftwareUpdateCard{font-weight:600;border:1px solid #d8e3ee;border-radius:9px;"
+      "margin-top:12px;padding:14px;background:#fbfdff;}"
+      "QGroupBox#KQSoftwareUpdateCard::title{subcontrol-origin:margin;left:14px;padding:0 6px;color:#234d72;}"
+      "QPushButton#KQSoftwareUpdateInstall{background:#2866a8;color:white;border:0;border-radius:5px;"
+      "padding:8px 18px;font-weight:600;}"
+      "QPushButton#KQSoftwareUpdateInstall:hover{background:#367bc1;}"
+      "QPushButton#KQSoftwareUpdateInstall:disabled{background:#b7c4d0;color:#eef2f5;}"));
+  auto* root = new QVBoxLayout(page);
+  root->setContentsMargins(16, 14, 16, 14);
+  root->setSpacing(12);
+
+  auto* card = new QGroupBox(QStringLiteral("精灵工作台更新"), page);
+  card->setObjectName(QStringLiteral("KQSoftwareUpdateCard"));
+  auto* layout = new QVBoxLayout(card);
+  layout->setSpacing(10);
+  softwareUpdateTitle_ = new QLabel(
+      QStringLiteral("当前版本  %1").arg(BuildInfo::buildLabel()), card);
+  softwareUpdateTitle_->setObjectName(QStringLiteral("KQSoftwareUpdateTitle"));
+  softwareUpdateTitle_->setWordWrap(true);
+  softwareUpdateTitle_->setTextInteractionFlags(Qt::TextSelectableByMouse);
+  QFont titleFont = softwareUpdateTitle_->font();
+  titleFont.setPointSize(titleFont.pointSize() + 2);
+  titleFont.setWeight(QFont::DemiBold);
+  softwareUpdateTitle_->setFont(titleFont);
+  layout->addWidget(softwareUpdateTitle_);
+  layout->addWidget(explanation(QStringLiteral(
+      "检查 GitHub 上最新的正式发行版。检测到新版本后会先展示发行说明；只有点击更新并通过完整性校验后才会安装。"), card));
+
+  auto* actions = new QHBoxLayout;
+  softwareUpdateCheck_ = button(QStringLiteral("检查更新"), card);
+  softwareUpdateCheck_->setObjectName(QStringLiteral("KQSoftwareUpdateCheck"));
+  softwareUpdateInstall_ = button(QStringLiteral("更新到此版本"), card);
+  softwareUpdateInstall_->setObjectName(QStringLiteral("KQSoftwareUpdateInstall"));
+  softwareUpdateInstall_->setEnabled(false);
+  softwareUpdateReleasePage_ = button(QStringLiteral("查看 GitHub 发行页"), card);
+  softwareUpdateReleasePage_->setObjectName(QStringLiteral("KQSoftwareUpdateReleasePage"));
+  softwareUpdateReleasePage_->setEnabled(false);
+  actions->addWidget(softwareUpdateCheck_);
+  actions->addWidget(softwareUpdateInstall_);
+  actions->addWidget(softwareUpdateReleasePage_);
+  actions->addStretch();
+  layout->addLayout(actions);
+
+  softwareUpdateProgress_ = new QProgressBar(card);
+  softwareUpdateProgress_->setObjectName(QStringLiteral("KQSoftwareUpdateProgress"));
+  softwareUpdateProgress_->setRange(0, 0);
+  softwareUpdateProgress_->setTextVisible(false);
+  softwareUpdateProgress_->hide();
+  layout->addWidget(softwareUpdateProgress_);
+  softwareUpdateStatus_ = explanation(QStringLiteral("尚未检查更新。"), card);
+  softwareUpdateStatus_->setObjectName(QStringLiteral("KQSoftwareUpdateStatus"));
+  softwareUpdateStatus_->setTextInteractionFlags(Qt::TextSelectableByMouse);
+  layout->addWidget(softwareUpdateStatus_);
+  root->addWidget(card);
+
+  auto* notesGroup = new QGroupBox(QStringLiteral("新版本更新内容"), page);
+  auto* notesLayout = new QVBoxLayout(notesGroup);
+  softwareUpdateNotes_ = new QTextBrowser(notesGroup);
+  softwareUpdateNotes_->setObjectName(QStringLiteral("KQSoftwareUpdateNotes"));
+  softwareUpdateNotes_->setOpenExternalLinks(false);
+  softwareUpdateNotes_->setPlaceholderText(QStringLiteral("点击“检查更新”后在这里查看发行说明。"));
+  softwareUpdateNotes_->setMinimumHeight(250);
+  notesLayout->addWidget(softwareUpdateNotes_);
+  root->addWidget(notesGroup, 1);
+
+  connect(softwareUpdateCheck_, &QPushButton::clicked, this, &PetSettingsDialog::checkSoftwareUpdate);
+  connect(softwareUpdateInstall_, &QPushButton::clicked, this, &PetSettingsDialog::installSoftwareUpdate);
+  connect(softwareUpdateReleasePage_, &QPushButton::clicked, this, [this] {
+    if (!softwareUpdatePageUrl_.isEmpty()) QDesktopServices::openUrl(QUrl(softwareUpdatePageUrl_));
+  });
+  return page;
+}
+
+void PetSettingsDialog::checkSoftwareUpdate() {
+  if (softwareUpdateReply_ || (softwareUpdateProcess_ && softwareUpdateProcess_->state() != QProcess::NotRunning)) return;
+  softwareUpdateAvailable_ = false;
+  softwareUpdateTag_.clear();
+  softwareUpdatePageUrl_.clear();
+  softwareUpdateInstall_->setEnabled(false);
+  softwareUpdateReleasePage_->setEnabled(false);
+  softwareUpdateNotes_->clear();
+  setSoftwareUpdateBusy(true, QStringLiteral("正在连接 GitHub 检查最新正式版…"));
+  if (!softwareUpdateNetwork_) softwareUpdateNetwork_ = new QNetworkAccessManager(this);
+  QNetworkRequest request{QUrl(QStringLiteral("https://api.github.com/repos/Noneoi/KQPetInventoryExtension/releases/latest"))};
+  request.setRawHeader("Accept", "application/vnd.github+json");
+  request.setRawHeader("X-GitHub-Api-Version", "2022-11-28");
+  request.setRawHeader("User-Agent", "KQPetInventoryExtension-SettingsUpdater");
+  request.setAttribute(QNetworkRequest::RedirectPolicyAttribute, QNetworkRequest::NoLessSafeRedirectPolicy);
+  request.setTransferTimeout(15000);
+  softwareUpdateReply_ = softwareUpdateNetwork_->get(request);
+  connect(softwareUpdateReply_, &QNetworkReply::finished, this, [this] {
+    QNetworkReply* reply = softwareUpdateReply_;
+    softwareUpdateReply_ = nullptr;
+    const int status = reply->attribute(QNetworkRequest::HttpStatusCodeAttribute).toInt();
+    const QByteArray payload = reply->readAll();
+    const QString networkError = reply->error() == QNetworkReply::NoError ? QString{} : reply->errorString();
+    reply->deleteLater();
+    if (status == 403) {
+      checkSoftwareUpdateFallback(networkError);
+      return;
+    }
+    if (!networkError.isEmpty() || status != 200 || payload.size() > 2 * 1024 * 1024) {
+      setSoftwareUpdateBusy(false, networkError.isEmpty()
+          ? QStringLiteral("GitHub 返回了无效响应（HTTP %1）。请稍后重试。").arg(status)
+          : QStringLiteral("检查失败：%1。当前版本不受影响。").arg(networkError));
+      return;
+    }
+    QJsonParseError parseError;
+    const auto release = QJsonDocument::fromJson(payload, &parseError).object();
+    const QString tag = release.value(QStringLiteral("tag_name")).toString().trimmed();
+    const QString versionText = releaseVersionText(tag);
+    const QVersionNumber latest = QVersionNumber::fromString(versionText);
+    const QVersionNumber current = QVersionNumber::fromString(BuildInfo::version());
+    if (parseError.error != QJsonParseError::NoError || release.value(QStringLiteral("draft")).toBool() ||
+        release.value(QStringLiteral("prerelease")).toBool() || latest.isNull() || current.isNull()) {
+      setSoftwareUpdateBusy(false, QStringLiteral("GitHub 最新发行版的版本信息无法识别，未执行任何更新。"));
+      return;
+    }
+    softwareUpdateTag_ = tag;
+    softwareUpdatePageUrl_ = release.value(QStringLiteral("html_url")).toString();
+    softwareUpdateReleasePage_->setEnabled(QUrl(softwareUpdatePageUrl_).isValid());
+    const QString releaseName = release.value(QStringLiteral("name")).toString(tag);
+    const QDateTime published = QDateTime::fromString(release.value(QStringLiteral("published_at")).toString(), Qt::ISODate);
+    softwareUpdateTitle_->setText(QStringLiteral("%1  ·  %2%3")
+        .arg(releaseName, tag, published.isValid()
+             ? QStringLiteral("  ·  %1 发布").arg(published.toLocalTime().toString(QStringLiteral("yyyy-MM-dd HH:mm")))
+             : QString{}));
+    QString notes = release.value(QStringLiteral("body")).toString().trimmed();
+    if (notes.isEmpty()) notes = QStringLiteral("本次发行没有填写更新说明。");
+    softwareUpdateNotes_->document()->setMarkdown(notes, QTextDocument::MarkdownDialectGitHub);
+    const bool newer = QVersionNumber::compare(latest, current) > 0;
+    const bool assetsReady = officialUpdateAssetsReady(release.value(QStringLiteral("assets")).toArray());
+    softwareUpdateAvailable_ = newer && assetsReady;
+    softwareUpdateInstall_->setEnabled(softwareUpdateAvailable_);
+    if (!newer) {
+      setSoftwareUpdateBusy(false, QStringLiteral("当前已是最新正式版（%1）。").arg(tag));
+    } else if (!assetsReady) {
+      setSoftwareUpdateBusy(false, QStringLiteral("发现 %1，但发行附件尚未准备完整，暂不能更新。").arg(tag));
+    } else {
+      setSoftwareUpdateBusy(false, QStringLiteral("发现新版本 %1。请阅读更新内容后决定是否安装。").arg(tag));
+    }
+  });
+}
+
+void PetSettingsDialog::checkSoftwareUpdateFallback(const QString& reason) {
+  Q_UNUSED(reason);
+  softwareUpdateStatus_->setText(QStringLiteral("GitHub API 配额暂时不可用，正在改用官方发行页检查…"));
+  QNetworkRequest request{QUrl(QStringLiteral("https://github.com/Noneoi/KQPetInventoryExtension/releases/latest"))};
+  request.setRawHeader("User-Agent", "KQPetInventoryExtension-SettingsUpdater");
+  request.setAttribute(QNetworkRequest::RedirectPolicyAttribute, QNetworkRequest::ManualRedirectPolicy);
+  request.setTransferTimeout(15000);
+  softwareUpdateReply_ = softwareUpdateNetwork_->get(request);
+  connect(softwareUpdateReply_, &QNetworkReply::finished, this, [this] {
+    QNetworkReply* reply = softwareUpdateReply_;
+    softwareUpdateReply_ = nullptr;
+    QUrl releaseUrl = reply->attribute(QNetworkRequest::RedirectionTargetAttribute).toUrl();
+    if (releaseUrl.isRelative()) releaseUrl = reply->url().resolved(releaseUrl);
+    if (releaseUrl.isEmpty() && reply->url().path().contains(QStringLiteral("/releases/tag/"))) releaseUrl = reply->url();
+    const QString error = reply->error() == QNetworkReply::NoError ? QString{} : reply->errorString();
+    reply->deleteLater();
+    static const QRegularExpression releasePath(QStringLiteral(
+        "^/Noneoi/KQPetInventoryExtension/releases/tag/(v[0-9]+\\.[0-9]+\\.[0-9]+)$"));
+    const auto pathMatch = releasePath.match(QUrl::fromPercentEncoding(releaseUrl.path().toUtf8()));
+    if ((!error.isEmpty() && releaseUrl.isEmpty()) || releaseUrl.scheme() != QStringLiteral("https") ||
+        releaseUrl.host().compare(QStringLiteral("github.com"), Qt::CaseInsensitive) != 0 || !pathMatch.hasMatch()) {
+      setSoftwareUpdateBusy(false, QStringLiteral("GitHub 暂时限制了检查频率，请稍后重试或打开发行页查看。"));
+      softwareUpdatePageUrl_ = QStringLiteral("https://github.com/Noneoi/KQPetInventoryExtension/releases/latest");
+      softwareUpdateReleasePage_->setEnabled(true);
+      return;
+    }
+    softwareUpdateTag_ = pathMatch.captured(1);
+    softwareUpdatePageUrl_ = releaseUrl.toString(QUrl::FullyEncoded);
+    softwareUpdateReleasePage_->setEnabled(true);
+    softwareUpdateStatus_->setText(QStringLiteral("已确认最新版本 %1，正在读取发行说明…").arg(softwareUpdateTag_));
+    QNetworkRequest feedRequest{QUrl(QStringLiteral("https://github.com/Noneoi/KQPetInventoryExtension/releases.atom"))};
+    feedRequest.setRawHeader("User-Agent", "KQPetInventoryExtension-SettingsUpdater");
+    feedRequest.setAttribute(QNetworkRequest::RedirectPolicyAttribute, QNetworkRequest::NoLessSafeRedirectPolicy);
+    feedRequest.setTransferTimeout(15000);
+    softwareUpdateReply_ = softwareUpdateNetwork_->get(feedRequest);
+    connect(softwareUpdateReply_, &QNetworkReply::finished, this, [this] {
+      QNetworkReply* feedReply = softwareUpdateReply_;
+      softwareUpdateReply_ = nullptr;
+      const QByteArray payload = feedReply->readAll();
+      const bool networkOk = feedReply->error() == QNetworkReply::NoError && payload.size() <= 2 * 1024 * 1024;
+      feedReply->deleteLater();
+      QString releaseName = softwareUpdateTag_;
+      QString releaseHtml;
+      QDateTime published;
+      bool matched = false;
+      if (networkOk) {
+        QXmlStreamReader xml(payload);
+        bool inEntry = false;
+        QString title, link, content, updated;
+        while (!xml.atEnd()) {
+          const auto token = xml.readNext();
+          if (token == QXmlStreamReader::StartElement && xml.name() == QStringLiteral("entry")) {
+            inEntry = true; title.clear(); link.clear(); content.clear(); updated.clear();
+          } else if (inEntry && token == QXmlStreamReader::StartElement && xml.name() == QStringLiteral("title")) {
+            title = xml.readElementText();
+          } else if (inEntry && token == QXmlStreamReader::StartElement && xml.name() == QStringLiteral("link")) {
+            link = xml.attributes().value(QStringLiteral("href")).toString();
+          } else if (inEntry && token == QXmlStreamReader::StartElement && xml.name() == QStringLiteral("content")) {
+            content = xml.readElementText(QXmlStreamReader::IncludeChildElements);
+          } else if (inEntry && token == QXmlStreamReader::StartElement && xml.name() == QStringLiteral("updated")) {
+            updated = xml.readElementText();
+          } else if (inEntry && token == QXmlStreamReader::EndElement && xml.name() == QStringLiteral("entry")) {
+            inEntry = false;
+            const QUrl entryUrl(link);
+            if (entryUrl.path() == QUrl(softwareUpdatePageUrl_).path()) {
+              releaseName = title.isEmpty() ? softwareUpdateTag_ : title;
+              releaseHtml = content;
+              published = QDateTime::fromString(updated, Qt::ISODate);
+              matched = true;
+              break;
+            }
+          }
+        }
+      }
+      softwareUpdateTitle_->setText(QStringLiteral("%1  ·  %2%3")
+          .arg(releaseName, softwareUpdateTag_, published.isValid()
+               ? QStringLiteral("  ·  %1 发布").arg(published.toLocalTime().toString(QStringLiteral("yyyy-MM-dd HH:mm")))
+               : QString{}));
+      if (matched && !releaseHtml.trimmed().isEmpty()) softwareUpdateNotes_->setHtml(releaseHtml);
+      else softwareUpdateNotes_->setPlainText(QStringLiteral("发行说明暂时无法读取，可点击“查看 GitHub 发行页”查看。"));
+      const QVersionNumber latest = QVersionNumber::fromString(releaseVersionText(softwareUpdateTag_));
+      const QVersionNumber current = QVersionNumber::fromString(BuildInfo::version());
+      const bool newer = !latest.isNull() && !current.isNull() && QVersionNumber::compare(latest, current) > 0;
+      softwareUpdateAvailable_ = newer;
+      softwareUpdateInstall_->setEnabled(newer);
+      setSoftwareUpdateBusy(false, newer
+          ? QStringLiteral("发现新版本 %1。已通过 GitHub 官方发行页确认，下载时还会执行完整校验。").arg(softwareUpdateTag_)
+          : QStringLiteral("当前已是最新正式版（%1）。").arg(softwareUpdateTag_));
+    });
+  });
+}
+
+void PetSettingsDialog::installSoftwareUpdate() {
+  if (!softwareUpdateAvailable_ || softwareUpdateTag_.isEmpty() ||
+      (softwareUpdateProcess_ && softwareUpdateProcess_->state() != QProcess::NotRunning)) return;
+  if (QMessageBox::question(this, QStringLiteral("更新精灵工作台"),
+      QStringLiteral("下载并验证 %1？\n\n当前程序正在运行，因此新版会先安全暂存；关闭氪奇并重新启动后完成切换。")
+          .arg(softwareUpdateTag_), QMessageBox::Yes | QMessageBox::No, QMessageBox::Yes) != QMessageBox::Yes) return;
+  const QString client = softwareClientRoot();
+  const QString tools = QDir(client).filePath(QStringLiteral("KQPetQuickStart/package/tools"));
+  const QString script = QDir(tools).filePath(QStringLiteral("auto-update.ps1"));
+  const QString checker = QDir(tools).filePath(QStringLiteral("KQPetReleaseCheck.exe"));
+  if (!QFile::exists(script) || !QFile::exists(checker)) {
+    setSoftwareUpdateBusy(false, QStringLiteral("更新组件不完整。请重新下载最新 copy-ready 安装包后再试。"));
+    return;
+  }
+  const QString windows = qEnvironmentVariable("SystemRoot", QStringLiteral("C:/Windows"));
+  const QString powershell = QDir(windows).filePath(QStringLiteral("System32/WindowsPowerShell/v1.0/powershell.exe"));
+  softwareUpdateProcess_ = new QProcess(this);
+  softwareUpdateProcess_->setProgram(powershell);
+  softwareUpdateProcess_->setArguments({QStringLiteral("-NoLogo"), QStringLiteral("-NoProfile"),
+      QStringLiteral("-NonInteractive"), QStringLiteral("-ExecutionPolicy"), QStringLiteral("Bypass"),
+      QStringLiteral("-File"), script, QStringLiteral("-ClientRoot"), client,
+      QStringLiteral("-ReleaseCheck"), checker, QStringLiteral("-Force")});
+  softwareUpdateProcess_->setWorkingDirectory(client);
+  softwareUpdateProcess_->setProcessChannelMode(QProcess::MergedChannels);
+  connect(softwareUpdateProcess_, &QProcess::errorOccurred, this, [this](QProcess::ProcessError error) {
+    if (error == QProcess::FailedToStart) {
+      softwareUpdateProcess_->deleteLater();
+      softwareUpdateProcess_ = nullptr;
+      setSoftwareUpdateBusy(false, QStringLiteral("更新程序无法启动，请检查系统 PowerShell 是否可用。"));
+    }
+  });
+  connect(softwareUpdateProcess_, qOverload<int, QProcess::ExitStatus>(&QProcess::finished),
+          this, [this](int, QProcess::ExitStatus) { finishSoftwareUpdate(); });
+  setSoftwareUpdateBusy(true, QStringLiteral("正在下载、校验并准备 %1，请不要关闭此窗口…").arg(softwareUpdateTag_));
+  softwareUpdateProcess_->start();
+}
+
+void PetSettingsDialog::finishSoftwareUpdate() {
+  if (!softwareUpdateProcess_) return;
+  softwareUpdateProcess_->deleteLater();
+  softwareUpdateProcess_ = nullptr;
+  const QString statePath = QDir(softwareClientRoot()).filePath(QStringLiteral("KQPetData/updates/github-release.json"));
+  QFile stateFile(statePath);
+  QJsonObject state;
+  if (stateFile.open(QIODevice::ReadOnly)) state = QJsonDocument::fromJson(stateFile.readAll()).object();
+  const QString status = state.value(QStringLiteral("status")).toString();
+  if (status == QStringLiteral("staged")) {
+    softwareUpdateAvailable_ = false;
+    setSoftwareUpdateBusy(false, QStringLiteral("新版已下载并通过校验。请关闭氪奇，再双击“启动精灵工作台”完成更新。"));
+  } else if (status == QStringLiteral("updated") || status == QStringLiteral("current")) {
+    softwareUpdateAvailable_ = false;
+    setSoftwareUpdateBusy(false, QStringLiteral("更新已经完成。重新启动后将使用新版本。"));
+  } else {
+    const QString message = state.value(QStringLiteral("message")).toString();
+    setSoftwareUpdateBusy(false, message.isEmpty()
+        ? QStringLiteral("更新未完成。当前版本没有变化，请稍后重试。")
+        : QStringLiteral("更新未完成：%1").arg(message));
+  }
+}
+
+void PetSettingsDialog::setSoftwareUpdateBusy(bool busy, const QString& status) {
+  softwareUpdateProgress_->setVisible(busy);
+  softwareUpdateStatus_->setText(status);
+  softwareUpdateCheck_->setEnabled(!busy);
+  softwareUpdateInstall_->setEnabled(!busy && softwareUpdateAvailable_);
+  if (dialogButtons_) dialogButtons_->setEnabled(!busy);
+}
+
+void PetSettingsDialog::reject() {
+  if (softwareUpdateProcess_ && softwareUpdateProcess_->state() != QProcess::NotRunning) {
+    softwareUpdateStatus_->setText(QStringLiteral("正在准备更新，请等待完成后再关闭设置窗口。"));
+    return;
+  }
+  QDialog::reject();
 }
 
 QWidget* PetSettingsDialog::createTimingPage() {

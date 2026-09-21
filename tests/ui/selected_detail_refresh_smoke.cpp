@@ -2,18 +2,26 @@
 #include "ui/pet/pet_window.h"
 #include "ui/common/pet_image_cache.h"
 #include "ui/detail/pet_power_analysis_renderer.h"
+#include "ui/detail/pet_skill_renderer.h"
 #include "ui/detail/stargod_ring_object.h"
+#include "ui/workbench/pet_settings_dialog.h"
+#include "application/catalog/pet_skill_catalog.h"
 #include <QApplication>
 #include <QTemporaryDir>
 #include <QSemaphore>
 #include <QPainter>
 #include <QFile>
 #include <QFontDatabase>
+#include <QLabel>
+#include <QMouseEvent>
 #include <QTextBlock>
+#include <QTextCharFormat>
+#include <QTextCursor>
 #include <QTextDocument>
 #include <QTabWidget>
 #include <QRegularExpression>
 #include <QPushButton>
+#include <QProgressBar>
 #include <QScrollBar>
 
 int main(int argc, char** argv) {
@@ -23,12 +31,13 @@ int main(int argc, char** argv) {
   QTemporaryDir temporary;
   PreviewInventory::Fixture fixture(temporary.path(),QStringLiteral("selected-refresh-fixture"));
   auto require = [](bool ok,const char* reason) { if(!ok) std::fprintf(stderr,"FAIL: %s\n",reason); return ok; };
-  QJsonObject pet{{"id",42},{"r",7152},{"lv",100},{"n",QStringLiteral("详情刷新样例")},
+  QJsonObject pet{{"id",42},{"r",7396},{"lv",100},{"n",QStringLiteral("详情刷新样例")},
       {"czdlv",QJsonObject{{"iv",111}}},{"mzdlv",QJsonObject{{"iv",222}}},{"opaqueDetailRevision",1}};
   bool ok = require(fixture.initialized && fixture.publishLists({pet},{},{}) && fixture.factsReady(),"initial fixture did not become ready");
   PetWindow window(&fixture.inventory); window.resize(1400,900); window.show(); window.focusPet(42);
   auto* browser = window.findChild<PetImageBrowser*>(QStringLiteral("KQPetPreparedDetail"));
   auto* analysis = window.findChild<QTextBrowser*>(QStringLiteral("KQPetPowerAnalysis"));
+  auto* skills = window.findChild<QTextBrowser*>(QStringLiteral("KQPetSkillDetail"));
   auto* analysisPage = window.findChild<QWidget*>(QStringLiteral("KQPetAnalysisPage"));
   auto* refreshMaterials = window.findChild<QPushButton*>(QStringLiteral("KQRefreshMaterialInventory"));
   int materialRequests = 0;
@@ -42,7 +51,142 @@ int main(int argc, char** argv) {
   for (auto* tabs : window.findChildren<QTabWidget*>())
     if (analysisPage && tabs->indexOf(analysisPage) >= 0) detailTabs = tabs;
   ok &= require(analysis && detailTabs && detailTabs->tabText(detailTabs->indexOf(analysisPage)) == QStringLiteral("精灵分析") &&
-      detailTabs->indexOf(analysisPage) == 2, "analysis tab was not placed after detail and raw data");
+      detailTabs->indexOf(analysisPage) == 3, "analysis tab was not placed after detail, skill and raw data");
+  ok &= require(skills && detailTabs && detailTabs->indexOf(skills) == 1 &&
+      detailTabs->tabText(1) == QStringLiteral("技能资料"), "skill tab was not placed beside pet detail");
+  if (detailTabs && skills) detailTabs->setCurrentWidget(skills);
+  QCoreApplication::processEvents();
+  ok &= require(skills && skills->toPlainText().contains(QStringLiteral("技能槽总览")) &&
+      skills->toPlainText().contains(QStringLiteral("107396")) &&
+      skills->toPlainText().contains(QStringLiteral("万道御宇")) && gameRequests == 0,
+      "opening local skill data queried the game or failed to map the selected race");
+  const QString skillText = skills ? skills->toPlainText() : QString();
+  ok &= require(!skillText.contains(QStringLiteral("灵初溯灵规则")) &&
+      !skillText.contains(QStringLiteral("技能实现 buff")) &&
+      !skillText.contains(QStringLiteral("机制词条展开")),
+      "skill detail kept a removed rule, raw buff or standalone mechanism section");
+  ok &= require(!skillText.contains(QStringLiteral("超必杀技")) &&
+      !skillText.contains(QStringLiteral("龙职技")) &&
+      !skillText.contains(QStringLiteral("通灵技")),
+      "skill slot overview still listed slots the selected pet does not have");
+  {
+    QJsonObject officialOnly = fixture.inventory.skillSnapshot()->root;
+    QString error;
+    ok &= require(PetSkillCatalog::prepare(officialOnly, QStringLiteral("仅官方技能缓存"), {}, &error) &&
+                      error.isEmpty(),
+                  "the official game-data cache incorrectly depended on the static supplement");
+  }
+  const QTextCursor term = skills ? skills->document()->find(QStringLiteral("[灵力枷锁]")) : QTextCursor();
+  ok &= require(!term.isNull() && term.charFormat().fontWeight() >= QFont::Bold &&
+      term.charFormat().toolTip().contains(QStringLiteral("无法行动")) &&
+      term.charFormat().toolTip().contains(QChar('\n')) &&
+      !term.charFormat().toolTip().contains(QStringLiteral("&#")),
+      "mechanism term was not bold or its hover explanation retained encoded line breaks");
+  const QString renderedSkillHtml = PetSkillRenderer::render(fixture.inventory.skillSnapshot(), 7396,
+                                                              QStringLiteral("技能卡样例"));
+  ok &= require(renderedSkillHtml.count(QStringLiteral("class='skill-type' width='33%'")) >= 4 &&
+                    !renderedSkillHtml.contains(QStringLiteral("本地资料没有单独释义")),
+                "all owned skill cards did not use the one-third label layout or kept the empty-definition message");
+  {
+    QTextDocument lingchuDocument;
+    lingchuDocument.setHtml(renderedSkillHtml);
+    const QString lingchuText = lingchuDocument.toPlainText();
+    QTextDocument ordinaryDocument;
+    ordinaryDocument.setHtml(PetSkillRenderer::render(fixture.inventory.skillSnapshot(), 1,
+                                                       QStringLiteral("普通精灵样例")));
+    ok &= require(lingchuText.contains(QStringLiteral("技能简评")) &&
+                      lingchuText.contains(QStringLiteral("以本页技能原文为准")) &&
+                      !ordinaryDocument.toPlainText().contains(QStringLiteral("技能简评")),
+                  "the static skill evaluation was not limited to current Lingchu pets");
+  }
+  if (skills && !term.isNull()) {
+    QTextCursor hover = term;
+    hover.clearSelection();
+    hover.setPosition(term.selectionStart() + 1);
+    skills->setTextCursor(hover);
+    skills->ensureCursorVisible();
+    QCoreApplication::processEvents();
+    const QPoint position = skills->cursorRect(hover).center();
+    QMouseEvent move(QEvent::MouseMove, QPointF(position),
+                     QPointF(skills->viewport()->mapToGlobal(position)),
+                     Qt::NoButton, Qt::NoButton, Qt::NoModifier);
+    QApplication::sendEvent(skills->viewport(), &move);
+    QCoreApplication::processEvents();
+    auto* popup = window.findChild<QWidget*>(QStringLiteral("KQSkillTermPopup"));
+    auto* popupText = window.findChild<QLabel*>(QStringLiteral("KQSkillTermPopupText"));
+    ok &= require(popup && popup->isVisible() && popupText &&
+                      popupText->text().contains(QStringLiteral("无法行动")) &&
+                      popupText->textFormat() == Qt::PlainText && popupText->wordWrap() &&
+                      popupText->width() == 400 && !popupText->text().contains(QStringLiteral("&#")),
+                  "mechanism explanation was not an immediately wrapped, decoded plain-text popup");
+    QEvent leave(QEvent::Leave);
+    QApplication::sendEvent(skills->viewport(), &leave);
+    QCoreApplication::processEvents();
+    ok &= require(popup && !popup->isVisible(),
+                  "mechanism explanation remained after the pointer left the skill text");
+  }
+  {
+    QTextDocument dragonDocument;
+    dragonDocument.setHtml(PetSkillRenderer::render(fixture.inventory.skillSnapshot(), 5307,
+                                                     QStringLiteral("龙尊机制样例")));
+    const QTextCursor dragon = dragonDocument.find(QStringLiteral("[龙尊权能]"));
+    ok &= require(!dragon.isNull() && dragon.charFormat().fontWeight() >= QFont::Bold &&
+        dragon.charFormat().toolTip().contains(QStringLiteral("龙尊觉醒")) &&
+        !dragon.charFormat().toolTip().contains(QStringLiteral("本地资料没有单独释义")),
+        "a mechanism without a standalone entry did not obtain a reverse-reference explanation");
+  }
+  {
+    QJsonObject futureRoot = fixture.inventory.skillSnapshot()->root;
+    QJsonObject futureEntries = futureRoot.value(QStringLiteral("entries")).toObject();
+    futureEntries.insert(QStringLiteral("龙尊权能"), QStringLiteral("官方新增的龙尊权能独立释义"));
+    futureEntries.insert(QStringLiteral("受伤降低·30%"), QStringLiteral("官方新增的精确参数词条释义"));
+    futureRoot.insert(QStringLiteral("entries"), futureEntries);
+    QString error;
+    const auto future = PetSkillCatalog::prepare(futureRoot, QStringLiteral("未来官方技能缓存"), {}, &error);
+    QTextDocument futureDocument;
+    if (future) futureDocument.setHtml(PetSkillRenderer::render(future, 5307, QStringLiteral("官方优先样例")));
+    const QTextCursor term = futureDocument.find(QStringLiteral("[龙尊权能]"));
+    QTextDocument parameterDocument;
+    if (future) parameterDocument.setHtml(PetSkillRenderer::render(future, 7396, QStringLiteral("参数词条样例")));
+    const QTextCursor parameterTerm = parameterDocument.find(QStringLiteral("[受伤降低·30%]"));
+    ok &= require(future && !term.isNull() && !parameterTerm.isNull() &&
+                      term.charFormat().toolTip().contains(QStringLiteral("官方新增的龙尊权能独立释义")) &&
+                      !term.charFormat().toolTip().contains(QStringLiteral("龙尊觉醒")) &&
+                      parameterTerm.charFormat().toolTip().contains(QStringLiteral("官方新增的精确参数词条释义")),
+                  "a future official definition did not override the bundled static supplement");
+  }
+  {
+    PetSettingsDialog settings(RefreshTimings{});
+    auto* checkUpdate = settings.findChild<QPushButton*>(QStringLiteral("KQSoftwareUpdateCheck"));
+    auto* installUpdate = settings.findChild<QPushButton*>(QStringLiteral("KQSoftwareUpdateInstall"));
+    auto* updateNotes = settings.findChild<QTextBrowser*>(QStringLiteral("KQSoftwareUpdateNotes"));
+    ok &= require(checkUpdate && installUpdate && updateNotes && checkUpdate->isEnabled() &&
+        !installUpdate->isEnabled(),
+        "settings did not expose a manual GitHub update flow with confirmation disabled before checking");
+    auto* updatePage = settings.findChild<QWidget*>(QStringLiteral("KQSoftwareUpdatePage"));
+    auto* settingsTabs = settings.findChild<QTabWidget*>(QStringLiteral("KQSettingsTabs"));
+    if (settingsTabs && updatePage) settingsTabs->setCurrentWidget(updatePage);
+    settings.resize(760, 680);
+    settings.show();
+    QCoreApplication::processEvents();
+    ok &= require(settings.grab().save(QDir::current().filePath(QStringLiteral("settings-update-preview.png"))),
+                  "software update settings preview could not be captured");
+    if (qEnvironmentVariableIsSet("KQPET_TEST_LIVE_GITHUB")) {
+      auto* updateProgress = settings.findChild<QProgressBar*>(QStringLiteral("KQSoftwareUpdateProgress"));
+      auto* updateStatus = settings.findChild<QLabel*>(QStringLiteral("KQSoftwareUpdateStatus"));
+      checkUpdate->click();
+      ok &= require(PreviewInventory::until([&] {
+          return updateProgress && updateStatus && !updateProgress->isVisible() &&
+                 !updateStatus->text().contains(QStringLiteral("正在"));
+        }, 30000) && !updateNotes->toPlainText().trimmed().isEmpty() &&
+            (updateStatus->text().contains(QStringLiteral("最新正式版")) ||
+             updateStatus->text().contains(QStringLiteral("发现新版本"))),
+          "live GitHub check did not finish through the API or official-page fallback");
+    }
+    settings.hide();
+  }
+  if (skills) ok &= require(skills->grab().save(QDir::current().filePath(QStringLiteral("skill-ui-preview.png"))),
+                            "redesigned skill preview could not be captured");
   if (detailTabs) detailTabs->setCurrentWidget(analysisPage);
   QCoreApplication::processEvents();
   ok &= require(analysis && analysis->toPlainText().contains(QStringLiteral("官方极限战斗力")) && gameRequests == 0,

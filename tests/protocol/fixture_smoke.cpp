@@ -376,6 +376,10 @@ int main(int argc, char* argv[]) {
   ok &= require(shop.requestInfo(), "fixture shop refresh did not start");
   deliver(&repository, loadFixture(QStringLiteral("shop/material_real_v1_sanitized.json"), &ok));
   deliver(&repository, loadFixture(QStringLiteral("shop/real_v1_sanitized.json"), &ok));
+  deliver(&repository, {{QStringLiteral("_cmd"), QStringLiteral("1015_2A")},
+      {QStringLiteral("r"), 1}, {QStringLiteral("infos"),
+       QJsonObject{{QStringLiteral("UnionMemberInfo"),
+                    QJsonObject{{QStringLiteral("lCToken"), 17}}}}}});
   ok &= require(shop.hasPacket() && shop.hasMaterialCounts() &&
                     shop.materialCounts().value(QStringLiteral("4:3237")) == 42,
                 "real shop and material fixtures were not combined");

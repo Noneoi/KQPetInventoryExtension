@@ -27,9 +27,14 @@ int main(int argc,char** argv) {
   sameId.insert(QStringLiteral("shelfTime"),QString{});
   sameId.insert(QStringLiteral("removalTime"),QString{});
   auto zeroId = sameId; zeroId.insert(QStringLiteral("itemServerId"),0);
+  zeroId.insert(QStringLiteral("cost"),QStringLiteral("8:2:10"));
+  zeroId.insert(QStringLiteral("exchangeKind"),QStringLiteral("diamond"));
   QJsonObject activity{{QStringLiteral("shopId"),base.value(QStringLiteral("shopId"))},
       {QStringLiteral("sourceKey"),QStringLiteral("newactivityext/newact20990101/example/example#Config.TABLE")},
       {QStringLiteral("name"),QStringLiteral("活动·新活动")},
+      {QStringLiteral("navigationLink"),QStringLiteral("btnNewAct_example_showMainPanel")},
+      {QStringLiteral("activityEvidence"),QStringLiteral("hud")},
+      {QStringLiteral("activityEvidenceDate"),QStringLiteral("20990101")},
       {QStringLiteral("goods"),QJsonArray{sameId,zeroId}}};
   auto shops = mainShops; shops.append(activity); root.insert(QStringLiteral("shops"),shops);
   QString error;
@@ -40,6 +45,11 @@ int main(int argc,char** argv) {
     const auto added = catalog->allShops.last();
     const auto collision = added.goods.first();
     const auto zero = added.goods.last();
+    require(added.navigationLink == QStringLiteral("btnNewAct_example_showMainPanel") &&
+            added.activityEvidence == QStringLiteral("hud") &&
+            collision.section == ShopExchangeSection::ActivityShop &&
+            zero.section == ShopExchangeSection::DiamondActivity,
+            "activity category, discovery evidence, or navigation was lost");
     require(collision.shopId == main.shopId && collision.itemServerId == main.itemServerId &&
             collision.stableKey() != main.stableKey(),"activity identity collided with SEF");
     require(zero.hasIdentity() && zero.itemServerId == 0 && zero.isOnlineOn(QDate(2026,9,13)),

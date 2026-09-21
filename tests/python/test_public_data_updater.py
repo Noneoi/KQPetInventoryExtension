@@ -55,11 +55,23 @@ class PublicDataUpdateTests(unittest.TestCase):
                             "fusionJobs":[], "money":{"1":{"name":"金币"}},
                             "powerRuleVersion": updater.POWER_RULE_VERSION, "stargods": self.stars, "astrolabe": self.astrolabe,
                             **self.cultivation})
+        updater.atomic_json(self.baseline / "pet-skill-data.json",
+                            {"schema": 1, "source": {"version": self.version},
+                             "pets": {"1": {"name": "pet", "slots": {"normal": 100001}}},
+                             "skills": {"100001": {"name": "skill", "description": "desc"}},
+                             "entries": {"term": "desc"}, "buffs": {"1": {"name": "buff"}}})
         updater.atomic_json(self.baseline / "shop-exchange-data.json", {"shops": [{"goods": [{"id": 1}]}], "source": {"shopVersion": self.version}})
         self.subject = updater.Updater(self.root, self.baseline, self.scratch, fetcher=self.fetch)
         self.subject.icon_exceptions = lambda versions, current: ([], {"version": self.version})
         self.subject.icons = lambda versions: False
         self.subject.routines = lambda versions: False
+        def skills(_versions):
+            current = self.subject.current("skills")
+            target = self.root / "catalog/pet-skill-data.json"
+            if updater.read_object(target) != current:
+                updater.atomic_json(target, current)
+            return False
+        self.subject.skills = skills
         self.subject.activity_exchanges = lambda versions: False
         self.quiet = contextlib.redirect_stdout(io.StringIO())
         self.quiet.__enter__()
@@ -89,8 +101,8 @@ class PublicDataUpdateTests(unittest.TestCase):
         self.assertEqual(self.calls, [updater.OFFICIAL + "start.xml"])
         self.assertTrue(all(v["status"] == "unchanged" for v in second.values()))
         self.assertEqual(saved, (self.root / "catalog/pet-detail-data.json").read_bytes())
-        self.assertEqual(len(list((self.root / "catalog").glob("*.json"))), 5)
-        self.assertEqual(set(second), {"pets","shop","images","icons","routines"})
+        self.assertEqual(len(list((self.root / "catalog").glob("*.json"))), 6)
+        self.assertEqual(set(second), {"pets","skills","shop","images","icons","routines"})
         self.assertTrue(updater.read_object(self.root / "catalog/public-update-status.json")["complete"])
 
     def test_selected_components_run_alone_and_keep_other_status(self):
@@ -104,7 +116,7 @@ class PublicDataUpdateTests(unittest.TestCase):
         self.assertEqual(set(result), {"shop"})
         status = updater.read_object(self.root / "catalog/public-update-status.json")
         self.assertEqual(status["checked"], ["shop"])
-        self.assertEqual(set(status["components"]), {"pets", "shop", "images", "icons", "routines"})
+        self.assertEqual(set(status["components"]), {"pets", "skills", "shop", "images", "icons", "routines"})
         self.assertTrue(status["complete"])
         with self.assertRaises(ValueError):
             self.subject.run(set())
@@ -130,7 +142,7 @@ class PublicDataUpdateTests(unittest.TestCase):
     def test_unknown_shop_rules_are_reported_instead_of_claiming_full_coverage(self):
         path = self.baseline / "shop-exchange-data.json"
         catalog = updater.read_object(path)
-        catalog["shops"][0]["goods"] = [{"enhanceType":"11-31-34-33$5-39$1-95"}]
+        catalog["shops"][0]["goods"] = [{"enhanceType":"11-31-34-33$5-39$1-39$3-89$1-95"}]
         updater.atomic_json(path,catalog)
         with patch.object(updater,"runtime_entry",return_value=Path("synthetic-runtime")):
             result = self.subject.run()

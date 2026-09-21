@@ -12,6 +12,7 @@ struct InventoryViewSnapshot {
   quint64 sessionEpoch = 0;
   quint64 inventoryRevision = 0;
   std::shared_ptr<const PetDetailCatalogSnapshot> metadata;
+  std::shared_ptr<const PetSkillCatalogSnapshot> skills;
   QString account;
   QString cachePath;
   QString dataRoot;
@@ -65,6 +66,9 @@ public:
   }
   std::shared_ptr<const PetDetailCatalogSnapshot> metadataSnapshot() const override {
     return snapshot_ ? snapshot_->metadata : nullptr;
+  }
+  std::shared_ptr<const PetSkillCatalogSnapshot> skillSnapshot() const override {
+    return snapshot_ ? snapshot_->skills : nullptr;
   }
 
 signals:

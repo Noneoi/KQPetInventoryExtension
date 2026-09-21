@@ -18,6 +18,7 @@ endfunction()
 # Python tools, PowerShell scripts and architecture guards
 # =============================================================================
 add_test(NAME public_data_updater_smoke COMMAND Python3::Interpreter -B "${CMAKE_CURRENT_SOURCE_DIR}/tests/python/test_public_data_updater.py")
+add_test(NAME pet_skill_data_smoke COMMAND Python3::Interpreter -B "${CMAKE_CURRENT_SOURCE_DIR}/tests/python/test_pet_skill_data.py")
 add_test(NAME public_names_updater_smoke COMMAND Python3::Interpreter -B "${CMAKE_CURRENT_SOURCE_DIR}/tests/python/test_public_names_updater.py")
 add_test(NAME public_icons_updater_smoke COMMAND Python3::Interpreter -B "${CMAKE_CURRENT_SOURCE_DIR}/tests/python/public_icon_updater_test.py")
 add_test(NAME public_routine_updater_smoke COMMAND Python3::Interpreter -B "${CMAKE_CURRENT_SOURCE_DIR}/tests/python/test_public_routine_updater.py")
@@ -34,6 +35,9 @@ add_test(NAME release_tools_smoke COMMAND powershell.exe -NoProfile -ExecutionPo
   -File "${CMAKE_CURRENT_SOURCE_DIR}/scripts/tests/release-tools-smoke.ps1"
   -BuildBin "$<TARGET_FILE_DIR:KQPetInventory>")
 set_tests_properties(release_tools_smoke PROPERTIES TIMEOUT 60)
+add_test(NAME auto_update_tools_smoke COMMAND powershell.exe -NoProfile -ExecutionPolicy Bypass
+  -File "${CMAKE_CURRENT_SOURCE_DIR}/scripts/tests/auto-update-tools-smoke.ps1")
+set_tests_properties(auto_update_tools_smoke PROPERTIES TIMEOUT 30)
 add_test(NAME target_tools_smoke COMMAND powershell.exe -NoProfile -ExecutionPolicy Bypass
   -File "${CMAKE_CURRENT_SOURCE_DIR}/scripts/tests/target-tools-smoke.ps1")
 set_tests_properties(target_tools_smoke

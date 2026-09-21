@@ -6,11 +6,13 @@
 #include "application/views/inventory_projection.h"
 
 #include <QApplication>
+#include <QColor>
 #include <QElapsedTimer>
 #include <QJsonArray>
 #include <QJsonDocument>
 #include <QLabel>
 #include <QLineEdit>
+#include <QPushButton>
 #include <QTableWidget>
 #include <QHeaderView>
 #include <QTabWidget>
@@ -42,12 +44,16 @@ bool verifyLargeProjectSwitches() {
   auto catalog = std::make_shared<ShopCatalogSnapshot>(); catalog->revision = 1; catalog->loaded = true;
   for (int source = 0; source < 2; ++source) {
     ShopExchangeShop shop; shop.shopId = 1; shop.name = source ? QStringLiteral("活动性能样本") : QStringLiteral("常驻性能样本");
-    if (source) shop.sourceKey = QStringLiteral("fixture/activity-same-numeric-id");
+    if (source) {
+      shop.sourceKey = QStringLiteral("fixture/activity-same-numeric-id");
+      shop.navigationLink = QStringLiteral("btnNewAct_fixture_showMainPanel");
+    }
     for (int index = 0; index < 12; ++index) {
       ShopExchangeGood good; good.shopId = shop.shopId; good.shopName = shop.name; good.sourceKey = shop.sourceKey;
       good.itemServerId = index + 1; good.description = shop.name + QString::number(index);
       good.enhanceType = index % 2 ? QStringLiteral("91") : QStringLiteral("11"); good.raceIds = {index % 2 ? 990002 : 990001};
       good.shelfDate = QDate(2026,9,1); good.provenUnlimited = true; good.cost = QStringLiteral("8:1:1");
+      good.section = source ? ShopExchangeSection::ActivityShop : ShopExchangeSection::Permanent;
       if (source && index < 4) {
         const QJsonObject query{{QStringLiteral("key"),QStringLiteral("state")},{QStringLiteral("extension"),QStringLiteral("TimelinessActExtension")},
             {QStringLiteral("command"),QStringLiteral("1008_20260828_fixture_0")},{QStringLiteral("params"),QJsonValue(QJsonValue::Null)}};
@@ -83,12 +89,19 @@ bool verifyLargeProjectSwitches() {
   };
   ShopWindow window(&inventory); window.setCatalogSnapshot(catalog,QDate(2026,9,9));
   window.setPacket(activityState(false),true); window.setMaterialCounts({{QStringLiteral("8:1"),99}},true); window.show();
-  int requests = 0,pulses = 0;
+  int requests = 0,pulses = 0,navigationRequests = 0;
+  QString navigationLink;
   QObject::connect(&window,&ShopWindow::detailRequested,&window,[&](qint64) { ++requests; });
   QObject::connect(&window,&ShopWindow::refreshRequested,&window,[&] { ++requests; });
+  QObject::connect(&window,&ShopWindow::openShopRequested,&window,[&](const QString& link) {
+    ++navigationRequests;
+    navigationLink = link;
+  });
   auto* table = window.findChild<QTableWidget*>(QStringLiteral("KQShopPetTable"));
   auto* tabs = window.findChild<QTabWidget*>(QStringLiteral("KQShopTabs"));
-  if (!table || !tabs || !PreviewInventory::until([&] { return tabs->count() == 2; })) return false;
+  auto* openShop = window.findChild<QPushButton*>(QStringLiteral("KQOpenGameShop"));
+  if (!table || !tabs || !openShop || !PreviewInventory::until([&] { return tabs->count() == 2; })) return false;
+  if (openShop->isEnabled()) return false;
   QTimer heartbeat; heartbeat.setInterval(0);
   QObject::connect(&heartbeat,&QTimer::timeout,&window,[&] { ++pulses; }); heartbeat.start();
   const auto a = catalog->allShops[0].goods[0].stableKey(), b = catalog->allShops[0].goods[1].stableKey();
@@ -100,22 +113,30 @@ bool verifyLargeProjectSwitches() {
   if (!window.petRowsPreparing() || table->isEnabled()) return false;
   window.focusGood(b); window.focusGood(activity);
   if (!PreviewInventory::until([&] { return !window.petRowsPreparing() && table->rowCount() == 400; })) return false;
+  if (!openShop->isEnabled()) return false;
+  openShop->click();
+  if (navigationRequests != 1 || navigationLink != QStringLiteral("btnNewAct_fixture_showMainPanel")) return false;
   auto* selectedGoods = qobject_cast<QTableWidget*>(tabs->currentWidget());
   if (!selectedGoods || !selectedGoods->item(1,0)->font().bold() ||
       selectedGoods->item(1,0)->text() != catalog->allShops[1].goods[1].description) return false;
   const auto* currency = window.findChild<QLabel*>(QStringLiteral("KQShopCurrencySummary"));
   if (!selectedGoods->item(0,1)->text().contains(QStringLiteral("活动券 ×30")) ||
       !selectedGoods->item(1,1)->text().contains(QStringLiteral("测试币 ×12")) ||
-      selectedGoods->item(1,3)->text() != QStringLiteral("1 / 3（待确认）") ||
+      selectedGoods->item(1,3)->text() != QStringLiteral("已用 2｜剩 1") ||
+      selectedGoods->item(1,0)->foreground().color() != QColor(QStringLiteral("#2563eb")) ||
+      selectedGoods->item(1,3)->foreground().color() == QColor(QStringLiteral("#2563eb")) ||
+      selectedGoods->item(1,0)->background().color() != QColor(QStringLiteral("#e8f2ff")) ||
+      selectedGoods->item(1,5)->background().color() != QColor(QStringLiteral("#e8f2ff")) ||
       !selectedGoods->item(2,2)->text().contains(QStringLiteral("1")) ||
       selectedGoods->item(2,3)->text() != QStringLiteral("需在活动中查看") ||
       selectedGoods->item(3,3)->text() != QStringLiteral("不适用当前活动等级") || !currency ||
-      !currency->text().contains(QStringLiteral("测试币 99")) || !currency->text().contains(QStringLiteral("活动券 88（待确认）"))) return false;
+      !currency->text().contains(QStringLiteral("测试币 99")) || !currency->text().contains(QStringLiteral("活动券 88")) ||
+      currency->text().contains(QStringLiteral("待确认"))) return false;
   // Need / own / short: confirmed balances are green, unconfirmed ones say so.
   if (selectedGoods->columnCount() != 6 || !selectedGoods->item(1,5) ||
-      selectedGoods->item(1,5)->text() != QStringLiteral("足够") ||
+      selectedGoods->item(1,5)->text() != QStringLiteral("测试币 有 99；足够") ||
       !selectedGoods->item(1,5)->toolTip().contains(QStringLiteral("测试币：需要 12，拥有 99")) ||
-      selectedGoods->item(0,5)->text() != QStringLiteral("足够（待确认）") ||
+      selectedGoods->item(0,5)->text() != QStringLiteral("活动券 有 88；足够") ||
       selectedGoods->item(0,5)->foreground().style() != Qt::NoBrush) return false;
   // Searching hides other goods and jumps to the shop tab holding the match.
   auto* search = window.findChild<QLineEdit*>(QStringLiteral("KQShopGoodSearch"));
@@ -135,7 +156,7 @@ bool verifyLargeProjectSwitches() {
   if (!PreviewInventory::until([&] {
     selectedGoods = qobject_cast<QTableWidget*>(tabs->currentWidget());
     return window.property("rebuildCount").toInt() > priorRebuild && !window.petRowsPreparing() &&
-        selectedGoods && selectedGoods->item(1,3)->text() == QStringLiteral("1 / 3（上次）");
+        selectedGoods && selectedGoods->item(1,3)->text() == QStringLiteral("已用 2｜剩 1（上次）");
   })) return false;
   for (int row = 0; row < table->rowCount(); ++row)
     if (!table->item(row,0) || table->item(row,0)->data(Qt::UserRole).toLongLong() < 31600) return false;
@@ -263,6 +284,13 @@ int main(int argc, char* argv[]) {
           tabs->tabText(0).contains(QStringLiteral("（"))) {
         std::fprintf(stderr,"STATE: rebuilds=%d firstOpenMs=%lld currency=%s\n",window->property("rebuildCount").toInt(),firstOpenTimer.elapsed(),currency->text().toUtf8().constData());
         application.exit(failure(9,"initial rebuild/currency"));
+        return;
+      }
+      if (!goods->item(0, 0) || !goods->item(0, 5) ||
+          goods->item(0, 0)->foreground().color() != QColor(QStringLiteral("#2563eb")) ||
+          goods->item(0, 0)->background().color() != QColor(QStringLiteral("#e8f2ff")) ||
+          goods->item(0, 5)->background().color() != QColor(QStringLiteral("#e8f2ff"))) {
+        application.exit(failure(11,"permanent remaining row whole-row highlight"));
         return;
       }
       const QPoint goodsTop = goods->mapToGlobal(QPoint(0, 0));

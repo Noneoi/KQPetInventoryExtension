@@ -137,31 +137,34 @@ int main(int argc,char** argv) {
     deliver(target,{{QStringLiteral("_cmd"),kBase},{QStringLiteral("si1"),QJsonObject{
         {QStringLiteral("b1"),QJsonObject{{QStringLiteral("pl"),0}}}}}});
     deliver(target,{{QStringLiteral("_cmd"),QStringLiteral("3_11")},{QStringLiteral("4"),QJsonArray{}}});
+    deliver(target,{{QStringLiteral("_cmd"),QStringLiteral("1015_2A")},{QStringLiteral("r"),1},
+        {QStringLiteral("infos"),QJsonObject{{QStringLiteral("UnionMemberInfo"),
+            QJsonObject{{QStringLiteral("lCToken"),33}}}}}});
   };
   ok &= require(until([&] { return !controller.cacheLoading(); }) && sent.isEmpty(),
       "loading an activity cache sent a game query");
   deliver(controller,response(kShared,9));
   ok &= require(state(controller,kA).isEmpty(),"an unrequested activity response became an account observation");
 
-  ok &= require(controller.requestInfo() && sent.size() == 2,"base info/material requests did not start");
+  ok &= require(controller.requestInfo() && sent.size() == 3,"base shop/material/contribution requests did not start");
   baseReplies(controller);
-  ok &= require(until([&] { return sent.size() == 3; }) && sent[2].command == kShared &&
-      QJsonDocument::fromJson(sent[2].parameters.toUtf8()).object().value(QStringLiteral("i")).toInt() == 10,
+  ok &= require(until([&] { return sent.size() == 4; }) && sent[3].command == kShared &&
+      QJsonDocument::fromJson(sent[3].parameters.toUtf8()).object().value(QStringLiteral("i")).toInt() == 10,
       "first activity request did not follow the completed base pair");
   QCoreApplication::processEvents(QEventLoop::AllEvents,5);
-  ok &= require(sent.size() == 3 && state(controller,kB).isEmpty(),"same-command activity groups were sent concurrently");
+  ok &= require(sent.size() == 4 && state(controller,kB).isEmpty(),"same-command activity groups were sent concurrently");
   deliver(controller,response(kShared,1));
-  ok &= require(until([&] { return sent.size() == 4; }) && sent[3].command == kShared &&
-      QJsonDocument::fromJson(sent[3].parameters.toUtf8()).object().value(QStringLiteral("i")).toInt() == 9,
+  ok &= require(until([&] { return sent.size() == 5; }) && sent[4].command == kShared &&
+      QJsonDocument::fromJson(sent[4].parameters.toUtf8()).object().value(QStringLiteral("i")).toInt() == 9,
       "second shared-command group did not wait for the first response");
   deliver(controller,response(kShared,4));
-  ok &= require(until([&] { return sent.size() == 5; }) && sent[4].command == kSimple,
+  ok &= require(until([&] { return sent.size() == 6; }) && sent[5].command == kSimple,
       "the independent simple-activity query did not follow the second shared group");
   deliver(controller,response(kSimple,99,5747));
-  ok &= require(controller.isRunning() && sent.size() == 5 && state(controller,kC).isEmpty(),
+  ok &= require(controller.isRunning() && sent.size() == 6 && state(controller,kC).isEmpty(),
       "a wrong simple-activity ai completed or overwrote the pending group");
   deliver(controller,response(kSimple,2));
-  ok &= require(until([&] { return !controller.isRunning(); }) && sent.size() == 5 &&
+  ok &= require(until([&] { return !controller.isRunning(); }) && sent.size() == 6 &&
       observeActivityShopGood(sourceGood(kA),controller.packet()).used == 1 &&
       observeActivityShopGood(sourceGood(kB),controller.packet()).used == 4 &&
       observeActivityShopGood(sourceGood(kC),controller.packet()).used == 2,
@@ -182,11 +185,11 @@ int main(int argc,char** argv) {
   sent.clear();
   ok &= require(controller.requestInfo(),"malformed-response refresh did not start");
   baseReplies(controller);
-  ok &= require(until([&] { return sent.size() == 3; }),"malformed-response first activity did not start");
+  ok &= require(until([&] { return sent.size() == 4; }),"malformed-response first activity did not start");
   deliver(controller,response(kShared,QJsonValue(QJsonValue::Null)));
-  ok &= require(until([&] { return sent.size() == 4; }),"invalid first source blocked a sibling source");
+  ok &= require(until([&] { return sent.size() == 5; }),"invalid first source blocked a sibling source");
   deliver(controller,response(kShared,5));
-  ok &= require(until([&] { return sent.size() == 5; }),"malformed-response simple activity did not start");
+  ok &= require(until([&] { return sent.size() == 6; }),"malformed-response simple activity did not start");
   deliver(controller,response(kSimple,-3));
   ok &= require(until([&] { return !controller.isRunning(); }) &&
       state(controller,kA).value(QStringLiteral("data")) == beforeA.value(QStringLiteral("data")) &&
@@ -208,7 +211,7 @@ int main(int argc,char** argv) {
   // not seed the next account's cache even if its late command name matches.
   sent.clear(); ok &= require(controller.requestInfo(),"account-switch fixture did not start");
   baseReplies(controller);
-  ok &= require(until([&] { return sent.size() == 3; }),"account-switch activity did not become pending");
+  ok &= require(until([&] { return sent.size() == 4; }),"account-switch activity did not become pending");
   const auto oldEpoch = repository.sessionGeneration();
   // A second weak 21_1 on the same unverified stream cannot authorize an
   // account change. Establish the new synthetic transport source explicitly.
@@ -226,14 +229,14 @@ int main(int argc,char** argv) {
   ok &= require(until([&] { return !controller.cacheLoading() && !historicalReader.cacheLoading(); }),"new account cache reads did not settle");
   sent.clear(); ok &= require(controller.requestInfo(),"new account refresh did not start");
   baseReplies(controller);
-  ok &= require(until([&] { return sent.size() == 3; }),"new account first activity did not start");
+  ok &= require(until([&] { return sent.size() == 4; }),"new account first activity did not start");
   deliver(controller,response(kShared,99),oldEpoch);
-  ok &= require(controller.isRunning() && state(controller,kA).isEmpty() && sent.size() == 3,
+  ok &= require(controller.isRunning() && state(controller,kA).isEmpty() && sent.size() == 4,
       "late old-account activity response seeded the new account");
   deliver(controller,response(kShared,8));
-  ok &= require(until([&] { return sent.size() == 4; }),"new account second activity did not start");
+  ok &= require(until([&] { return sent.size() == 5; }),"new account second activity did not start");
   deliver(controller,response(kShared,7));
-  ok &= require(until([&] { return sent.size() == 5; }),"new account simple activity did not start");
+  ok &= require(until([&] { return sent.size() == 6; }),"new account simple activity did not start");
   deliver(controller,response(kSimple,6));
   ok &= require(until([&] { return !controller.isRunning() && controller.pendingStorageCount() == 0; }) &&
       readFile(accountAPath) == savedA,"the new account mutated the prior account's independent activity cache");
@@ -247,21 +250,21 @@ int main(int argc,char** argv) {
   timed.setSender([&](const QString&,const QString&,const QString&) { ++fallbackCalls; return false; });
   timed.setAsyncSender([&](const OutboundIntent& intent) { intents.append(intent); return true; });
   QObject::connect(&timed,&ShopExchangeController::statusChanged,&timed,[&](const QString& value) { timedStatus = value; });
-  ok &= require(until([&] { return !timed.cacheLoading(); }) && timed.requestInfo() && intents.size() == 2,
+  ok &= require(until([&] { return !timed.cacheLoading(); }) && timed.requestInfo() && intents.size() == 3,
       "async timeout fixture did not start the base request pair");
-  for (int index = 0; index < qMin(2, int(intents.size())); ++index) {
+  for (int index = 0; index < qMin(3, int(intents.size())); ++index) {
     intents[index].permit.claim(transportMonotonicMs());
     intents[index].permit.complete(SubmissionOutcome::Submitted);
   }
   baseReplies(timed);
-  ok &= require(until([&] { return intents.size() == 3; }) && intents[2].ticket.command == kShared,
+  ok &= require(until([&] { return intents.size() == 4; }) && intents[3].ticket.command == kShared,
       "async first shared-command group did not become pending");
-  if (intents.size() >= 3) {
-    const auto first = intents[2];
+  if (intents.size() >= 4) {
+    const auto first = intents[3];
     timed.handleSendReceipt({first.ticket.taskId,first.ticket.account,first.ticket.sessionEpoch,first.ticket.command,
         SubmissionOutcome::Submitted,transportMonotonicMs()-first.ticket.responseTimeoutMs-1});
   }
-  ok &= require(until([&] { return intents.size() == 4; }) && intents[3].ticket.command == kSimple,
+  ok &= require(until([&] { return intents.size() == 5; }) && intents[4].ticket.command == kSimple,
       "timed-out shared command did not skip its remaining groups while continuing independent commands");
   int sharedCount = 0;
   for (const auto& intent : intents) if (intent.ticket.command == kShared) ++sharedCount;
@@ -271,8 +274,8 @@ int main(int argc,char** argv) {
   ok &= require(observeActivityShopGood(sourceGood(kA),timed.packet()).used == 8 &&
       observeActivityShopGood(sourceGood(kB),timed.packet()).used == 7,
       "a late shared-command response was attributed to a skipped activity source");
-  if (intents.size() >= 4) {
-    intents[3].permit.claim(transportMonotonicMs()); intents[3].permit.complete(SubmissionOutcome::Submitted);
+  if (intents.size() >= 5) {
+    intents[4].permit.claim(transportMonotonicMs()); intents[4].permit.complete(SubmissionOutcome::Submitted);
   }
   deliver(timed,response(kSimple,1));
   ok &= require(until([&] { return !timed.isRunning() && timed.pendingStorageCount() == 0; }) &&
@@ -288,24 +291,24 @@ int main(int argc,char** argv) {
   // failure, and that source must not be asked again in the same session.
   {
     const int beforeFirst = sent.size();
-    ok &= require(controller.requestInfo() && sent.size() == beforeFirst + 2,
+    ok &= require(controller.requestInfo() && sent.size() == beforeFirst + 3,
         "refusal fixture did not start its base requests");
     baseReplies(controller);
-    ok &= require(until([&] { return sent.size() == beforeFirst + 3; }) &&
-        sent[beforeFirst + 2].command == kShared &&
-        QJsonDocument::fromJson(sent[beforeFirst + 2].parameters.toUtf8()).object()
+    ok &= require(until([&] { return sent.size() == beforeFirst + 4; }) &&
+        sent[beforeFirst + 3].command == kShared &&
+        QJsonDocument::fromJson(sent[beforeFirst + 3].parameters.toUtf8()).object()
                 .value(QStringLiteral("i")).toInt() == 10,
         "refusal fixture did not reach the first activity read");
     const auto keptBefore = stateData(controller,kA);
     const int keptUsed = observeActivityShopGood(sourceGood(kA),controller.packet()).used;
-    deliver(controller,{{QStringLiteral("_cmd"),kShared},{QStringLiteral("r"),-2}});    ok &= require(until([&] { return sent.size() == beforeFirst + 4; }) &&
-        sent[beforeFirst + 3].command == kShared &&
-        QJsonDocument::fromJson(sent[beforeFirst + 3].parameters.toUtf8()).object()
+    deliver(controller,{{QStringLiteral("_cmd"),kShared},{QStringLiteral("r"),-2}});    ok &= require(until([&] { return sent.size() == beforeFirst + 5; }) &&
+        sent[beforeFirst + 4].command == kShared &&
+        QJsonDocument::fromJson(sent[beforeFirst + 4].parameters.toUtf8()).object()
                 .value(QStringLiteral("i")).toInt() == 9,
         "a refused group stopped the remaining independent activity groups");
     deliver(controller,response(kShared,2));
-    ok &= require(until([&] { return sent.size() == beforeFirst + 5; }) &&
-        sent[beforeFirst + 4].command == kSimple,
+    ok &= require(until([&] { return sent.size() == beforeFirst + 6; }) &&
+        sent[beforeFirst + 5].command == kSimple,
         "a refused group stopped the independent simple activity");
     deliver(controller,response(kSimple,4));
     ok &= require(until([&] { return !controller.isRunning(); }) &&
@@ -315,16 +318,16 @@ int main(int argc,char** argv) {
         observeActivityShopGood(sourceGood(kA),controller.packet()).used == keptUsed,
         "a refused activity overwrote its previous observation");
     const int beforeSecond = sent.size();
-    ok &= require(controller.requestInfo() && sent.size() == beforeSecond + 2,
+    ok &= require(controller.requestInfo() && sent.size() == beforeSecond + 3,
         "second refresh did not start after a refusal");
     baseReplies(controller);
-    ok &= require(until([&] { return sent.size() == beforeSecond + 3; }) &&
-        QJsonDocument::fromJson(sent[beforeSecond + 2].parameters.toUtf8()).object()
+    ok &= require(until([&] { return sent.size() == beforeSecond + 4; }) &&
+        QJsonDocument::fromJson(sent[beforeSecond + 3].parameters.toUtf8()).object()
                 .value(QStringLiteral("i")).toInt() == 9,
         "a server-refused activity was queried again in the same session");
     deliver(controller,response(kShared,5));
-    ok &= require(until([&] { return sent.size() == beforeSecond + 4; }) &&
-        sent[beforeSecond + 3].command == kSimple,"refusal retry flow lost the simple activity");
+    ok &= require(until([&] { return sent.size() == beforeSecond + 5; }) &&
+        sent[beforeSecond + 4].command == kSimple,"refusal retry flow lost the simple activity");
     deliver(controller,response(kSimple,6));
     ok &= require(until([&] { return !controller.isRunning(); }) &&
         observeActivityShopGood(sourceGood(kA),controller.packet()).used == keptUsed,

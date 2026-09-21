@@ -199,6 +199,9 @@ bool controllerTest() {
   deliver(packet);
   deliver({{QStringLiteral("_cmd"), QStringLiteral("3_11")}, {QStringLiteral("4"), QJsonArray{
       QJsonObject{{QStringLiteral("i"), 100}, {QStringLiteral("n"), 100}}}}, {QStringLiteral("8"), QJsonArray{}}});
+  deliver({{QStringLiteral("_cmd"), QStringLiteral("1015_2A")}, {QStringLiteral("r"), 1},
+      {QStringLiteral("infos"), QJsonObject{{QStringLiteral("UnionMemberInfo"),
+          QJsonObject{{QStringLiteral("lCToken"), 9}}}}}});
   ok &= check(shop.hasObservedPacket() && shop.quotaValiditySnapshot().value(QStringLiteral("si1:dl")).state == ShopConditionState::Unknown,
               "ordinary trusted shop observation was promoted into verified period authority");
   auto shopProof = proof(repository.accountKey(), repository.sessionGeneration(), QStringLiteral("si1"), shop.observedSequence(QStringLiteral("si1")), QStringLiteral("dl"));
