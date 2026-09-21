@@ -59,6 +59,7 @@ public slots:
 signals:
   void refreshRequested();
   void catalogRefreshRequested();
+  void openShopRequested(const QString& navigationLink);
   void detailRequested(qint64 instanceId);
   void moveToBackpackRequested(qint64 instanceId);
 
@@ -91,6 +92,7 @@ private:
   void rebuildActivityGoods(const QJsonObject& packet);
   int eligiblePetCount(const ShopExchangeGood& good) const;
   void updateCurrencySummary();
+  void updateOpenShopButton();
   void ensureImageCache();
   void showGoodPets(const ShopExchangeGood& good, const QString& stableKey = {},
                     qint64 preserveInstanceId = 0, bool restoreScroll = false);
@@ -134,6 +136,7 @@ private:
   QList<int> workbenchWideSizes_;
   QPushButton* refresh_ = nullptr;
   QPushButton* refreshCatalog_ = nullptr;
+  QPushButton* openShop_ = nullptr;
   QComboBox* sourceFilter_ = nullptr;
   QLineEdit* goodSearch_ = nullptr;
   QTimer* goodSearchDebounce_ = nullptr;

@@ -6,6 +6,7 @@
 
 #include "ui/detail/prepared_pet_detail_renderer.h"
 #include "ui/detail/pet_power_analysis_renderer.h"
+#include "ui/detail/pet_skill_renderer.h"
 #include "domain/pet_metadata_view.h"
 #include "ui/detail/pet_raw_data_tree.h"
 #include "domain/pet_identity.h"
@@ -25,6 +26,8 @@
 
 #include <QFont>
 #include <QFontMetrics>
+#include <QFrame>
+#include <QGuiApplication>
 #include <QGroupBox>
 #include <QGridLayout>
 #include <QHeaderView>
@@ -34,11 +37,13 @@
 #include <QItemSelectionModel>
 #include <QLabel>
 #include <QLineEdit>
+#include <QMouseEvent>
 #include <QPainter>
 #include <QPushButton>
 #include <QRegularExpression>
 #include <QResizeEvent>
 #include <QScrollBar>
+#include <QScreen>
 #include <QSet>
 #include <QSignalBlocker>
 #include <QSplitter>
@@ -48,6 +53,8 @@
 #include <QTableWidget>
 #include <QTabWidget>
 #include <QTextBrowser>
+#include <QTextCharFormat>
+#include <QTextCursor>
 #include <QTextLayout>
 #include <QTimer>
 #include <QTreeWidget>
@@ -325,6 +332,15 @@ PetWindow::PetWindow(InventoryReadView* repository, QWidget* parent, PetImageCac
   });
   rawTree_ = new PetRawDataTree(detailTabs_);
   detailTabs_->addTab(detailView_, QStringLiteral("精灵详情"));
+  skillView_ = new QTextBrowser(detailTabs_);
+  skillView_->setObjectName(QStringLiteral("KQPetSkillDetail"));
+  skillView_->setOpenLinks(false);
+  skillView_->setOpenExternalLinks(false);
+  skillView_->setPlaceholderText(QStringLiteral("请选择一只精灵"));
+  skillView_->setMouseTracking(true);
+  skillView_->viewport()->setMouseTracking(true);
+  skillView_->viewport()->installEventFilter(this);
+  detailTabs_->addTab(skillView_, QStringLiteral("技能资料"));
   detailTabs_->addTab(rawTree_, QStringLiteral("原始数据"));
   analysisPage_ = new QWidget(detailTabs_);
   analysisPage_->setObjectName(QStringLiteral("KQPetAnalysisPage"));
@@ -349,6 +365,10 @@ PetWindow::PetWindow(InventoryReadView* repository, QWidget* parent, PetImageCac
   detailTabs_->addTab(analysisPage_, QStringLiteral("精灵分析"));
   UiPreferences::bindTabWidget(detailTabs_, QStringLiteral("pets/detailTab"));
   connect(detailTabs_, &QTabWidget::currentChanged, this, [this](int) {
+    if (detailTabs_->currentWidget() == skillView_ && repository_ && currentId_ > 0) {
+      const auto pet = repository_->detailFor(currentId_);
+      showSkills(petRaceId(pet), petServerName(pet));
+    }
     if (detailTabs_->currentWidget() != analysisPage_ || !repository_ || currentId_ <= 0) return;
     // Selecting this tab reuses the current detail subscription and local facts.
     // Online refresh remains exclusively behind the existing pet/list actions.
@@ -363,9 +383,9 @@ PetWindow::PetWindow(InventoryReadView* repository, QWidget* parent, PetImageCac
   splitter->addWidget(listSplitter);
   splitter->addWidget(detailTabs_);
   splitter->setChildrenCollapsible(false);
-  splitter->setStretchFactor(0, 8);
-  splitter->setStretchFactor(1, 4);
-  splitter->setSizes({1020, 520});
+  splitter->setStretchFactor(0, 7);
+  splitter->setStretchFactor(1, 5);
+  splitter->setSizes({900, 640});
   // Only the wide layout is remembered; the compact layout toggles panes instead.
   if (const QList<int> saved = UiPreferences::intList(QStringLiteral("pets/contentSplitter")); saved.size() == 2) {
     workbenchWideSizes_ = saved;
@@ -488,6 +508,13 @@ PetWindow::PetWindow(InventoryReadView* repository, QWidget* parent, PetImageCac
     const auto metadata = repository_->metadataSnapshot();
     for (PetTableModel* model : {backpackModel_, warehouseModel_, eliteWarehouseModel_}) model->setMetadataSnapshot(metadata);
     if (currentId_ > 0) showDetail(repository_->detailFor(currentId_));
+  });
+  connect(repository_, &InventoryReadView::skillMetadataChanged, this, [this](quint64) {
+    renderedSkillRevision_ = 0;
+    if (currentId_ > 0) {
+      const auto pet = repository_->detailFor(currentId_);
+      showSkills(petRaceId(pet), petServerName(pet));
+    }
   });
   connect(repository_, &InventoryReadView::statusChanged, this, &PetWindow::setStatus);
   connect(imageCache_, &PetImageCache::petImageReady, this, &PetWindow::updateCurrentImage);
@@ -640,7 +667,7 @@ void PetWindow::setWorkbenchMode(bool embedded, bool compact) {
   emit sidebarStatusChanged(status_->text());
   emit sidebarDetailProgressChanged(progress_->text(), detailBatchRunning_, detailCompleted_, detailTotal_);
   updateWorkbenchPanels();
-  if (!workbenchCompact_) contentSplitter_->setSizes(workbenchWideSizes_.isEmpty() ? QList<int>{760, 390} : workbenchWideSizes_);
+  if (!workbenchCompact_) contentSplitter_->setSizes(workbenchWideSizes_.isEmpty() ? QList<int>{700, 500} : workbenchWideSizes_);
   QTimer::singleShot(0, this, &PetWindow::fitInventoryGeometry);
 }
 
@@ -1215,6 +1242,9 @@ void PetWindow::showDetail(const QJsonObject& pet) {
     pendingDetailScroll_ = 0;
     ++detailRenderGeneration_;
     detailView_->setHtml(QStringLiteral("<p style='color:#6b7280'>请选择一只精灵</p>"));
+    skillView_->setHtml(QStringLiteral("<p style='color:#6b7280'>请选择一只精灵</p>"));
+    renderedSkillRevision_ = 0;
+    renderedSkillRaceId_ = 0;
     analysisView_->setHtml(QStringLiteral("<p style='color:#6b7280'>请选择一只精灵</p>"));
     return;
   }
@@ -1230,6 +1260,7 @@ void PetWindow::showDetail(const QJsonObject& pet) {
   if (name.isEmpty())
     name = catalog.petName(raceId);
   const QString originalName = catalog.resolvedOriginalName(pet);
+  showSkills(raceId, name.isEmpty() ? originalName : name);
   const QString imagePath = imageCache_->ensurePetImage(
       pet, {name, petServerName(pet), catalog.petName(raceId), originalName}, detailView_->devicePixelRatioF());
   const auto prepared = repository_->preparedDetail(0, id);
@@ -1287,6 +1318,101 @@ void PetWindow::showDetail(const QJsonObject& pet) {
   }
 
 
+}
+
+bool PetWindow::eventFilter(QObject* watched, QEvent* event) {
+  if (skillView_ && watched == skillView_->viewport()) {
+    if (event->type() == QEvent::ToolTip) {
+      // Native rich-text tooltips use the platform wake-up delay. MouseMove
+      // below owns the mechanism popover so it appears and disappears now.
+      event->accept();
+      return true;
+    }
+    if (event->type() == QEvent::Leave || event->type() == QEvent::Hide) {
+      hoveredSkillTerm_.clear();
+      if (skillTermPopup_) skillTermPopup_->hide();
+      skillView_->viewport()->unsetCursor();
+    } else if (event->type() == QEvent::MouseMove) {
+      const auto* mouse = static_cast<QMouseEvent*>(event);
+      const QPoint position = mouse->position().toPoint();
+      const QString anchor = skillView_->anchorAt(position);
+      QString tooltip;
+      if (anchor.startsWith(QStringLiteral("kqterm:"))) {
+        const int documentPosition = skillView_->cursorForPosition(position).position();
+        for (const int candidate : {documentPosition, documentPosition + 1, documentPosition - 1}) {
+          if (candidate < 0 || candidate > skillView_->document()->characterCount()) continue;
+          QTextCursor cursor(skillView_->document());
+          cursor.setPosition(candidate);
+          const QTextCharFormat format = cursor.charFormat();
+          if (format.anchorHref() == anchor && !format.toolTip().isEmpty()) {
+            tooltip = format.toolTip();
+            break;
+          }
+        }
+      }
+      if (!tooltip.isEmpty()) {
+        skillView_->viewport()->setCursor(Qt::PointingHandCursor);
+        if (!skillTermPopup_) {
+          auto* popup = new QFrame(this, Qt::ToolTip | Qt::FramelessWindowHint);
+          popup->setObjectName(QStringLiteral("KQSkillTermPopup"));
+          popup->setAttribute(Qt::WA_ShowWithoutActivating);
+          popup->setAttribute(Qt::WA_TransparentForMouseEvents);
+          popup->setStyleSheet(QStringLiteral(
+              "QFrame#KQSkillTermPopup{background:#172b3d;border:1px solid #31536f;border-radius:6px;}"
+              "QLabel{color:#f4f8fb;padding:8px 10px;font-size:12px;}"));
+          auto* layout = new QVBoxLayout(popup);
+          layout->setContentsMargins(0, 0, 0, 0);
+          auto* label = new QLabel(popup);
+          label->setObjectName(QStringLiteral("KQSkillTermPopupText"));
+          label->setTextFormat(Qt::PlainText);
+          label->setWordWrap(true);
+          label->setFixedWidth(400);
+          label->setSizePolicy(QSizePolicy::Fixed, QSizePolicy::Minimum);
+          layout->addWidget(label);
+          skillTermPopup_ = popup;
+          skillTermPopupText_ = label;
+        }
+        if (hoveredSkillTerm_ != anchor || !skillTermPopup_->isVisible() ||
+            (skillTermPopupText_ && skillTermPopupText_->text() != tooltip)) {
+          hoveredSkillTerm_ = anchor;
+          if (skillTermPopupText_) {
+            skillTermPopupText_->setText(tooltip);
+            skillTermPopupText_->adjustSize();
+          }
+          skillTermPopup_->adjustSize();
+          QPoint target = mouse->globalPosition().toPoint() + QPoint(14, 18);
+          if (QScreen* screen = QGuiApplication::screenAt(target)) {
+            const QRect area = screen->availableGeometry();
+            target.setX(qBound(area.left() + 4, target.x(),
+                               qMax(area.left() + 4, area.right() - skillTermPopup_->width() - 4)));
+            target.setY(qBound(area.top() + 4, target.y(),
+                               qMax(area.top() + 4, area.bottom() - skillTermPopup_->height() - 4)));
+          }
+          skillTermPopup_->move(target);
+          skillTermPopup_->show();
+          skillTermPopup_->raise();
+        }
+      } else if (!hoveredSkillTerm_.isEmpty()) {
+        hoveredSkillTerm_.clear();
+        if (skillTermPopup_) skillTermPopup_->hide();
+        skillView_->viewport()->unsetCursor();
+      }
+    }
+  }
+  return QDialog::eventFilter(watched, event);
+}
+
+void PetWindow::showSkills(int raceId, const QString& name) {
+  if (!skillView_ || !repository_ || raceId <= 0) return;
+  const auto skills = repository_->skillSnapshot();
+  const quint64 revision = skills ? skills->revision : 0;
+  if (renderedSkillRaceId_ == raceId && renderedSkillRevision_ == revision) return;
+  const bool samePet = renderedSkillRaceId_ == raceId;
+  const int scroll = samePet ? skillView_->verticalScrollBar()->value() : 0;
+  skillView_->setHtml(PetSkillRenderer::render(skills, raceId, name));
+  renderedSkillRaceId_ = raceId;
+  renderedSkillRevision_ = revision;
+  skillView_->verticalScrollBar()->setValue(scroll);
 }
 
 void PetWindow::showAnalysis(const PreparedPetDetailHandle& detail, qint64 instanceId,

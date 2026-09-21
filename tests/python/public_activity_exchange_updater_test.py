@@ -89,6 +89,7 @@ class Contracts(unittest.TestCase):
         self.assertTrue(good["costKnown"])
         self.assertFalse(good["quotaKnown"])
         self.assertFalse(good["availableKnown"])
+        self.assertEqual(good["exchangeKind"], "activity")
         self.assertEqual(pending, [])
 
     def test_new_class_strengthen_template_and_unresolved_currency(self):
@@ -121,8 +122,56 @@ class Contracts(unittest.TestCase):
         with self.assertRaises(ValueError):
             activity.LiteralReader('[1+2]').parse()
 
+    def test_navigation_requires_an_exact_official_route(self):
+        self.assertEqual(activity.navigation_link("futureexchange", {}, {}), "")
+        self.assertEqual(
+            activity.navigation_link(
+                "futureexchange",
+                {"link": "btnNewAct_futureexchange_showMainPanel_2"},
+                {},
+            ),
+            "btnNewAct_futureexchange_showMainPanel_2",
+        )
+        self.assertEqual(
+            activity.navigation_link(
+                "futureexchange",
+                {},
+                {"tryGetService": "NewActivityService#loadAndInitNormalActivity#futureexchange#showExchange#4"},
+            ),
+            "btnNewAct_futureexchange_showExchange_4",
+        )
+
+    def test_static_string_constant_concatenation_and_nested_quota_are_supported(self):
+        config = ('public class FutureSaleConfig {'
+                  'public static const RESHOW_SELF_ACT_KEY:String="btnNewAct_futuresale_showMainPanel_3";'
+                  'private static const PETS:String="8001#8002";'
+                  'private static const REWARDS:Array=['
+                  '{"index":0,"basicDescription":"三颗红星",'
+                  '"simpleParams":"CommonEnhancePrize,-1,1750,39$3,"+PETS,'
+                  '"price":109,"limit":1,"buyId":3,"gainId":4,"addGainTimesNum":3}];}')
+        model = ('class FutureSaleModel { function parseData(param1:Object):void {'
+                 'var reward:Object; var state:Object; var used:int;'
+                 'state=param1["b"+reward.buyId]; used=int(state["by"+reward.index]); }}')
+        client = ('class FutureSaleClient extends ClientSA { function FutureSaleClient(){super(5755);}'
+                  'function getInfo(callback:Function):void{request(ClientSA.CMD_GET_INFO,callback,null,true);}}')
+        view = 'ActUtil.getMyDiamond();'
+        shops, pending, _ = activity.parse_module(
+            {"FutureSaleConfig.as": config, "FutureSaleModel.as": model,
+             "FutureSaleClient.as": client, "FutureSaleView.as": view},
+            "module", {"navigationLink": "btnNewAct_futuresale_showMainPanel"})
+        self.assertEqual(pending, [])
+        good = shops[0]["goods"][0]
+        self.assertEqual((good["enhanceType"], good["raceIds"]), ("39$3", [8001, 8002]))
+        self.assertEqual((good["cost"], good["exchangeKind"]), ("8:2:109", "diamond"))
+        self.assertEqual((good["limitCount"], good["quotaObservation"]["path"]),
+                         (1, ["b3", "by0"]))
+        self.assertEqual(shops[0]["navigationLink"], "btnNewAct_futuresale_showMainPanel_3")
+        self.assertEqual(shops[0]["source"]["navigationLinkSource"], "module")
+
     def test_parameterized_stars_preserve_parameters(self):
         self.assertEqual(activity.enhancement("CommonEnhancePrize,-1,1,33$8-39$1,7529")[0], "33$8-39$1")
+        self.assertEqual(activity.enhancement("CommonEnhancePrize,-1,1,39$3,7529")[0], "39$3")
+        self.assertEqual(activity.enhancement("CommonEnhancePrize,-1,1,89$1,7529")[0], "89$1")
         with self.assertRaises(ValueError):
             activity.enhancement("CommonEnhancePrize,-1,1,39$2,7529")
 
@@ -204,7 +253,20 @@ class Contracts(unittest.TestCase):
                 data = json.loads((updater.root / "catalog" / activity.FILENAME).read_text(encoding="utf-8"))
                 self.assertEqual(data["coverage"]["shops"], 2)
                 self.assertEqual(len(updater.calls), 2)  # registry + just the new module
-                self.assertTrue(any(shop["sourceKey"].startswith(new_module + "#") for shop in data["shops"]))
+                new_shop = next(shop for shop in data["shops"] if shop["sourceKey"].startswith(new_module + "#"))
+                self.assertEqual(new_shop["navigationLink"], "")
+
+    def test_shop_retains_official_navigation_and_discovery_evidence(self):
+        with tempfile.TemporaryDirectory() as temporary:
+            updater = FakeUpdater(Path(temporary))
+            versions = {activity.CONFIG_RESOURCE: "2026091100000000", updater.module: "2026091100000001", updater.empty: "2026091100000002"}
+            with patch.dict(sys.modules, {"activity_evolution_selector": type("Selector", (), {"dependency_revision": staticmethod(lambda versions: "same")})}):
+                activity.update_activity_exchanges(updater, versions)
+            data = json.loads((updater.root / "catalog" / activity.FILENAME).read_text(encoding="utf-8"))
+            shop = next(shop for shop in data["shops"] if shop["sourceKey"].startswith(updater.module + "#"))
+            self.assertEqual(shop["navigationLink"], "btnNewAct_futureexchange_showMainPanel")
+            self.assertEqual(shop["activityEvidence"], "hud")
+            self.assertEqual(shop["activityEvidenceDate"], "20260911")
 
     def test_unknown_new_rule_preserves_previous_row_as_stale(self):
         with tempfile.TemporaryDirectory() as temporary:
@@ -301,6 +363,7 @@ class Contracts(unittest.TestCase):
         self.assertEqual(special["limitCount"], 6)
         self.assertEqual(special["quotaObservation"]["path"], ["b4", "b4"])
         self.assertEqual(special["quotaSharedWith"], 4)
+        self.assertEqual((ordinary["exchangeKind"], special["exchangeKind"]), ("diamond", "diamond"))
         self.assertNotIn("priceOptions", special)
         self.assertEqual(pending, [])
 

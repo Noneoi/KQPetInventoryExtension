@@ -17,6 +17,7 @@
 #include "persistence_summary.h"
 #include "application/catalog/catalog_io_service.h"
 #include "application/catalog/pet_detail_catalog.h"
+#include "application/catalog/pet_skill_catalog.h"
 #include "application/pet/pet_derivation_cache.h"
 #include "application/pet/pet_detail_preparation_service.h"
 #include "data_update_service.h"
@@ -193,7 +194,8 @@ protected:
           [services](CatalogKind kind, quint64) {
         if (kind == CatalogKind::PetDetail) services.analysis->metadataChanged();
       });
-      for (auto kind : {CatalogKind::Shop, CatalogKind::Routine, CatalogKind::PetDetail}) services.catalogs->requestReload(kind);
+      for (auto kind : {CatalogKind::Shop, CatalogKind::Routine, CatalogKind::PetDetail, CatalogKind::PetSkill})
+        services.catalogs->requestReload(kind);
       ImageServiceOptions imageOptions;
       imageOptions.dataRoot = state->options.dataRoot;
       imageOptions.resourceVersion = state->options.imageResourceVersion.isEmpty() ? QStringLiteral("1") : state->options.imageResourceVersion;
@@ -212,6 +214,7 @@ protected:
       QObject::connect(services.dataUpdater, &DataUpdateService::finished, services.root,
           [state, services](bool, const QStringList& components, const QString& text) {
         if (components.contains(QStringLiteral("pets"))) services.catalogs->requestReload(CatalogKind::PetDetail);
+        if (components.contains(QStringLiteral("skills"))) services.catalogs->requestReload(CatalogKind::PetSkill);
         if (components.contains(QStringLiteral("shop"))) services.catalogs->requestReload(CatalogKind::Shop);
         if (components.contains(QStringLiteral("routines"))) services.catalogs->requestReload(CatalogKind::Routine);
         if (components.contains(QStringLiteral("images")) || components.contains(QStringLiteral("icons"))) services.images->reloadImageIndex();
@@ -254,6 +257,8 @@ protected:
           [inventoryPublisher](CatalogKind kind, quint64) {
         if (kind == CatalogKind::PetDetail)
           inventoryPublisher->metadataUpdated(PetDetailCatalog::instance().snapshot());
+        if (kind == CatalogKind::PetSkill)
+          inventoryPublisher->skillMetadataUpdated(PetSkillCatalog::instance().snapshot());
       });
       analysisPublisher = new AnalysisPublisher(services.repo, services.analysis, state->options.analysisProjection, services.root);
       auto* validity = new QTimer(services.root);

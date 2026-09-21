@@ -81,6 +81,7 @@ private slots:
 
 protected:
   bool event(QEvent* event) override;
+  bool eventFilter(QObject* watched, QEvent* event) override;
   void resizeEvent(QResizeEvent* event) override;
 
 private:
@@ -99,6 +100,7 @@ private:
   void closeRelatedPetDetail();
   void showAnalysis(const std::shared_ptr<const PreparedPetDetail>& detail,
                     qint64 instanceId, const QString& name);
+  void showSkills(int raceId, const QString& name);
   static qint64 rowId(QTableWidget* table, int row);
   void updateMoveButtons();
   void updateWorkbenchPanels();
@@ -154,6 +156,7 @@ private:
   PetFilterProxyModel* eliteWarehouseProxy_ = nullptr;
   QTabWidget* detailTabs_ = nullptr;
   PetImageBrowser* detailView_ = nullptr;
+  QTextBrowser* skillView_ = nullptr;
   PetRawDataTree* rawTree_ = nullptr;
   QWidget* analysisPage_ = nullptr;
   QTextBrowser* analysisView_ = nullptr;
@@ -177,6 +180,11 @@ private:
   QDateTime analysisObservedAt_;
   MaterialInventorySnapshot cultivationMaterials_;
   quint64 analysisRenderGeneration_ = 0;
+  quint64 renderedSkillRevision_ = 0;
+  int renderedSkillRaceId_ = 0;
+  QString hoveredSkillTerm_;
+  QWidget* skillTermPopup_ = nullptr;
+  QLabel* skillTermPopupText_ = nullptr;
   qint64 pendingDetailScrollId_ = 0;
   int pendingDetailScroll_ = 0;
   quint64 detailRenderGeneration_ = 0;

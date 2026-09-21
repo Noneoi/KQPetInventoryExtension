@@ -6,6 +6,7 @@ try {
     $packageRoot = Join-Path $bundleRoot 'package'
     $toolsRoot = Join-Path $packageRoot 'tools'
     . (Join-Path $toolsRoot 'release-tools.ps1')
+    . (Join-Path $toolsRoot 'auto-update-tools.ps1')
     $clientRoot = Assert-KqPlainPath $clientRoot
     if (-not @(Get-ChildItem -LiteralPath $clientRoot -Filter 'KQPro*.exe' -File).Count) {
         throw '未找到氪奇主程序。请将启动文件和 KQPetQuickStart 文件夹一起复制到 KQPro*.exe 所在目录。'
@@ -22,9 +23,15 @@ try {
     $stable = if (Test-Path -LiteralPath $launcher) {
         (Invoke-KqReleaseCheck $checker @('--bootstrap-protocol', $launcher) -AllowFailure).ExitCode -eq 0
     } else { $false }
-    $ready = $stable -and $selection.ExitCode -eq 0 -and
-        $selection.Report.releaseId -ceq $releaseId -and $selection.Report.manifestSha256 -ieq $package.manifestSha256
-    if (-not $ready) {
+    $ready = $stable -and $selection.ExitCode -eq 0
+    $installBundledRelease = -not $ready
+    if ($ready -and [string]$selection.Report.releaseId -cne $releaseId) {
+        $bundleOrder = Compare-KqReleaseId $releaseId ([string]$selection.Report.releaseId)
+        # A copied bundle may update without network access, but an older
+        # retained KQPetQuickStart folder must never downgrade an auto-update.
+        $installBundledRelease = $null -ne $bundleOrder -and $bundleOrder -gt 0
+    }
+    if ($installBundledRelease) {
         Write-Host '正在准备精灵工作台，完成后会自动启动……'
         $hostProgram = Join-Path $env:SystemRoot 'System32\WindowsPowerShell\v1.0\powershell.exe'
         $arguments = @('-NoLogo','-NoProfile','-NonInteractive','-ExecutionPolicy','Bypass','-File',
@@ -51,9 +58,21 @@ try {
         } finally { $process.Dispose() }
     }
     # A deploy can successfully stage a running client without activating it.
-    # Start only the exact package selected from the actual client directory.
+    if ($installBundledRelease) {
+        $bundledActive = Invoke-KqReleaseCheck $checker @('--resolve', $clientRoot)
+        if ($bundledActive.releaseId -cne $releaseId -or $bundledActive.manifestSha256 -ine $package.manifestSha256) {
+            throw '当前版本尚未完成更新。请关闭氪奇，再双击“启动精灵工作台”。'
+        }
+    }
+    if (-not $PrepareOnly) {
+        # Settings owns the explicit network check. Startup only commits a
+        # release that the user already chose and that was fully validated.
+        & (Join-Path $toolsRoot 'auto-update.ps1') -ClientRoot $clientRoot -ReleaseCheck $checker -FinalizePendingOnly
+    }
+    # The updater may have selected a release newer than the retained local
+    # bundle. Require a verified active release, not equality with that bundle.
     $active = Invoke-KqReleaseCheck $checker @('--resolve', $clientRoot)
-    if ($active.releaseId -cne $releaseId -or $active.manifestSha256 -ine $package.manifestSha256) {
+    if (-not $active.releaseId -or -not $active.manifestSha256) {
         throw '当前版本尚未完成更新。请关闭氪奇，再双击“启动精灵工作台”。'
     }
     Invoke-KqReleaseCheck $checker @('--bootstrap-protocol', $launcher) | Out-Null

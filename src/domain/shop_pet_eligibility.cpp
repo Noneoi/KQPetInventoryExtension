@@ -189,6 +189,7 @@ QString componentName(const QString& code) {
       {QStringLiteral("32"), QStringLiteral("满红星+万变红星（槽位满级）")},
       {QStringLiteral("34"), QStringLiteral("红色星神")},
       {QStringLiteral("39$1"), QStringLiteral("1颗红色星神（含限定）")},
+      {QStringLiteral("39$3"), QStringLiteral("任选3颗红色星神（含限定）")},
       {QStringLiteral("39"), QStringLiteral("1颗红色星神（含限定）")},
       {QStringLiteral("41"), QStringLiteral("元魂等级")},
       {QStringLiteral("42"), QStringLiteral("全部专属元魂觉醒")},
@@ -199,6 +200,7 @@ QString componentName(const QString& code) {
       {QStringLiteral("85"), QStringLiteral("全部普通星迹")},
       {QStringLiteral("86"), QStringLiteral("全部星迹（含专属）")},
       {QStringLiteral("89"), QStringLiteral("星轮突破")},
+      {QStringLiteral("89$1"), QStringLiteral("星迹突破")},
       {QStringLiteral("91"), QStringLiteral("源兽星级")},
       {QStringLiteral("92"), QStringLiteral("源兽/神源兽阶级")},
       {QStringLiteral("94"), QStringLiteral("源兽升至满阶")},
@@ -225,15 +227,16 @@ CompiledShopPetRule compileShopPetRule(const QString& enhanceType,
     int targetLevel = 0;
     QString name = componentName(code);
     // Type 33 uses parameter zero as its minimum slot level (default one).
-    // Type 39's documented flow is one level-one red star including limited
-    // choices; unconfirmed parameter variants must remain unknown.
-    if (code == QStringLiteral("39") || code == QStringLiteral("39$1")) index = 2;
+    // Type 39's currently documented flows are one red star and the official
+    // 2026-09-18 three-choice bundle. Unseen parameter variants stay unknown.
+    if (code == QStringLiteral("39") || code == QStringLiteral("39$1") ||
+        code == QStringLiteral("39$3")) index = 2;
     else if (code == QStringLiteral("32")) index = 11;
     else if (code == QStringLiteral("42")) index = 4;
     else if (code == QStringLiteral("43")) index = 3;
     else if (code == QStringLiteral("85")) { index = 12; result.suppliesOrdinaryAstrolabe = true; }
     else if (code == QStringLiteral("86")) { index = 6; result.suppliesOrdinaryAstrolabe = true; }
-    else if (code == QStringLiteral("89")) index = 13;
+    else if (code == QStringLiteral("89") || code == QStringLiteral("89$1")) index = 13;
     else if (code == QStringLiteral("94")) index = 8;
     else if (code == QStringLiteral("95")) index = 10;
     else if (code == QStringLiteral("33") || code.startsWith(QStringLiteral("33$"))) {

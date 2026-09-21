@@ -293,15 +293,17 @@ bool ShopExchangeController::requestInfo() {
   revokeAsyncRequests();
   requestWarnings_.clear();
   collectActivityReads();
-  pendingCommands_ = {catalog.getInfoCommand(), QStringLiteral("3_11")};
+  pendingCommands_ = {catalog.getInfoCommand(), QStringLiteral("3_11"),
+                      QStringLiteral("1015_2A")};
   hasPacket_ = false;
   hasMaterialCounts_ = false;
   for (const auto& shop : catalog.protocolShops())
     fieldStates_.insert(QStringLiteral("si%1").arg(shop.shopId), PacketFieldState::Missing);
   for (auto state = fieldStates_.begin(); state != fieldStates_.end(); ++state) {
-    if (state.key().startsWith(QStringLiteral("material:")) &&
-        state.key() != QStringLiteral("material:134")) state.value() = PacketFieldState::Missing;
+    if (state.key().startsWith(QStringLiteral("material:")))
+      state.value() = PacketFieldState::Missing;
   }
+  fieldStates_.insert(QStringLiteral("material:134"), PacketFieldState::Missing);
   for (const QString& type : requiredMaterialTypes())
     fieldStates_.insert(QStringLiteral("material:") + type, PacketFieldState::Missing);
   emit runningChanged(true);
@@ -316,14 +318,23 @@ bool ShopExchangeController::requestInfo() {
   };
   const bool shopSent = sendRequest(catalog.extension(), catalog.getInfoCommand(), catalog.getInfoParams());
   const bool materialSent = sendRequest(QStringLiteral("MaterialExtension"), QStringLiteral("3_11"), QStringLiteral("{}"));
+  // The official LeagueService.getMyLeagueInfo path uses this exact request;
+  // personal contribution is returned as infos.UnionMemberInfo.lCToken and is
+  // not part of MaterialExtension/3_11.
+  const bool leagueSent = sendRequest(QStringLiteral("LeagueExtension"),
+                                      QStringLiteral("1015_2A"),
+                                      QStringLiteral("null"));
   if (!shopSent) completeRequest(catalog.getInfoCommand(), false,
                                  {QStringLiteral("兑换次数请求发送失败")});
   if (!materialSent) completeRequest(QStringLiteral("3_11"), false,
                                      {QStringLiteral("货币请求发送失败")});
+  if (!leagueSent) completeRequest(QStringLiteral("1015_2A"), false,
+                                   {QStringLiteral("个人贡献币请求发送失败")});
   startingRequests_ = false;
   if (pendingCommands_.isEmpty()) continueRequests();
   else timeout_->start(asyncSender_ ? 10 : 10000);
-  return shopSent || materialSent || !activityReads_.isEmpty() || !activeActivity_.sourceKey.isEmpty();
+  return shopSent || materialSent || leagueSent || !activityReads_.isEmpty() ||
+      !activeActivity_.sourceKey.isEmpty();
 }
 
 void ShopExchangeController::continueRequests() {
@@ -391,6 +402,8 @@ void ShopExchangeController::handleDecodedEnvelope(const InboundEnvelope& envelo
       updated = acceptActivityPacket(packet,&warnings,false);
     else if (command == QStringLiteral("3_11"))
       updated = acceptMaterialPacket(packet, &warnings, &observation);
+    else if (command == QStringLiteral("1015_2A"))
+      updated = acceptLeaguePacket(packet, &warnings, &observation);
     else if (command == QStringLiteral("2_32_0"))
       updated = acceptSourceBeastInventoryPacket(packet, &warnings);
     else updated = acceptShopPacket(packet, &warnings, &observation);
@@ -457,33 +470,32 @@ bool ShopExchangeController::matchesReadOnlyRequest(const InboundEnvelope& envel
 
 void ShopExchangeController::handleVerifiedPacket(const QJsonObject& packet) {
   const QString command = packet.value(QStringLiteral("_cmd")).toString();
-  // Personal league contribution (material 134:1) is not part of the generic
-  // MaterialExtension/3_11 response.  The game already requests this league
-  // overview during its normal flow, so observe that response without adding
-  // another server request.
   if (command == QStringLiteral("1015_2A")) {
     if (!repository_ || !repository_->isAuthenticated() || account_.isEmpty() ||
         account_ != repository_->accountKey() ||
         sessionGeneration_ != repository_->sessionGeneration())
       return;
-    const QJsonObject member = packet.value(QStringLiteral("infos"))
-                                   .toObject()
-                                   .value(QStringLiteral("UnionMemberInfo"))
-                                   .toObject();
-    qint64 contribution = 0;
-    if (!successfulReply(packet) ||
-        !PacketContracts::checkedInteger(member.value(QStringLiteral("lCToken")),
-                                          &contribution, 0)) {
-      fieldStates_.insert(QStringLiteral("material:134"), PacketFieldState::Invalid);
-      emit infoUpdated();
+    const bool active = running_ && pendingCommands_.contains(command);
+    if (active && (requestAccount_ != account_ ||
+        requestSessionGeneration_ != sessionGeneration_)) {
+      finish(false, QStringLiteral("账号已切换，已忽略旧账号的个人贡献币响应"));
       return;
     }
-    materialCounts_.insert(QStringLiteral("134:1"), contribution);
-    hasMaterialCounts_ = true;
-    fieldStates_.insert(QStringLiteral("material:134"), PacketFieldState::Value);
-    observeGroup(QStringLiteral("material:134"));
-    saveCache();
-    emit infoUpdated();
+    QStringList warnings;
+    bool updated = false;
+    if (!successfulReply(packet)) {
+      fieldStates_.insert(QStringLiteral("material:134"), PacketFieldState::Invalid);
+      warnings.append(QStringLiteral("个人贡献币响应被拒绝或结果类型错误（%1）")
+                          .arg(replyRejectionReason(packet)));
+    } else {
+      updated = acceptLeaguePacket(packet, &warnings);
+    }
+    if (active) {
+      completeRequest(command, updated, warnings);
+    } else {
+      if (updated) saveCache();
+      emit infoUpdated();
+    }
     return;
   }
   const bool shopResponse =
@@ -514,6 +526,33 @@ void ShopExchangeController::handleVerifiedPacket(const QJsonObject& packet) {
       : sourceResponse ? acceptSourceBeastInventoryPacket(packet, &warnings)
                        : acceptMaterialPacket(packet, &warnings);
   completeRequest(command, updated, warnings);
+}
+
+bool ShopExchangeController::acceptLeaguePacket(const QJsonObject& packet,
+                                                 QStringList* warnings,
+                                                 QJsonObject* readOnly) {
+  const QJsonValue infosValue = packet.value(QStringLiteral("infos"));
+  const QJsonValue memberValue = infosValue.isObject()
+      ? infosValue.toObject().value(QStringLiteral("UnionMemberInfo")) : QJsonValue{};
+  qint64 contribution = 0;
+  if (!memberValue.isObject() ||
+      !PacketContracts::checkedInteger(
+          memberValue.toObject().value(QStringLiteral("lCToken")), &contribution, 0)) {
+    if (!readOnly)
+      fieldStates_.insert(QStringLiteral("material:134"), PacketFieldState::Invalid);
+    if (warnings) warnings->append(QStringLiteral("个人贡献币字段无效"));
+    return false;
+  }
+  if (readOnly) {
+    readOnly->insert(QStringLiteral("134"),
+                     QJsonObject{{QStringLiteral("1"), QString::number(contribution)}});
+    return true;
+  }
+  materialCounts_.insert(QStringLiteral("134:1"), contribution);
+  hasMaterialCounts_ = true;
+  fieldStates_.insert(QStringLiteral("material:134"), PacketFieldState::Value);
+  observeGroup(QStringLiteral("material:134"));
+  return true;
 }
 
 void ShopExchangeController::completeRequest(const QString& command, bool updated,

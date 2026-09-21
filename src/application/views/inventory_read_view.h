@@ -29,6 +29,7 @@ public:
   virtual bool isAuthenticated() const = 0;
   virtual bool currentSourceVerified() const { return false; }
   virtual std::shared_ptr<const PetDetailCatalogSnapshot> metadataSnapshot() const { return {}; }
+  virtual std::shared_ptr<const PetSkillCatalogSnapshot> skillSnapshot() const { return {}; }
   virtual RawPetRecordHandle rawRecordHandle(qint64) const { return {}; }
   virtual PetRecordVersion recordVersion(qint64) const { return {}; }
   virtual PetDerivedFactsHandle derivedFactsFor(qint64) const { return {}; }
@@ -45,4 +46,5 @@ signals:
   void accountSessionChanged(const QString& account, quint64 sessionGeneration);
   void statusChanged(const QString& status);
   void metadataChanged(quint64 revision);
+  void skillMetadataChanged(quint64 revision);
 };

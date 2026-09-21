@@ -10,6 +10,12 @@
 #include <QVector>
 
 // Immutable catalog values. No resource registration, singleton or IO dependency.
+enum class ShopExchangeSection {
+  Permanent,
+  ActivityShop,
+  DiamondActivity,
+};
+
 struct ShopExchangeGood {
   int shopId = 0;
   int itemServerId = 0;
@@ -46,6 +52,9 @@ struct ShopExchangeGood {
   QJsonObject observationWhen;
   QJsonArray activityCosts;
   QJsonArray priceOptions;
+  // Classification is evidence based: diamond activities require an
+  // explicitly parsed diamond price/currency in the official activity code.
+  ShopExchangeSection section = ShopExchangeSection::Permanent;
   bool hasIdentity() const { return shopId > 0 && (sourceKey.isEmpty() ? itemServerId > 0 : itemServerId >= 0); }
 
   bool isOnlineOn(const QDate& date) const;
@@ -60,6 +69,13 @@ struct ShopExchangeShop {
   QList<ShopExchangeGood> goods;
   QString sourceKey;
   QJsonObject observation;
+  // A bounded official in-game click key (for example btnNewAct_...); never
+  // arbitrary JavaScript or an inferred server command.
+  QString navigationLink;
+  // Why the updater inspected this activity: hud, recent release, linked, or
+  // emergency.  This is display evidence, not a claim that the event is open.
+  QString activityEvidence;
+  QString activityEvidenceDate;
 };
 
 struct ShopCatalogSnapshot {
@@ -113,4 +129,17 @@ struct PetDetailCatalogSnapshot {
   bool loaded = false;
   QString sourceLabel;
   QDateTime sourceUpdatedAt;
+};
+
+// Public, account-independent skill metadata.  Kept separate from the
+// cultivation catalog because it is much larger and has its own official H5
+// release cadence.  GUI consumers retain this immutable snapshot just like
+// the existing pet metadata snapshot.
+struct PetSkillCatalogSnapshot {
+  QByteArray contentDigest;
+  quint64 revision = 0;
+  QJsonObject root;
+  QDateTime sourceUpdatedAt;
+  QString sourceLabel;
+  bool loaded = false;
 };

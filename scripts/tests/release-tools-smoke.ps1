@@ -184,7 +184,8 @@ function Test-KqTarget { param($Target,[string]$CompatibilityCheck)
         [IO.Directory]::CreateDirectory($directory) | Out-Null
     }
     $realProject = Split-Path -Parent (Split-Path -Parent $PSScriptRoot)
-    foreach ($script in @('package-release.ps1','release-tools.ps1','target-tools.ps1','verify-target.ps1','deploy.ps1','rollback.ps1','uninstall.ps1')) {
+    foreach ($script in @('package-release.ps1','release-tools.ps1','auto-update-tools.ps1','auto-update.ps1',
+            'target-tools.ps1','verify-target.ps1','deploy.ps1','rollback.ps1','uninstall.ps1')) {
         Copy-KqVerifiedFile (Join-Path (Split-Path -Parent $PSScriptRoot) $script) (Join-Path $fixtureScripts $script)
     }
     foreach ($name in @('KQPetLauncher.exe','KQPetInventory.dll','KQPetBootstrap.exe','KQPetReleaseCheck.exe','KQPetCompatibilityCheck.exe')) {
@@ -201,6 +202,11 @@ function Test-KqTarget { param($Target,[string]$CompatibilityCheck)
     Assert-True ($packaged.Count -eq 1 -and $packaged[0].Name.Contains($releaseId) -and -not $packaged[0].Name.Contains('99.99.99')) 'package inferred identity from unrelated current CMake version'
     $leaked = @(Get-ChildItem -LiteralPath $packaged[0].FullName -File -Recurse | Where-Object { $_.Name -in @('private-account.json','private.pdb','KQProV1.1.4.exe') })
     Assert-True ($leaked.Count -eq 0) 'package allowlist leaked private/test/client inputs'
+    foreach ($packagedScript in @(Get-ChildItem -LiteralPath (Join-Path $packaged[0].FullName 'tools') -Filter '*.ps1' -File)) {
+        $scriptBytes = [IO.File]::ReadAllBytes($packagedScript.FullName)
+        Assert-True ($scriptBytes.Length -gt 3 -and $scriptBytes[0] -eq 0xEF -and
+            $scriptBytes[1] -eq 0xBB -and $scriptBytes[2] -eq 0xBF) ("packaged script is not UTF-8 with BOM: " + $packagedScript.Name)
+    }
     Assert-Throws { & (Join-Path $fixtureScripts 'package-release.ps1') -BuildBin $fixtureBin -TestReport $reportPath -OutputRoot $packageOutput } 'final package bypassed acceptance gate'
 
     # Synthetic acceptance-shaped data tests only the packaging gate. These

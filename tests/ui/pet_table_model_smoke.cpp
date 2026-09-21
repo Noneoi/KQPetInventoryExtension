@@ -732,13 +732,13 @@ int main(int argc, char* argv[]) {
       ok &= require(table()->item(0,1)->text() == QStringLiteral("冻结材料 ×5") &&
           table()->item(6,1)->text() == QStringLiteral("测试币 ×3000000000"),
           "resource display failed duplicate merging, frozen metadata or qint64 quantity preservation");
-      for (int row : {1,2,3}) ok &= require(table()->item(row,1)->text().startsWith(QStringLiteral("成本待确认")) &&
+      for (int row : {1,2,3}) ok &= require(table()->item(row,1)->text().startsWith(QStringLiteral("价格格式无法读取")) &&
           table()->item(row,1)->text().contains(expressions.at(row)),
           "invalid/empty/fractional/overflow cost fragment was dropped or converted to zero");
-      ok &= require(table()->item(4,1)->text().contains(QStringLiteral("待确认")) &&
+      ok &= require(table()->item(4,1)->text().contains(QStringLiteral("价格未收录")) &&
           table()->item(5,1)->text().contains(QStringLiteral("无需资源")) && currency &&
           currency->text().contains(QStringLiteral("冻结材料 0")) &&
-          currency->text().contains(QStringLiteral("部分项目成本待确认")),
+          currency->text().contains(QStringLiteral("部分项目价格需在活动内查看")),
           "unknown cost became free or a real zero balance became an unread value");
       const int builds = window.property("rebuildCount").toInt();
       window.setCatalogSnapshot(catalog,QDate(2026,9,9)); QCoreApplication::processEvents();

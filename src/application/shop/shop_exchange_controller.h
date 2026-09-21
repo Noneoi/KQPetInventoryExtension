@@ -95,6 +95,8 @@ private:
                         QJsonObject* readOnly = nullptr);
   bool acceptMaterialPacket(const QJsonObject& packet, QStringList* warnings,
                             QJsonObject* readOnly = nullptr);
+  bool acceptLeaguePacket(const QJsonObject& packet, QStringList* warnings,
+                          QJsonObject* readOnly = nullptr);
   bool acceptCultivationMaterialPacket(const QJsonObject& packet, QStringList* warnings);
   bool acceptSourceBeastInventoryPacket(const QJsonObject& packet, QStringList* warnings);
   bool applyCultivationMaterialCache(const QJsonObject& object);

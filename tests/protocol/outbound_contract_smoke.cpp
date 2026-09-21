@@ -37,6 +37,7 @@ int main(int argc, char** argv) {
       {QStringLiteral("null"), QStringLiteral("1039_3_0"), QStringLiteral("null")},
       {QStringLiteral("null"), QStringLiteral("1039_4_0"), QStringLiteral("null")},
       {QStringLiteral("MaterialExtension"), QStringLiteral("3_11"), QStringLiteral("{}")},
+      {QStringLiteral("LeagueExtension"), QStringLiteral("1015_2A"), QStringLiteral("null")},
       {QStringLiteral("PJXExtension"), QStringLiteral("2_32_0"), QStringLiteral("null")},
       {QStringLiteral("TimelinessActExtension"), QStringLiteral("1008_20170623_dt_0"), QStringLiteral("null")},
       {QStringLiteral("null"), QStringLiteral("1037_0"), QStringLiteral("{\"ids\":\"lights\"}")},
@@ -72,7 +73,7 @@ int main(int argc, char** argv) {
                                                      QStringLiteral("null")),
                   "passive-only command was actively authorized");
   }
-  ok &= check(approved.size() == 21 && covered.size() == 21,
+  ok &= check(approved.size() == 22 && covered.size() == 22,
               "the active protocol whitelist changed without updating its contract test");
   const auto* sourceInventory = PacketContracts::find(QStringLiteral("2_32_0"));
   ok &= check(sourceInventory && sourceInventory->access == PacketAccess::Read &&

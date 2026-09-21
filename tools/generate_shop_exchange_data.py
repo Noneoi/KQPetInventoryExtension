@@ -45,6 +45,13 @@ def official_date(value: str) -> str:
     """
     if not value:
         return ""
+    timestamp = re.fullmatch(r"(\d{8}) (\d{2}):(\d{2}):(\d{2})", value)
+    if timestamp:
+        # Some newer activity tables use the game's full DateUtil timestamp.
+        # Validate every component before reducing it to the catalog's
+        # day-granularity availability field; malformed values must stay loud.
+        datetime.strptime(value, "%Y%m%d %H:%M:%S")
+        return timestamp[1]
     if not re.fullmatch(r"\d{7,8}", value):
         raise ValueError(f"unsupported official date: {value!r}")
     year, month, day = int(value[:4]), int(value[4:6]), int(value[6:8])
@@ -120,7 +127,9 @@ def parse_config(text: str, provenance: dict | None = None) -> dict:
         if not goods:
             continue
         shops.append({"shopId": shop_id, "name": meta.get("name") or f"商店 {shop_id}",
-                      "siKey": f"si{shop_id}", "officialShop": meta, "goods": goods})
+                      "siKey": f"si{shop_id}",
+                      "navigationLink": f"btnNewAct_storeexchangeframework_showMainPanel_{shop_id}",
+                      "officialShop": meta, "goods": goods})
     shops.sort(key=lambda shop: shop["shopId"])
     if not shops:
         raise ValueError("no designated-pet exchanges in official config")

@@ -155,6 +155,7 @@ int main(int argc, char* argv[]) {
   int writes = 0;
   int detailRequests = 0;
   bool acknowledgeWrites = true;
+  int delayNextWriteMs = 0;
   bool deliveringMoveAck = false;
   bool embeddedAckApplied = true;
   int reentrantVerificationSends = 0;
@@ -208,7 +209,13 @@ int main(int argc, char* argv[]) {
   controller.setFlashInvoker([&](const QString& method, const QString& argument) {
     if (method != QStringLiteral("batchpet")) return false;
     ++flashMoves;
-    applySequenceWrite(PetMovePolicy::parseSequence(argument));
+    const QList<qint64> next = PetMovePolicy::parseSequence(argument);
+    if (delayNextWriteMs > 0) {
+      const int delay = std::exchange(delayNextWriteMs, 0);
+      QTimer::singleShot(delay, &repository, [&, next]() { applySequenceWrite(next); });
+    } else {
+      applySequenceWrite(next);
+    }
     return true;
   });
   controller.setSender([&](const QString&, const QString& command,
@@ -379,6 +386,25 @@ int main(int argc, char* argv[]) {
                 "write-timeout reconciliation did not finish");
   ok &= require(succeeded && writes == writesBeforeTimeout + 1,
                 "timed-out write was resent or not reconciled by reads");
+
+  // The live server can acknowledge/apply a submitted sequence after the
+  // first write timeout and readback. Keep reading, but never submit again.
+  finished = false;
+  const int writesBeforeDelayedApply = writes;
+  const int flashBeforeDelayedApply = flashMoves;
+  delayNextWriteMs = 900;
+  controller.requestMoveToWarehouse(2);
+  ok &= require(waitUntil([&]() { return finished; }, 8000),
+                "delayed server-side move was not reconciled by later readback");
+  ok &= require(succeeded && writes == writesBeforeDelayedApply + 1 &&
+                    flashMoves == flashBeforeDelayedApply + 1 &&
+                    pack == QList<qint64>({3}) && warehouse.contains(2),
+                "delayed move was resent, missed, or verified against the first stale list");
+  finished = false;
+  controller.requestMoveToBackpack(2);
+  ok &= require(waitUntil([&]() { return finished; }, 8000) && succeeded &&
+                    pack == QList<qint64>({3, 2}) && !warehouse.contains(2),
+                "delayed-readback fixture did not restore the following move cases");
 
   const auto restoreFixtureSource = [&]() {
     deliver(&repository, {{QStringLiteral("_cmd"), QStringLiteral("21_1")},

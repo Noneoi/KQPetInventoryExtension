@@ -5,7 +5,7 @@
 #include <QString>
 #include <memory>
 
-enum class CatalogKind { Shop, Routine, PetDetail };
+enum class CatalogKind { Shop, Routine, PetDetail, PetSkill };
 enum class CatalogRequestMode { Reload, OfficialUpdate };
 
 struct CatalogIoOptions {

@@ -65,6 +65,8 @@ void PetRefreshController::beginMove(MoveKind kind, qint64 instanceId) {
   moveResponseBeforeReceipt_ = false;
   moveOutcome_ = MoveOutcome::NotSent;
   movePreflightRevision_ = 0;
+  movePreflightAttempts_ = 0;
+  moveVerificationAttempts_ = 0;
   moveJournal_.reset();
   moveStorageContext_ = repository_->storageContext();
   moveDetailPersistenceTaskId_ = 0;
@@ -105,7 +107,10 @@ void PetRefreshController::startMovePreflight() {
     return;
   }
   movePhase_ = MovePhase::Preflight;
-  emit statusChanged(QStringLiteral("移动前正在强制刷新背包和仓库，避免使用旧顺序……"));
+  ++movePreflightAttempts_;
+  emit statusChanged(movePreflightAttempts_ > 1
+      ? QStringLiteral("列表刚才未完整返回，正在重新核对背包和仓库……")
+      : QStringLiteral("移动前正在强制刷新背包和仓库，避免使用旧顺序……"));
   startListRefresh(true);
 }
 
@@ -130,10 +135,26 @@ QList<qint64> PetRefreshController::eligibleReplacementIds() const {
 void PetRefreshController::continueMoveAfterPreflight(bool listsSucceeded) {
   if (!moveRunning() || movePhase_ != MovePhase::Preflight) return;
   if (!listsSucceeded) {
+    if (movePreflightAttempts_ < 2) {
+      const quint64 task = moveTaskId_;
+      QTimer::singleShot(750, this, [this, task]() {
+        if (moveRunning() && moveTaskId_ == task && movePhase_ == MovePhase::Preflight)
+          startMovePreflight();
+      });
+      return;
+    }
     finishMove(false, QStringLiteral("移动前列表刷新失败，未发送任何写操作。"));
     return;
   }
   if (!repository_->listObservationsAuthoritativeForWrite()) {
+    if (movePreflightAttempts_ < 2) {
+      const quint64 task = moveTaskId_;
+      QTimer::singleShot(750, this, [this, task]() {
+        if (moveRunning() && moveTaskId_ == task && movePhase_ == MovePhase::Preflight)
+          startMovePreflight();
+      });
+      return;
+    }
     finishMove(MoveOutcome::NotSent,
                QStringLiteral("列表来源或写前观察顺序尚未确证，未提交移动请求；当前数据仅供查看。"));
     return;
@@ -442,18 +463,46 @@ void PetRefreshController::onSequenceUpdateAccepted(quint64 requestGeneration) {
 void PetRefreshController::startMoveVerification(const QString& status) {
   if (!moveRunning()) return;
   movePhase_ = MovePhase::Verification;
+  ++moveVerificationAttempts_;
   emit statusChanged(status);
   startListRefresh(true);
+}
+
+bool PetRefreshController::scheduleMoveVerificationRetry(const QString& reason) {
+  // A host acknowledgement may arrive tens of seconds late under load.  Once
+  // a write was accepted we must never resend it, but repeated list reads are
+  // safe and can confirm that delayed server-side change. Unknown submissions
+  // remain single-check so an ambiguous host result does not keep the UI busy.
+  static constexpr int kMaximumAttempts = 5;
+  static constexpr int kRetryDelaysMs[] = {1000, 3000, 7000, 15000};
+  if (moveOutcome_ != MoveOutcome::Submitted || moveWriteRejected_ ||
+      moveVerificationAttempts_ >= kMaximumAttempts)
+    return false;
+  const int delayIndex = qBound(0, moveVerificationAttempts_ - 1, 3);
+  const int delay = kRetryDelaysMs[delayIndex];
+  const quint64 task = moveTaskId_;
+  const quint64 session = moveSessionGeneration_;
+  emit statusChanged(QStringLiteral("%1；不会重复移动，%2 秒后只读再核对一次。")
+                         .arg(reason).arg((delay + 999) / 1000));
+  QTimer::singleShot(delay, this, [this, task, session]() {
+    if (!moveRunning() || moveTaskId_ != task || moveSessionGeneration_ != session ||
+        movePhase_ != MovePhase::Verification)
+      return;
+    startMoveVerification(QStringLiteral("正在再次读取服务器背包和仓库，确认延迟的移动结果……"));
+  });
+  return true;
 }
 
 void PetRefreshController::finishMoveVerification(bool listsSucceeded) {
   if (movePhase_ != MovePhase::Verification) return;
   if (!listsSucceeded) {
+    if (scheduleMoveVerificationRetry(QStringLiteral("本次核对的列表未完整返回"))) return;
     finishMove(false,
                QStringLiteral("移动请求可能已经执行，但列表刷新失败，结果暂时无法确认；请稍后手动刷新。"));
     return;
   }
   if (!repository_->listObservationsAuthoritativeForWrite()) {
+    if (scheduleMoveVerificationRetry(QStringLiteral("本次核对的列表来源尚未确证"))) return;
     finishMove(MoveOutcome::Unknown, QStringLiteral("写后列表来源或观察顺序尚未确证，移动结果未知。"));
     return;
   }
@@ -478,6 +527,7 @@ void PetRefreshController::finishMoveVerification(bool listsSucceeded) {
                             .arg(moveWriteFailureReason_));
       return;
     }
+    if (scheduleMoveVerificationRetry(QStringLiteral("服务器列表暂未反映这次移动"))) return;
     finishMove(false,
                QStringLiteral("服务器最新列表与预期不一致，未将本地缓存伪装成成功状态。"));
     return;
@@ -541,6 +591,8 @@ void PetRefreshController::finishMove(MoveOutcome outcome, const QString& messag
   moveIntentTaskId_ = 0;
   moveWriteRejected_ = false;
   moveWriteFailureReason_.clear();
+  movePreflightAttempts_ = 0;
+  moveVerificationAttempts_ = 0;
   restoreAfterMove();
   emit moveRunningChanged(false);
   emit moveOutcomeChanged(completedOperationId, completedAccount, outcome, finalMessage);

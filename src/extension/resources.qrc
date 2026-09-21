@@ -10,9 +10,13 @@
     <file alias="stargod-icons/sources.json">../../assets/stargod-icons/sources.json</file>
     <file alias="data-updater/bootstrap-public-data.ps1">../../tools/bootstrap-public-data.ps1</file>
     <file alias="data-updater/generate_pet_detail_data.py">../../tools/generate_pet_detail_data.py</file>
+    <file alias="data-updater/generate_pet_skill_data.py">../../tools/generate_pet_skill_data.py</file>
+    <file alias="data-updater/public_skill_updater.py">../../tools/public_skill_updater.py</file>
     <file alias="data-updater/generate_shop_exchange_data.py">../../tools/generate_shop_exchange_data.py</file>
     <file alias="data-updater/generate_stargod_icons.py">../../tools/generate_stargod_icons.py</file>
     <file alias="pet-detail-data.json">../../assets/pet-detail-data.json</file>
+    <file alias="pet-skill-data.json">../../assets/pet-skill-data.json</file>
+    <file alias="pet-skill-supplement.json">../../assets/pet-skill-supplement.json</file>
     <file alias="pet-image-urls.json">../../assets/pet-image-urls.json</file>
     <file alias="attribute-icons.png">../../assets/attribute-icons.png</file>
     <file alias="shop-exchange-data.json">../../assets/shop-exchange-data.json</file>

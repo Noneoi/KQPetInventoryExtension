@@ -25,13 +25,21 @@ $payload = Get-KqChildPath $bundle 'package'
 $files = @('KQPetLauncher.exe','package.json','README.md','RELEASE_NOTES.md','SHA256SUMS.txt',
     'tools\KQPetReleaseCheck.exe','tools\KQPetCompatibilityCheck.exe','tools\legacy-baselines.json',
     'licenses\MinHook-LICENSE.txt')
-foreach ($script in @('release-tools.ps1','target-tools.ps1','verify-target.ps1','deploy.ps1','rollback.ps1','uninstall.ps1')) {
+foreach ($script in @('release-tools.ps1','auto-update-tools.ps1','auto-update.ps1',
+        'target-tools.ps1','verify-target.ps1','deploy.ps1','rollback.ps1','uninstall.ps1')) {
     $files += 'tools\' + $script
 }
 foreach ($file in @('KQPetLauncher.exe','KQPetInventory.dll','manifest.json','test-report.json')) {
     $files += 'KQPetRuntime\releases\' + $releaseId + '\' + $file
 }
 foreach ($relative in $files) {
+    if ($relative.EndsWith('.ps1',[StringComparison]::OrdinalIgnoreCase)) {
+        $scriptBytes = [IO.File]::ReadAllBytes((Get-KqChildPath $source $relative))
+        if ($scriptBytes.Length -lt 3 -or $scriptBytes[0] -ne 0xEF -or
+            $scriptBytes[1] -ne 0xBB -or $scriptBytes[2] -ne 0xBF) {
+            throw "Source package contains a PowerShell script without a UTF-8 BOM: $relative"
+        }
+    }
     $target = Get-KqChildPath $payload $relative
     [IO.Directory]::CreateDirectory((Split-Path -Parent $target)) | Out-Null
     Copy-KqVerifiedFile (Get-KqChildPath $source $relative) $target
@@ -49,9 +57,10 @@ $instructions = @'
 3. 双击“启动精灵工作台.cmd”。首次自动安装，之后自动启动。
 
 请保留 KQPetQuickStart 文件夹，不需要打开里面的程序。
-后续更新也按以上三步操作，不需要填写路径或输入命令。
+以后发布 GitHub 正式版后，可在“设置 → 软件更新”中手动检查、阅读更新说明并确认安装。
+已经下载并验证的新版会在关闭氪奇后的下次启动中完成切换。
 原客户端、现有账号缓存和数据目录配置会保留。
-首次使用可在设置中点击“全部检查更新”。
+首次使用可在“设置 → 数据更新”中点击“全部检查更新”。
 '@
 [IO.File]::WriteAllText((Join-Path $root '精灵工作台-使用说明.txt'),$instructions,(New-Object Text.UTF8Encoding($true)))
 # Archive the contents, so extraction exposes the entry directly.

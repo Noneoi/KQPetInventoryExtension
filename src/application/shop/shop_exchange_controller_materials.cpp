@@ -281,6 +281,17 @@ bool ShopExchangeController::acceptMaterialPacket(const QJsonObject& packet,
       if (candidate.contains(key)) { valid = false; break; }
       candidate.insert(key, count);
     }
+    // MoneyType.DIAMOND (8:2) is a virtual total in the official client. The
+    // money inventory stores recharge diamonds (8:25) and given diamonds
+    // (8:26); mirror MoneyService's own DIAMOND calculation here.
+    if (valid && type == QStringLiteral("8")) {
+      const qint64 recharge = candidate.value(QStringLiteral("8:25"), 0);
+      const qint64 given = candidate.value(QStringLiteral("8:26"), 0);
+      if (recharge > std::numeric_limits<qint64>::max() - given)
+        valid = false;
+      else
+        candidate.insert(QStringLiteral("8:2"), recharge + given);
+    }
     if (!valid) {
       if (!readOnly) fieldStates_.insert(stateKey, PacketFieldState::Invalid);
       warnings->append(QStringLiteral("材料类型%1数据无效").arg(type));

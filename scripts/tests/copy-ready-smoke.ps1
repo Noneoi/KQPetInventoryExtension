@@ -37,7 +37,8 @@ try {
     $relativeFiles = @('KQPetLauncher.exe','package.json','README.md','RELEASE_NOTES.md','SHA256SUMS.txt',
         'tools\KQPetReleaseCheck.exe','tools\KQPetCompatibilityCheck.exe','tools\legacy-baselines.json',
         'licenses\MinHook-LICENSE.txt')
-    foreach ($name in @('release-tools.ps1','target-tools.ps1','verify-target.ps1','deploy.ps1','rollback.ps1','uninstall.ps1')) {
+    foreach ($name in @('release-tools.ps1','auto-update-tools.ps1','auto-update.ps1',
+            'target-tools.ps1','verify-target.ps1','deploy.ps1','rollback.ps1','uninstall.ps1')) {
         $relativeFiles += 'tools\' + $name
     }
     foreach ($name in @('KQPetLauncher.exe','KQPetInventory.dll','manifest.json','test-report.json')) {
@@ -121,6 +122,15 @@ function Test-KqTarget {
     & $fresh.Entry -PrepareOnly
     $selection = Invoke-KqReleaseCheck $fresh.Checker @('--resolve',$freshClient)
     Assert-True ($selection.releaseId -ceq $releaseId -and $selection.manifestSha256 -ieq $package.manifestSha256) 'first prepare did not activate the exact verified package'
+    foreach ($packagedScript in @(Get-ChildItem -LiteralPath $fresh.Tools -Filter '*.ps1' -File)) {
+        $scriptBytes = [IO.File]::ReadAllBytes($packagedScript.FullName)
+        Assert-True ($scriptBytes.Length -gt 3 -and $scriptBytes[0] -eq 0xEF -and
+            $scriptBytes[1] -eq 0xBB -and $scriptBytes[2] -eq 0xBF) ("copy-ready script is not UTF-8 with BOM: " + $packagedScript.Name)
+    }
+    $windowsPowerShell = Join-Path $env:SystemRoot 'System32\WindowsPowerShell\v1.0\powershell.exe'
+    & $windowsPowerShell -NoLogo -NoProfile -NonInteractive -ExecutionPolicy Bypass -File `
+        (Join-Path $fresh.Tools 'auto-update.ps1') -ClientRoot $freshClient -ReleaseCheck $fresh.Checker -FinalizePendingOnly
+    Assert-True ($LASTEXITCODE -eq 0) 'Windows PowerShell 5.1 could not parse or finalize the packaged auto-update script'
     Invoke-KqReleaseCheck $fresh.Checker @('--bootstrap-protocol',(Join-Path $freshClient 'KQPetLauncher.exe')) | Out-Null
     Assert-True ([IO.File]::ReadAllText((Join-Path $freshClient 'KQProSmoke.exe')) -ceq 'synthetic original executable - never executed') 'first prepare altered the original executable'
     Assert-True ([IO.File]::ReadAllText((Join-Path $freshClient 'KQPetData\synthetic-cache-marker.txt')) -ceq 'isolated fixture cache must be retained') 'first prepare altered the synthetic cache'
