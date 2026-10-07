@@ -9,6 +9,7 @@ class QCheckBox;
 class QComboBox;
 class QLabel;
 class QLineEdit;
+class QPlainTextEdit;
 class QPushButton;
 class QTableWidget;
 class QTableView;
@@ -103,6 +104,10 @@ private:
   QLabel* localStargodSummary_ = nullptr;
   QTableWidget* overviewTable_ = nullptr;
   QComboBox* filter_ = nullptr;
+  QComboBox* cultivationFilter_ = nullptr;
+  QComboBox* eraFilter_ = nullptr;
+  QComboBox* ratingFilter_ = nullptr;
+  QPlainTextEdit* cultivationTotals_ = nullptr;
   QLineEdit* search_ = nullptr;
   QLabel* diagnosticSummary_ = nullptr;
   QTableView* diagnosticTable_ = nullptr;

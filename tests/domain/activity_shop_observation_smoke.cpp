@@ -222,6 +222,16 @@ int main(int argc, char** argv) {
   result = observeActivityShopGood(remaining,packetFor(remaining,{{QStringLiteral("bi4"),QJsonObject{{QStringLiteral("pl"),4}}}}));
   ok &= require(!result.quotaKnown,"remaining quantity above the configured limit was accepted");
 
+  auto claimed = good(QStringLiteral("future/reward#renamed"), query(QStringLiteral("1019_0")),
+      {QStringLiteral("b7"), QStringLiteral("oo")}, 1, 7, true);
+  claimed.quotaObservation.insert(QStringLiteral("encoding"), QStringLiteral("boolean-count"));
+  result = observeActivityShopGood(claimed, packetFor(claimed, {{QStringLiteral("b7"), QJsonObject{{QStringLiteral("oo"), true}}}}));
+  ok &= require(result.quotaKnown && result.used == 1 && result.remaining == 0, "claimed boolean was not read as a single used claim");
+  result = observeActivityShopGood(claimed, packetFor(claimed, {{QStringLiteral("b7"), QJsonObject{{QStringLiteral("oo"), false}}}}));
+  ok &= require(result.quotaKnown && result.remaining == 1, "unclaimed boolean lost its remaining claim");
+  result = observeActivityShopGood(claimed, packetFor(claimed, {{QStringLiteral("b7"), QJsonObject{{QStringLiteral("oo"), QStringLiteral("false")}}}}));
+  ok &= require(!result.quotaKnown, "malformed claim flag became a usable reward");
+  ok &= require(!observeActivityShopGood(claimed, {}).quotaKnown, "absent account observation became an unused claim");
   if (ok) std::puts("PASS: isolated official activity observation shapes, typed paths, dynamic prices and historical resource counts");
   return ok ? 0 : 1;
 }

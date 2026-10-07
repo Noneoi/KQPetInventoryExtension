@@ -48,6 +48,7 @@ set_source_files_properties("${CMAKE_CURRENT_BINARY_DIR}/cache_tools.rc"
   PROPERTIES OBJECT_DEPENDS "${CMAKE_CURRENT_SOURCE_DIR}/tools/cache-manager.ps1")
 add_executable(KQPetLauncher WIN32
   src/loader/main.cpp
+  src/loader/client_picker.cpp
   src/loader/data_root_config.cpp
   src/loader/client_target.cpp
   src/loader/remote_module.cpp
@@ -56,15 +57,15 @@ add_executable(KQPetLauncher WIN32
 )
 target_compile_definitions(KQPetLauncher PRIVATE UNICODE _UNICODE NOMINMAX WIN32_LEAN_AND_MEAN)
 target_compile_options(KQPetLauncher PRIVATE $<$<CXX_COMPILER_ID:MSVC>:/utf-8>)
-target_link_libraries(KQPetLauncher PRIVATE user32 KQPetCompatibility KQPetStartup shell32 KQPetReleaseCore)
+target_link_libraries(KQPetLauncher PRIVATE user32 comdlg32 KQPetCompatibility KQPetStartup shell32 KQPetReleaseCore)
 kqpet_use_build_info(KQPetLauncher)
 
 # --- Stable bootstrap entry (packaged as the client-root KQPetLauncher.exe) --
 configure_file(src/bootstrap/bootstrap_identity.rc.in "${KQPET_GENERATED_INCLUDE_DIR}/bootstrap_identity.rc" @ONLY)
 set_source_files_properties("${KQPET_GENERATED_INCLUDE_DIR}/bootstrap_identity.rc"
   PROPERTIES OBJECT_DEPENDS "${CMAKE_CURRENT_SOURCE_DIR}/src/bootstrap/bootstrap_identity.json")
-add_executable(KQPetBootstrap WIN32 src/bootstrap/main.cpp "${KQPET_GENERATED_INCLUDE_DIR}/bootstrap_identity.rc")
+add_executable(KQPetBootstrap WIN32 src/bootstrap/main.cpp src/loader/client_picker.cpp "${KQPET_GENERATED_INCLUDE_DIR}/bootstrap_identity.rc")
 target_compile_definitions(KQPetBootstrap PRIVATE UNICODE _UNICODE NOMINMAX WIN32_LEAN_AND_MEAN)
 target_compile_options(KQPetBootstrap PRIVATE $<$<CXX_COMPILER_ID:MSVC>:/utf-8>)
-target_link_libraries(KQPetBootstrap PRIVATE KQPetReleaseCore shell32)
+target_link_libraries(KQPetBootstrap PRIVATE KQPetReleaseCore shell32 comdlg32)
 set_target_properties(KQPetBootstrap PROPERTIES AUTOMOC OFF AUTORCC OFF)

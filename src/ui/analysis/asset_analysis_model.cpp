@@ -1,4 +1,5 @@
 #include "asset_analysis_model.h"
+#include "domain/asset_derivation.h"
 
 #include <QBrush>
 #include <QColor>
@@ -22,6 +23,16 @@ QVariant AssetAnalysisModel::data(const QModelIndex& index, int role) const {
   const PetAssetRecord* pet = petAt(index.row());
   if (!pet || index.column() < 0 || index.column() >= ColumnCount) return {};
   if (role == InstanceIdRole) return pet->instanceId;
+  if (index.column() == Era && (role == Qt::DisplayRole || role == SortRole)) {
+    const auto era = pet->pet.value(QStringLiteral("_metaEra")).toString();
+    return era.isEmpty() ? QStringLiteral("未知") : era;
+  }
+  if (index.column() == Rating && (role == Qt::DisplayRole || role == SortRole)) {
+    const auto rating = pet->pet.value(QStringLiteral("_metaRating")).toString();
+    return rating.isEmpty() ? QStringLiteral("未知") : rating;
+  }
+  if (index.column() == Materials && (role == Qt::DisplayRole || role == Qt::ToolTipRole))
+    return AssetDerivation::cultivationMaterialSummary({pet},category_);
   if (role == Qt::ToolTipRole) {
     if (index.column() == CurrentPower)
       return QStringLiteral("按本宠已装备与对应背包中可用星神、实际槽位等级计算；不把官方返回总数当作全部培养状态。待装备调整会单独列出。");
@@ -94,8 +105,14 @@ QVariant AssetAnalysisModel::headerData(int section, Qt::Orientation orientation
       QStringLiteral("精灵"), QStringLiteral("位置"),
       QStringLiteral("持有可达战斗力"), QStringLiteral("官方极限 / 至高战斗力"),
       QStringLiteral("完成度"), QStringLiteral("主要培养缺口"),
-      QStringLiteral("商店可提升")};
+      QStringLiteral("商店可提升"), QStringLiteral("时代"), QStringLiteral("评级"), QStringLiteral("所需养成材料")};
   return headers.value(section);
+}
+
+void AssetAnalysisModel::setCultivationCategory(const QString& category) {
+  if (category_ == category) return;
+  category_ = category;
+  if (!pets_.isEmpty()) emit dataChanged(index(0,Materials),index(pets_.size()-1,Materials));
 }
 
 void AssetAnalysisModel::setOverview(const AccountAssetOverview& overview) {

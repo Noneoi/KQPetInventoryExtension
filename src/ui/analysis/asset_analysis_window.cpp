@@ -20,6 +20,7 @@
 #include <QHBoxLayout>
 #include <QLabel>
 #include <QLineEdit>
+#include <QPlainTextEdit>
 #include <QPushButton>
 #include <QSignalBlocker>
 #include <QSplitter>
@@ -150,10 +151,10 @@ AssetAnalysisWindow::AssetAnalysisWindow(AnalysisReadView* controller,
   accountSummary_->setWordWrap(true);
   accountSummary_->setTextInteractionFlags(Qt::TextSelectableByMouse);
   refreshAnalysis_ = new QPushButton(
-      QStringLiteral("重新计算养成分析（仅本地）"), this);
+      QStringLiteral("重新计算养成分析"), this);
   refreshAnalysis_->setObjectName(QStringLiteral("KQAssetAnalysisRefresh"));
   refreshAnalysis_->setToolTip(
-      QStringLiteral("读取当前账号本地缓存，重新计算培养完成度、缺口和商店适用性，不发送服务器请求。"));
+      QStringLiteral("优先读取当前账号本地缓存；缺少实例详情时自动补读一次，再计算培养缺口。已有详情不重复联网读取。"));
   summaryRow->addWidget(accountSummary_, 1);
   cancelAnalysis_ = new QPushButton(QStringLiteral("取消计算"), this);
   cancelAnalysis_->setObjectName(QStringLiteral("KQAssetAnalysisCancel"));
@@ -180,7 +181,7 @@ AssetAnalysisWindow::AssetAnalysisWindow(AnalysisReadView* controller,
   auto* overviewPage = new QWidget(tabs_);
   auto* overviewLayout = new QVBoxLayout(overviewPage);
   auto* overviewNote = new QLabel(
-      QStringLiteral("精灵数量、位置、缺少详情数随列表同步轻量更新；培养和商店指标仅在点击“重新计算养成分析（仅本地）”后计算，日常/周常概要随对应缓存更新。"),
+      QStringLiteral("精灵数量、位置、缺少详情数随列表同步轻量更新；培养和商店指标仅在点击“重新计算养成分析”后计算，日常/周常概要随对应缓存更新。"),
       overviewPage);
   overviewNote->setWordWrap(true);
   overviewTable_ = makeTable(
@@ -228,6 +229,35 @@ AssetAnalysisWindow::AssetAnalysisWindow(AnalysisReadView* controller,
   filters->addWidget(search_, 1);
   filters->addWidget(diagnosticSummary_);
   diagnosticLayout->addLayout(filters);
+  auto* cultivationFilters = new QHBoxLayout();
+  cultivationFilter_ = new QComboBox(diagnosticPage);
+  cultivationFilter_->setObjectName(QStringLiteral("KQCultivationCategoryFilter"));
+  cultivationFilter_->addItem(QStringLiteral("全部养成"),QString{});
+  cultivationFilter_->addItem(QStringLiteral("神源兽"),QStringLiteral("sacred"));
+  cultivationFilter_->addItem(QStringLiteral("星轮"),QStringLiteral("astrolabe"));
+  cultivationFilter_->addItem(QStringLiteral("元魂"),QStringLiteral("badges"));
+  cultivationFilter_->addItem(QStringLiteral("红星"),QStringLiteral("stargods"));
+  eraFilter_ = new QComboBox(diagnosticPage);
+  eraFilter_->setObjectName(QStringLiteral("KQCultivationEraFilter"));
+  eraFilter_->addItem(QStringLiteral("全部时代"),QString{});
+  for (const auto& era : {QStringLiteral("灵初"),QStringLiteral("神运")}) eraFilter_->addItem(era,era);
+  ratingFilter_ = new QComboBox(diagnosticPage);
+  ratingFilter_->setObjectName(QStringLiteral("KQCultivationRatingFilter"));
+  ratingFilter_->addItem(QStringLiteral("评级"),QString{});
+  ratingFilter_->setToolTip(QStringLiteral("按精灵原名对应的评级筛选，皮肤品阶不参与评级"));
+  for (const auto* rating : {"SP","SSS","SS","S","A"}) ratingFilter_->addItem(QLatin1String(rating),QLatin1String(rating));
+  cultivationFilters->addWidget(new QLabel(QStringLiteral("养成缺口"),diagnosticPage));
+  cultivationFilters->addWidget(cultivationFilter_);
+  cultivationFilters->addWidget(eraFilter_); cultivationFilters->addWidget(ratingFilter_);
+  cultivationFilters->addStretch();
+  diagnosticLayout->addLayout(cultivationFilters);
+  auto* totalsNote = new QLabel(QStringLiteral("当前筛选的剩余培养消耗合计（未扣账号库存）；红星已计入每只精灵自身持有，普通红星和万变分列。"),diagnosticPage);
+  totalsNote->setWordWrap(true); diagnosticLayout->addWidget(totalsNote);
+  cultivationTotals_ = new QPlainTextEdit(diagnosticPage);
+  cultivationTotals_->setObjectName(QStringLiteral("KQCultivationTotals"));
+  cultivationTotals_->setReadOnly(true); cultivationTotals_->setMaximumHeight(130);
+  cultivationTotals_->setPlainText(QStringLiteral("请先重新计算养成分析"));
+  diagnosticLayout->addWidget(cultivationTotals_);
   diagnosticTable_ = makeView(diagnosticPage);
   diagnosticTable_->setObjectName(QStringLiteral("KQAssetDiagnosticTable"));
   analysisModel_ = new AssetAnalysisModel(this);
@@ -235,6 +265,21 @@ AssetAnalysisWindow::AssetAnalysisWindow(AnalysisReadView* controller,
   analysisFilterModel_->setSourceModel(analysisModel_);
   diagnosticTable_->setModel(analysisFilterModel_);
   diagnosticTable_->setSortingEnabled(true);
+  diagnosticTable_->setWordWrap(true);
+  diagnosticTable_->verticalHeader()->setSectionResizeMode(QHeaderView::ResizeToContents);
+  diagnosticTable_->verticalHeader()->setResizeContentsPrecision(50);
+  diagnosticTable_->verticalHeader()->setMaximumSectionSize(160);
+  auto* diagnosticHeader = diagnosticTable_->horizontalHeader();
+  diagnosticHeader->setSectionResizeMode(QHeaderView::Interactive);
+  diagnosticHeader->setStretchLastSection(false);
+  diagnosticHeader->moveSection(diagnosticHeader->visualIndex(AssetAnalysisModel::Era),1);
+  diagnosticHeader->moveSection(diagnosticHeader->visualIndex(AssetAnalysisModel::Rating),2);
+  diagnosticHeader->moveSection(diagnosticHeader->visualIndex(AssetAnalysisModel::Materials),3);
+  diagnosticTable_->setColumnWidth(AssetAnalysisModel::Pet,190);
+  diagnosticTable_->setColumnWidth(AssetAnalysisModel::Era,60);
+  diagnosticTable_->setColumnWidth(AssetAnalysisModel::Rating,60);
+  diagnosticTable_->setColumnWidth(AssetAnalysisModel::Materials,390);
+  diagnosticTable_->setColumnWidth(AssetAnalysisModel::Gaps,260);
   diagnosticLayout->addWidget(diagnosticTable_, 1);
   tabs_->addTab(diagnosticPage, QStringLiteral("养成诊断中心"));
 
@@ -356,6 +401,8 @@ AssetAnalysisWindow::AssetAnalysisWindow(AnalysisReadView* controller,
           &AssetAnalysisWindow::activateOverviewRow);
   connect(filter_, &QComboBox::currentIndexChanged, this,
           &AssetAnalysisWindow::applyDiagnosticFilter);
+  for (auto* box : {cultivationFilter_,eraFilter_,ratingFilter_})
+    connect(box, &QComboBox::currentIndexChanged, this, &AssetAnalysisWindow::applyDiagnosticFilter);
   connect(search_, &QLineEdit::textChanged, this,
           &AssetAnalysisWindow::applyDiagnosticFilter);
   connect(diagnosticTable_, &QTableView::doubleClicked, this,
@@ -502,6 +549,7 @@ void AssetAnalysisWindow::resetSessionContext() {
   instanceId_->clear();
   accountSummary_->setText(QStringLiteral("等待当前账号数据"));
   diagnosticSummary_->clear();
+  cultivationTotals_->setPlainText(QStringLiteral("请先重新计算养成分析"));
   changeSummary_->clear();
   historyState_->clear();
   instanceHistoryState_->clear();
@@ -601,7 +649,7 @@ void AssetAnalysisWindow::updateAnalysisStatus() {
   if (!controller_->hasAnalysis()) {
     analysisStatus_->setStyleSheet(QStringLiteral("color: #8a5a00;"));
     analysisStatus_->setText(QStringLiteral(
-        "尚未分析，请点击“重新计算养成分析（仅本地）”。"));
+        "尚未分析，请点击“重新计算养成分析”。"));
     return;
   }
   const int dirtyCount = controller_->dirtyPetIds().size();
@@ -796,7 +844,7 @@ void AssetAnalysisWindow::rebuildDiagnostics() {
   if (!analysisReady_) {
     analysisModel_->clear();
     diagnosticSummary_->setText(QStringLiteral(
-        "尚未分析，请点击“重新计算养成分析（仅本地）”。"));
+        "尚未分析，请点击“重新计算养成分析”。"));
     return;
   }
   analysisModel_->setOverview(overview_);
@@ -808,11 +856,15 @@ void AssetAnalysisWindow::applyDiagnosticFilter() {
   analysisFilterModel_->setAssetFilter(
       static_cast<PetAssetFilter>(filter_->currentData().toInt()));
   analysisFilterModel_->setQuery(search_->text());
+  const auto category = cultivationFilter_->currentData().toString();
+  analysisFilterModel_->setCultivationFilters(category,eraFilter_->currentData().toString(),ratingFilter_->currentData().toString());
+  analysisModel_->setCultivationCategory(category);
   updateDiagnosticSummary();
 }
 
 void AssetAnalysisWindow::updateDiagnosticSummary() {
   if (!analysisReady_ || !analysisFilterModel_ || !controller_) return;
+  cultivationTotals_->setPlainText(analysisFilterModel_->materialSummary());
   const bool cultivationStale = controller_->inventoryAnalysisStale() ||
                                 !controller_->dirtyPetIds().isEmpty();
   QString staleNote;

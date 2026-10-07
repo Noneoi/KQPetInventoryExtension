@@ -25,6 +25,6 @@ QList<ActionRecommendation> RecommendationEngine::generate(
       PreparedShopConditions::prepare(compiled, shopPacket, resources, effectiveContext);
   const PetMetadataView catalog(PetDetailCatalog::instance().snapshot());
   const ShopPetMetadataSnapshot metadata{catalog.stargodDefinitions(),catalog.astrolabeDefinitions(),catalog.petDefinitions(),
-      catalog.sacredStarPlans(),catalog.sacredStagePlans(),catalog.badgeDefinitions()};
+      catalog.sacredStarPlans(),catalog.sacredStagePlans(),catalog.badgeDefinitions(), catalog.itemDefinitions(), catalog.sacredEquipmentDefinitions()};
   return generatePrepared(account, overview, prepared, metadata);
 }

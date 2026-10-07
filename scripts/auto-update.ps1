@@ -47,27 +47,20 @@ function Get-KqLatestGitHubRelease {
         # GitHub's unauthenticated API is intentionally rate-limited. The
         # public latest-release redirect and expanded-assets fragment expose
         # the same published release without requiring an account token.
-        $location = ''
-        try {
-            Invoke-WebRequest -UseBasicParsing -Method Get -Uri "https://github.com/$script:repository/releases/latest" `
-                -Headers @{'User-Agent'=$Headers['User-Agent']} -MaximumRedirection 0 -TimeoutSec 15 | Out-Null
-        } catch {
-            if ($_.Exception.Response) {
-                $response = $_.Exception.Response
-                if ($response.Headers.PSObject.Properties.Name -contains 'Location') {
-                    $location = [string]$response.Headers.Location
-                } elseif ($response.PSObject.Methods.Name -contains 'GetResponseHeader') {
-                    $location = [string]$response.GetResponseHeader('Location')
-                }
-            }
-        }
-        $releaseUri = $null
-        if (-not [Uri]::TryCreate([string]$location,[UriKind]::Absolute,[ref]$releaseUri) -or
-            $releaseUri.Scheme -cne 'https' -or $releaseUri.Host -ine 'github.com' -or
-            $releaseUri.AbsolutePath -cnotmatch '^/Noneoi/KQPetInventoryExtension/releases/tag/(?<tag>v[0-9]+[.][0-9]+[.][0-9]+)$') {
+        # Windows PowerShell 5.1 reports -MaximumRedirection 0 as a terminating
+        # InvalidOperationException whose Response is not reliable. Follow only
+        # GitHub's redirects, then validate the final HTTPS host and exact tag
+        # path before trusting it.
+        $page = Invoke-WebRequest -UseBasicParsing -Method Get `
+            -Uri "https://github.com/$script:repository/releases/latest" `
+            -Headers @{'User-Agent'=$Headers['User-Agent']} -MaximumRedirection 5 -TimeoutSec 15
+        $location = if ($page.BaseResponse -and $page.BaseResponse.ResponseUri) {
+            [string]$page.BaseResponse.ResponseUri.AbsoluteUri
+        } else { [string]$page.Headers['Location'] }
+        try { $tag = Get-KqGitHubReleaseTagFromUrl $location }
+        catch {
             throw 'GitHub API 暂时不可用，且无法从官方发行页确认最新版本。'
         }
-        $tag = $Matches.tag
         $expandedUrl = "https://github.com/$script:repository/releases/expanded_assets/$tag"
         $expanded = Invoke-WebRequest -UseBasicParsing -Method Get -Uri $expandedUrl `
             -Headers @{'User-Agent'=$Headers['User-Agent']} -TimeoutSec 15

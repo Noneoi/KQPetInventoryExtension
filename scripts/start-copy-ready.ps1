@@ -1,4 +1,4 @@
-﻿param([switch]$PrepareOnly)
+﻿param([switch]$PrepareOnly, [switch]$SelectClient)
 $ErrorActionPreference = 'Stop'
 try {
     $bundleRoot = [IO.Path]::GetFullPath($PSScriptRoot)
@@ -7,9 +7,28 @@ try {
     $toolsRoot = Join-Path $packageRoot 'tools'
     . (Join-Path $toolsRoot 'release-tools.ps1')
     . (Join-Path $toolsRoot 'auto-update-tools.ps1')
+    . (Join-Path $toolsRoot 'target-tools.ps1')
     $clientRoot = Assert-KqPlainPath $clientRoot
-    if (-not @(Get-ChildItem -LiteralPath $clientRoot -Filter 'KQPro*.exe' -File).Count) {
-        throw '未找到氪奇主程序。请将启动文件和 KQPetQuickStart 文件夹一起复制到 KQPro*.exe 所在目录。'
+    $target = $null
+    try { $target = Get-KqTarget -OriginalDir $clientRoot -CompatibilityCheck (Join-Path $toolsRoot 'KQPetCompatibilityCheck.exe') } catch { }
+    if ($SelectClient -or -not $target -or -not (Test-Path -LiteralPath $target.Path -PathType Leaf)) {
+        if ($PrepareOnly) { throw '未找到氪奇主程序，请运行“选择氪奇主程序.cmd”选择 EXE。' }
+        if (Test-KqClientRunning $clientRoot) { throw '请先关闭正在运行的氪奇，再更换主程序。' }
+        Add-Type -AssemblyName System.Windows.Forms
+        $dialog = New-Object System.Windows.Forms.OpenFileDialog
+        try {
+            $dialog.Title = '选择氪奇主程序 EXE（选择后记住路径）'
+            $dialog.Filter = '氪奇主程序 (*.exe)|*.exe'
+            $dialog.InitialDirectory = $clientRoot
+            $dialog.CheckFileExists = $true
+            if ($dialog.ShowDialog() -ne [System.Windows.Forms.DialogResult]::OK) { return }
+            if ([IO.Path]::GetFileName($dialog.FileName) -like 'KQPet*') { throw '请选择氪奇主程序，不要选择扩展启动器或工具。' }
+            $selectionFile = Join-Path $clientRoot 'KQPetClient.txt'
+            $selectionTemp = Join-Path $clientRoot ('KQPetClient.' + [guid]::NewGuid().ToString('N') + '.tmp')
+            [IO.File]::WriteAllText($selectionTemp,$dialog.FileName,[Text.Encoding]::Unicode)
+            if (Test-Path -LiteralPath $selectionFile) { [IO.File]::Replace($selectionTemp,$selectionFile,$null) }
+            else { [IO.File]::Move($selectionTemp,$selectionFile) }
+        } finally { $dialog.Dispose() }
     }
     if (Test-KqClientRunning $clientRoot) {
         throw '氪奇正在运行。请先关闭氪奇，再双击“启动精灵工作台”。'
@@ -78,7 +97,7 @@ try {
     Invoke-KqReleaseCheck $checker @('--bootstrap-protocol', $launcher) | Out-Null
     if (-not $PrepareOnly) {
         if (Test-KqClientRunning $clientRoot) { throw '氪奇已经启动，请使用现有窗口。' }
-        Start-Process -FilePath $launcher -WorkingDirectory $clientRoot
+        Start-Process -FilePath $launcher -WorkingDirectory $clientRoot -WindowStyle Hidden
     }
 } catch {
     if ($PrepareOnly) { throw }

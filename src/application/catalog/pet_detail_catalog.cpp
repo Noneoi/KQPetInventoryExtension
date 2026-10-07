@@ -100,9 +100,14 @@ std::shared_ptr<const PetDetailCatalogSnapshot> PetDetailCatalog::prepareOverlay
       for (const QString& field : {QStringLiteral("attributes"), QStringLiteral("jobs"), QStringLiteral("lightUpCost"),QStringLiteral("sourceName"),QStringLiteral("astrolabeBreakCosts"),QStringLiteral("sign")})
         if (item.contains(field) && !item.value(field).isString()) return invalid();
       for (const QString& field : {QStringLiteral("groupRaceId"), QStringLiteral("stargodSlotMaxLevel"),
-           QStringLiteral("type"), QStringLiteral("maxLevel"), QStringLiteral("quality"), QStringLiteral("supplyExp"),
+           QStringLiteral("type"), QStringLiteral("maxLevel"), QStringLiteral("supplyExp"),
            QStringLiteral("locatedType"),QStringLiteral("sourceId")})
         if (item.contains(field) && !integer(item.value(field))) return invalid();
+      if (item.contains(QStringLiteral("quality"))) {
+        if (section.key() == QStringLiteral("pets")) {
+          if (!item.value(QStringLiteral("quality")).isString() || item.value(QStringLiteral("quality")).toString().size() > 32) return invalid();
+        } else if (!integer(item.value(QStringLiteral("quality")))) return invalid();
+      }
       for (const QString& field : {QStringLiteral("exclusive"), QStringLiteral("changeable"), QStringLiteral("limited"),QStringLiteral("isTBD")})
         if (item.contains(field) && !item.value(field).isBool()) return invalid();
       if (item.contains(QStringLiteral("limitJobs"))) {
@@ -158,7 +163,7 @@ std::shared_ptr<const PetDetailCatalogSnapshot> PetDetailCatalog::prepareOverlay
               ? QStringList{QStringLiteral("type"),QStringLiteral("limitJobs"),QStringLiteral("limited")}
               : section.key() == QStringLiteral("astrolabe") ? QStringList{QStringLiteral("battlePower"),QStringLiteral("locatedType"),QStringLiteral("isTBD")}
               : section.key() == QStringLiteral("badges") ? QStringList{QStringLiteral("levels"),QStringLiteral("activationCost"),QStringLiteral("battlePower")}
-              : section.key() == QStringLiteral("pets") ? QStringList{QStringLiteral("astrolabeBreakCosts"),QStringLiteral("sign")}
+              : section.key() == QStringLiteral("pets") ? QStringList{QStringLiteral("astrolabeBreakCosts"),QStringLiteral("sign"),QStringLiteral("quality")}
               : QStringList{QStringLiteral("sourceId"),QStringLiteral("sourceName")};
           for (const auto& field : fields) if (!upgraded.contains(field) && baseline.contains(field))
             upgraded.insert(field,baseline.value(field));

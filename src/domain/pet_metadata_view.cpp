@@ -147,6 +147,40 @@ QString PetMetadataView::resolvedAttributes(const QJsonObject& petObject) const 
   return attributes(metadataFor(petObject).value(QStringLiteral("attributes")).toString());
 }
 
+QString PetMetadataView::resolvedRating(const QJsonObject& petObject) const {
+  QJsonObject current = pet(liveRaceId(petObject));
+  if (current.isEmpty()) {
+    const QString name = resolvedOriginalName(petObject);
+    const auto saved = pet(petObject.value(QStringLiteral("_metaRaceId")).toInt());
+    if (!name.isEmpty() && saved.value(QStringLiteral("name")).toString() == name)
+      current = saved;
+    else if (!name.isEmpty()) {
+      // Exact official names only: similarly named pets from different eras
+      // can have different ratings. Never infer it from a skin's quality.
+      const auto definitions = petDefinitions();
+      for (auto it = definitions.begin(); it != definitions.end(); ++it) {
+        const auto candidate = it.value().toObject();
+        if (candidate.value(QStringLiteral("name")).toString() != name) continue;
+        if (!current.isEmpty()) return {};  // Ambiguous original name.
+        current = candidate;
+      }
+    }
+  }
+  QSet<int> visited;
+  while (!current.isEmpty()) {
+    const int parent = current.value(QStringLiteral("groupRaceId")).toInt();
+    if (parent <= 0) {
+      const QString rating = current.value(QStringLiteral("quality")).toString().trimmed().toUpper();
+      return QStringList{QStringLiteral("SP"), QStringLiteral("SSS"), QStringLiteral("SS"),
+                         QStringLiteral("S"), QStringLiteral("A")}.contains(rating) ? rating : QString{};
+    }
+    if (visited.contains(parent)) return {};
+    visited.insert(parent);
+    current = pet(parent);
+  }
+  return {};
+}
+
 QString PetMetadataView::resolvedJobs(const QJsonObject& petObject) const {
   const QJsonObject direct = pet(liveRaceId(petObject));
   if (!direct.isEmpty())

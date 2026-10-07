@@ -44,9 +44,8 @@ Result launch(const fs::path& root, const std::vector<std::wstring>& arguments,
     }
   } else result.error = result.selection.error;
   const auto original = kqpet::launcher::findClientExecutable(client);
-  fs::path safeOriginal;
-  if (original.empty() || !release::safeChild(client, original.filename(), false, &safeOriginal, &result.error)) return result;
-  LaunchRequest fallback{LaunchKind::Original, safeOriginal, client, arguments};
+  if (original.empty()) return result;
+  LaunchRequest fallback{LaunchKind::Original, original, original.parent_path(), arguments};
   ++result.originalLaunchAttempts;
   result.started = launcher(fallback, &result.error);
   return result;

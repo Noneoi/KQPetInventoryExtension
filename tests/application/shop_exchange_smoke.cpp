@@ -80,8 +80,8 @@ int main(int argc, char* argv[]) {
     for (const auto& good : shop.goods)
       ok &= require(good.sourceKey == shop.sourceKey, "activity good lost its parent source identity");
   }
-  ok &= require(activityShopCount == 9 && activityGoodCount == 76,
-      "the frozen public activity snapshot is incomplete");
+  ok &= require(activityShopCount == 6 && activityGoodCount == 51,
+      "the frozen public activity snapshot retained choices or lost fixed rewards");
   ok &= require(catalog.shops(date).size() == shops.size() + activityShopCount,
       "merged catalog omitted established or independent activity shops");
   const ShopExchangeShop* kunwuSale = nullptr;
@@ -90,7 +90,7 @@ int main(int argc, char* argv[]) {
       kunwuSale = &shop;
       break;
     }
-  ok &= require(kunwuSale && kunwuSale->goods.size() == 4 &&
+  ok &= require(kunwuSale && kunwuSale->goods.size() == 3 &&
                     kunwuSale->navigationLink == QStringLiteral("btnNewAct_lingchukunwudiscountstore_showMainPanel_3") &&
                     kunwuSale->activityEvidence == QStringLiteral("recent-release"),
                 "current cultivation sale or its official navigation evidence is missing");
@@ -99,10 +99,8 @@ int main(int argc, char* argv[]) {
     const auto threeStars = findGood({*kunwuSale}, kunwuSale->shopId, QStringLiteral("装备任选红星3颗"));
     ok &= require(breakthrough.cost == QStringLiteral("8:2:29") && breakthrough.limitCount == 3 &&
                       breakthrough.enhanceType == QStringLiteral("89$1") && !breakthrough.quotaObservation.isEmpty() &&
-                      threeStars.cost == QStringLiteral("8:2:109") && threeStars.limitCount == 1 &&
-                      threeStars.enhanceType == QStringLiteral("39$3") &&
-                      breakthrough.section == ShopExchangeSection::DiamondActivity &&
-                      threeStars.section == ShopExchangeSection::DiamondActivity,
+                      !threeStars.hasIdentity() &&
+                      breakthrough.section == ShopExchangeSection::DiamondActivity,
                   "current diamond prices, limits, cultivation meaning, or quota paths are incomplete");
   }
 

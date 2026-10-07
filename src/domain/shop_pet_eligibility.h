@@ -21,6 +21,8 @@ struct ShopPetMetadataSnapshot {
   QJsonObject sacredStarPlans;
   QJsonObject sacredStagePlans;
   QJsonObject badges;
+  QJsonObject items;
+  QJsonObject sacredEquipment;
 };
 
 struct ShopPetComponentRule {

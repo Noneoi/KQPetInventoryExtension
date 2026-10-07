@@ -3,6 +3,7 @@
 #include "pet_power_calculator.h"
 #include "checked_json_numbers.h"
 #include <climits>
+#include <QMap>
 
 namespace {
 bool hasGap(const PetBattlePowerState& state, const QString& key) {
@@ -11,6 +12,61 @@ bool hasGap(const PetBattlePowerState& state, const QString& key) {
   return false;
 }
 
+} // namespace
+
+bool AssetDerivation::matchesCultivationCategory(const PetAssetRecord& pet, const QString& category) {
+  if (category.isEmpty() || !pet.detailAvailable) return true;
+  for (const auto& row : pet.cultivationRequirements.items) {
+    if (row.category != category) continue;
+    if (category != QStringLiteral("stargods") || row.key == QStringLiteral("stargod_red") ||
+        row.key == QStringLiteral("stargod_changeable") || row.key == QStringLiteral("stargod_state")) return true;
+  }
+  return false;
+}
+
+QString AssetDerivation::cultivationMaterialSummary(const QList<const PetAssetRecord*>& pets, const QString& category) {
+  const QList<QPair<QString,QString>> categories{{QStringLiteral("sacred"),QStringLiteral("神源兽")},
+      {QStringLiteral("astrolabe"),QStringLiteral("星轮精华")},{QStringLiteral("badges"),QStringLiteral("元魂")},
+      {QStringLiteral("stargods"),QStringLiteral("红星")}};
+  QStringList summaries;
+  for (const auto& group : categories) {
+    if (!category.isEmpty() && category != group.first) continue;
+    QMap<QString,qint64> totals; QMap<QString,QString> names; int unknownPets = 0;
+    for (const auto* pet : pets) {
+      if (!pet) continue;
+      bool unknown = !pet->detailAvailable;
+      if (pet->detailAvailable && group.first == QStringLiteral("stargods")) {
+        unknown |= !pet->redStarKnown;
+        if (pet->redStarKnown && pet->missingRedStars > 0) {
+          totals[QStringLiteral("ordinary")] += pet->missingRedStars; names[QStringLiteral("ordinary")] = QStringLiteral("普通红星");
+        }
+        if (pet->gapKeys.contains(QStringLiteral("sg_changeable"))) {
+          ++totals[QStringLiteral("changeable")]; names[QStringLiteral("changeable")] = QStringLiteral("万变红星");
+        }
+      }
+      for (const auto& row : pet->cultivationRequirements.items) {
+        if (row.category != group.first) continue;
+        if (group.first == QStringLiteral("stargods") && row.key != QStringLiteral("stargod_red") &&
+            row.key != QStringLiteral("stargod_changeable") && row.key != QStringLiteral("stargod_state")) continue;
+        unknown |= !row.known;
+        for (const auto& item : row.materials) {
+          if (!item.known) { unknown = true; continue; }
+          if (item.count <= 0) continue;
+          const QString key = QStringLiteral("%1:%2:%3:%4").arg(item.type).arg(item.id).arg(item.extra).arg(item.id ? QString{} : item.name);
+          totals[key] += item.count; names[key] = item.name;
+        }
+      }
+      if (unknown) ++unknownPets;
+    }
+    QStringList parts; qint64 total = 0;
+    for (auto it = totals.cbegin(); it != totals.cend(); ++it) {
+      parts.append(QStringLiteral("%1 × %2").arg(names.value(it.key())).arg(it.value())); total += it.value();
+    }
+    QString text = parts.isEmpty() ? QStringLiteral("已知缺口 0") : QStringLiteral("已知共 %1：%2").arg(total).arg(parts.join(QStringLiteral("；")));
+    if (unknownPets) text += QStringLiteral("；另有 %1 只信息不足，未计入未知数量").arg(unknownPets);
+    summaries.append(group.second + QStringLiteral("：") + text);
+  }
+  return summaries.join(QLatin1Char('\n'));
 }
 
 QJsonObject AssetDerivation::identityFields(const QJsonObject& pet) {
@@ -19,7 +75,7 @@ QJsonObject AssetDerivation::identityFields(const QJsonObject& pet) {
       QStringLiteral("n"), QStringLiteral("customName"), QStringLiteral("lv"), QStringLiteral("g"),
       QStringLiteral("gd"), QStringLiteral("_location"), QStringLiteral("_warehouseGroup"),
       QStringLiteral("_position"), QStringLiteral("_visualMismatch"), QStringLiteral("_metaOriginalName"),
-      QStringLiteral("_metaAttributes"), QStringLiteral("_metaJobs"), QStringLiteral("_metaEra"), QStringLiteral("_metaRaceId")};
+      QStringLiteral("_metaAttributes"), QStringLiteral("_metaJobs"), QStringLiteral("_metaEra"), QStringLiteral("_metaRating"), QStringLiteral("_metaRaceId")};
   QJsonObject identity;
   for (const QString& field : fields) {
     const QJsonValue value = pet.value(field);
@@ -40,7 +96,7 @@ QJsonObject AssetDerivation::analysisInputFields(const QJsonObject& brief, const
       QStringLiteral("n"), QStringLiteral("customName"), QStringLiteral("lv"), QStringLiteral("g"),
       QStringLiteral("gd"), QStringLiteral("_location"), QStringLiteral("_warehouseGroup"),
       QStringLiteral("_position"), QStringLiteral("_visualMismatch"), QStringLiteral("_metaOriginalName"),
-      QStringLiteral("_metaAttributes"), QStringLiteral("_metaJobs"), QStringLiteral("_metaEra"), QStringLiteral("_metaRaceId"),
+      QStringLiteral("_metaAttributes"), QStringLiteral("_metaJobs"), QStringLiteral("_metaEra"), QStringLiteral("_metaRating"), QStringLiteral("_metaRaceId"),
       QStringLiteral("zdl"), QStringLiteral("xzdl"), QStringLiteral("czdlv"), QStringLiteral("mzdlv"),
       QStringLiteral("sgs"), QStringLiteral("sgsp"), QStringLiteral("badge"), QStringLiteral("shenjue"),
       QStringLiteral("astrolabe"), QStringLiteral("astrolabebr"), QStringLiteral("stargodSlotMaxLevel"),

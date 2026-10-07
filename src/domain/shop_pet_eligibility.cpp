@@ -183,6 +183,9 @@ SacredEquipmentLevels sacredEquipmentLevels(const QJsonObject& pet) {
 }
 
 QString componentName(const QString& code) {
+  int specifiedStar = 0;
+  if (code.startsWith(QStringLiteral("35$")) && nonnegativeInteger(code.mid(3), &specifiedStar) && specifiedStar > 0)
+    return QStringLiteral("指定星神（适用条件以活动内为准）");
   static const QHash<QString, QString> names = {
       {QStringLiteral("11"), QStringLiteral("等级")},
       {QStringLiteral("31"), QStringLiteral("满金星+万变金星")},

@@ -276,7 +276,7 @@ void ExtensionContext::ensureWorkbench() {
       if (shopState_.catalog)
         for (const auto& shop : shopState_.catalog->allShops)
           for (const auto& good : shop.goods)
-            if (good.isOnlineOn(shopState_.catalogDate) && good.stableKey() == target.goodKey) { exists = true; break; }
+            if (good.isOnlineAt(QDateTime::currentDateTimeUtc()) && good.stableKey() == target.goodKey) { exists = true; break; }
       if (!exists) return false;
     }
     return true;
@@ -511,11 +511,14 @@ void ExtensionContext::showSettings() {
                                             : QStringLiteral("设置尚未确认：%1").arg(error), false});
         return;
       }
-      auto* dialog = new PetSettingsDialog(timings, workbench_);
+      auto* dialog = new PetSettingsDialog(timings, workbench_, inventory_->metadataSnapshot());
       dialog->setAttribute(Qt::WA_DeleteOnClose);
       dialog->setCacheRoot(inventory_->dataRoot());
       connect(dialog, &PetSettingsDialog::cacheActionRequested, runtime_, &ApplicationRuntime::requestCacheAction);
       connect(dialog, &PetSettingsDialog::dataUpdateRequested, runtime_, &ApplicationRuntime::requestDataUpdate);
+      connect(dialog, &PetSettingsDialog::shopSelectionRequested, runtime_, &ApplicationRuntime::requestShopSelection);
+      connect(dialog, &PetSettingsDialog::shopSelectionSaveRequested, runtime_, &ApplicationRuntime::saveShopSelection);
+      connect(runtime_, &ApplicationRuntime::shopSelectionChanged, dialog, &PetSettingsDialog::setShopSelection);
       connect(dialog, &PetSettingsDialog::missingImagesRequested, runtime_, &ApplicationRuntime::requestMissingImages);
       connect(dialog, &PetSettingsDialog::imageBatchPauseRequested, runtime_, &ApplicationRuntime::pauseImageBatch);
       connect(dialog, &PetSettingsDialog::imageBatchCancelRequested, runtime_, &ApplicationRuntime::cancelImageBatch);
@@ -528,6 +531,7 @@ void ExtensionContext::showSettings() {
         runtime_->postUnscoped([selected](const CoreServices& core) { core.refresh->setTimings(selected); });
       });
       dialog->open();
+      runtime_->requestShopSelection();
       runtime_->requestCacheAction(QStringLiteral("inspect"));
     }, Qt::QueuedConnection);
   })) settingsPending_ = false;

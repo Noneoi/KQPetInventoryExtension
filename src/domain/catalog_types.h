@@ -6,6 +6,7 @@
 #include <QJsonObject>
 #include <QJsonArray>
 #include <QList>
+#include <QSet>
 #include <QString>
 #include <QVector>
 
@@ -22,14 +23,24 @@ struct ShopExchangeGood {
   int tab = 0;
   QString shopName;
   QString description;
+  QString displayName() const;
   QString limitText;
   QString limitKey;
   QString limitLabel;
+  QString quotaDescription;
   int limitCount = 0;
   QString cost;
   QString enhanceType;
   QString unlock;
   QString tag;
+  // Ordinary exchange rewards are scanned, but require an explicit local
+  // selection. They must never imply a designated-pet cultivation rule.
+  bool manualSelectionRequired = false;
+  QString rewardRaw;
+  // Empty/exchange retains ordinary store behavior. Reward entries have no
+  // inferred price, quota or automatic claim command.
+  QString acquisitionKind;
+  QString acquisitionLabel() const;
   // Only a verified catalog contract may set these. Empty cost / limit fields
   // do not prove that a project is free or has unlimited exchanges.
   bool provenFree = false;
@@ -42,6 +53,8 @@ struct ShopExchangeGood {
   QDate shelfDate;
   QDate removalDate;
   bool hasRemovalDate = false;
+  QDateTime startsAt;
+  QDateTime endsAt;  // Exclusive, in the official UTC+8 activity time zone.
   // Empty denotes the original SEF protocol. Activity-local shop/item IDs
   // belong to their own official module and must never share its counters.
   QString sourceKey;
@@ -55,9 +68,13 @@ struct ShopExchangeGood {
   // Classification is evidence based: diamond activities require an
   // explicitly parsed diamond price/currency in the official activity code.
   ShopExchangeSection section = ShopExchangeSection::Permanent;
-  bool hasIdentity() const { return shopId > 0 && (sourceKey.isEmpty() ? itemServerId > 0 : itemServerId >= 0); }
+  bool hasIdentity() const {
+    return shopId > 0 && itemServerId >= 0 && (!sourceKey.isEmpty() || manualSelectionRequired || itemServerId > 0);
+  }
 
   bool isOnlineOn(const QDate& date) const;
+  bool isOnlineAt(const QDateTime& instant) const;
+  QDateTime nextAvailabilityChange(const QDateTime& after) const;
   QString itemKey() const;
   QString stableKey() const;
 };
@@ -82,6 +99,9 @@ struct ShopCatalogSnapshot {
   quint64 revision = 0;
   QJsonObject root;
   QList<ShopExchangeShop> allShops;
+  QList<ShopExchangeShop> discoveredShops;
+  QSet<QString> manualSelection;
+  QSet<QString> excludedAutomatic;
   QString extension;
   QString getInfoCommand;
   QString getInfoParams = QStringLiteral("{}");

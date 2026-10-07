@@ -7,6 +7,17 @@ Import-Module -Name (Join-Path $PSHOME 'Modules\Microsoft.PowerShell.Utility\Mic
 
 function Get-KqTarget {
     param([string]$OriginalDir = '', [string]$WorkspaceRoot = (Split-Path -Parent (Split-Path -Parent $PSScriptRoot)), [string]$CompatibilityCheck = '', [string]$OriginalExe = '')
+    if (-not $OriginalExe -and $OriginalDir) {
+        $selectedFile = Join-Path $OriginalDir 'KQPetClient.txt'
+        if ((Test-Path -LiteralPath $selectedFile -PathType Leaf) -and (Get-Item -LiteralPath $selectedFile).Length -le 65536) {
+            $selected = [IO.File]::ReadAllText($selectedFile,[Text.Encoding]::Unicode).TrimEnd("`r","`n")
+            if ([IO.Path]::IsPathRooted($selected) -and [IO.Path]::GetExtension($selected) -ieq '.exe' -and
+                [IO.Path]::GetFileName($selected) -notlike 'KQPet*' -and (Test-Path -LiteralPath $selected -PathType Leaf)) {
+                $file = Get-Item -LiteralPath $selected
+                return [pscustomobject]@{ Path = $file.FullName; Directory = $file.DirectoryName; Name = $file.Name }
+            }
+        }
+    }
     if ($OriginalExe) {
         $file = Get-Item -LiteralPath $OriginalExe
         if ($file.PSIsContainer -or $file.Extension -ine '.exe') { throw 'OriginalExe must name an EXE file.' }

@@ -161,6 +161,7 @@ private:
   bool hasMaterialCounts_ = false;
   std::shared_ptr<const ShopCatalogSnapshot> catalogSnapshot_;
   QDate catalogDate_;
+  QDateTime nextAvailabilityChange_;
   QList<ShopExchangeShop> visibleShops_;
   CompiledShopCatalog compiledCatalog_;
   QHash<QString, qsizetype> compiledGoodsByKey_;

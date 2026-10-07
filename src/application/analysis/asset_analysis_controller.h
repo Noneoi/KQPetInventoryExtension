@@ -16,6 +16,7 @@ class PetRepository;
 class ShopExchangeController;
 class RoutineOverviewController;
 class PetDerivationCache;
+class PetRefreshController;
 class QTimer;
 
 class AssetAnalysisController final : public AnalysisReadView {
@@ -50,6 +51,7 @@ public:
   void metadataChanged();
   void checkInputFreshness();
   void setDerivationCache(PetDerivationCache* cache);
+  void setDetailRefreshController(PetRefreshController* refresh);
   bool shutdownAnalysis(int maximumWaitMilliseconds = 2000);
   bool autoSnapshotSettingKnown() const override { return settings_.known(account_) && !settings_.pending(account_); }
   int persistencePendingTaskCount() const { return snapshotStore_.pendingTaskCount() + settings_.pendingTaskCount(); }
@@ -107,6 +109,8 @@ private:
   void queueDerivation(qint64 id);
   void acceptDerivedFacts(const PetDerivationKey& key, const PetDerivedFactsHandle& facts);
   void failPreparation(const QString& reason);
+  bool readMissingDetail(qint64 id);
+  void missingDetailFinished(qint64 id, bool succeeded, const QString& reason);
   QList<qint64> currentIds() const;
   PetDerivationKey derivationKey(qint64 id) const;
   void refreshPreparationMembers();
@@ -126,6 +130,10 @@ private:
   AssetAnalysisSettings settings_;
   AnalysisWorker worker_;
   QPointer<PetDerivationCache> derivations_;
+  QPointer<PetRefreshController> detailRefresh_;
+  QSet<qint64> detailReadAttempted_;
+  qint64 detailReadPending_ = 0;
+  qint64 detailReadDeadline_ = 0;
   QMetaObject::Connection rawAvailableConnection_;
   QMetaObject::Connection rawLoadConnection_;
   QTimer* derivationPump_ = nullptr;

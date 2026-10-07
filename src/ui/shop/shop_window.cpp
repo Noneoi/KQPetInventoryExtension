@@ -188,6 +188,13 @@ ShopWindow::ShopWindow(InventoryReadView* repository, QWidget* parent, PetImageC
     auto catalog = catalogSnapshot_; const auto date = catalogDate_;
     catalogSnapshot_.reset(); setCatalogSnapshot(std::move(catalog),date);
   });
+  auto* availabilityTimer = new QTimer(this);
+  availabilityTimer->setInterval(1000);
+  connect(availabilityTimer, &QTimer::timeout, this, [this] {
+    if (isVisible() && catalogSnapshot_ && QDateTime::currentDateTimeUtc() >= nextAvailabilityChange_)
+      setCatalogSnapshot(catalogSnapshot_, QDateTime::currentDateTimeUtc().toOffsetFromUtc(8 * 3600).date());
+  });
+  availabilityTimer->start();
   status_ = new QLabel(QStringLiteral("商店只在手动点击按钮时刷新"), this);
   status_->setTextInteractionFlags(Qt::TextSelectableByMouse);
   toolbarLayout_->addWidget(refresh_, 0, 0);
@@ -502,9 +509,13 @@ void ShopWindow::setReadOnlyObservations(const QJsonObject& packets) {
 }
 
 void ShopWindow::setCatalogSnapshot(std::shared_ptr<const ShopCatalogSnapshot> catalog, QDate businessDate) {
-  if (catalogSnapshot_ == catalog && catalogDate_ == businessDate) return;
+  const auto now = QDateTime::currentDateTimeUtc();
+  if (catalogSnapshot_ == catalog && catalogDate_ == businessDate && now < nextAvailabilityChange_) return;
   catalogSnapshot_ = std::move(catalog);
   catalogDate_ = businessDate;
+  nextAvailabilityChange_ = QDateTime(now.toOffsetFromUtc(8 * 3600).date().addDays(1), QTime(0, 0), Qt::OffsetFromUTC, 8 * 3600);
+  const auto asOf = businessDate == now.toOffsetFromUtc(8 * 3600).date() ? now :
+      QDateTime(businessDate, QTime(12, 0), Qt::OffsetFromUTC, 8 * 3600);
   visibleShops_.clear();
   QList<ShopExchangeGood> goods;
   if (catalogSnapshot_ && catalogDate_.isValid()) {
@@ -516,9 +527,12 @@ void ShopWindow::setCatalogSnapshot(std::shared_ptr<const ShopCatalogSnapshot> c
       shop.navigationLink = source.navigationLink;
       shop.activityEvidence = source.activityEvidence;
       shop.activityEvidenceDate = source.activityEvidenceDate;
-      for (const auto& good : source.goods)
-        if (good.isOnlineOn(catalogDate_) && sectionMatches(sourceFilter_->currentIndex(), good.section)) {
-        shop.goods.append(good); goods.append(good);
+      for (const auto& good : source.goods) {
+        const auto change = good.nextAvailabilityChange(now);
+        if (change.isValid() && change < nextAvailabilityChange_) nextAvailabilityChange_ = change;
+        if (good.isOnlineAt(asOf) && sectionMatches(sourceFilter_->currentIndex(), good.section)) {
+          shop.goods.append(good); goods.append(good);
+        }
       }
       if (!shop.goods.isEmpty()) visibleShops_.append(std::move(shop));
     }
@@ -596,6 +610,7 @@ const CompiledShopGood* ShopWindow::compiledGood(const ShopExchangeGood& good) c
 }
 
 QString ShopWindow::costText(const ShopExchangeGood& good) const {
+  if (good.cost.isEmpty() && !good.costDescription.isEmpty() && good.sourceKey.isEmpty()) return good.costDescription;
   if (!good.sourceKey.isEmpty()) {
     const auto cached = activityGoods_.constFind(&good == &currentGood_ ? currentGoodKey_ : good.stableKey());
     if (cached != activityGoods_.cend()) return cached->costText;
@@ -834,11 +849,12 @@ void ShopWindow::rebuild() {
     for (const ShopExchangeGood& good : shop.goods) {
       const bool readOnly = good.sourceKey.isEmpty() && readOnlyShopPacket_.contains(QStringLiteral("si%1").arg(good.shopId));
       const int remaining = hasPacket_ || readOnly ? shopRemainingCount(observedPacket, good) : -1;
-      table->setItem(row, 0, textItem(good.description));
+      table->setItem(row, 0, textItem(good.displayName()));
       table->setItem(row, 1, textItem(costText(good)));
       const auto period = quotaValidity_.value(shopQuotaValidityKey(good));
       const bool current = !readOnly && period.state == ShopConditionState::Satisfied && period.freshness == ShopConditionFreshness::Current;
       table->setItem(row, 2, textItem(good.provenUnlimited ? QStringLiteral("不限次")
+          : !good.quotaDescription.isEmpty() ? good.quotaDescription
           : good.limitCount > 0 ? QStringLiteral("%1限 %2 次").arg(good.limitLabel).arg(good.limitCount) : QStringLiteral("未标注")));
       const int used = remaining >= 0 && good.limitCount >= remaining ? good.limitCount - remaining : -1;
       QTableWidgetItem* quota = good.provenUnlimited ? textItem(QStringLiteral("不限次"))
@@ -872,7 +888,8 @@ void ShopWindow::rebuild() {
         title->setToolTip(good.shopName + QStringLiteral("\n识别依据：") + evidenceText(shop) +
             (good.shelfDate.isValid() ? QString{} : QStringLiteral("\n活动配置未标注起始日期；是否仍开放以游戏内入口为准")));
       }
-      table->setItem(row, 4, textItem(QString::number(eligiblePetCount(good))));
+      table->setItem(row, 4, textItem(good.raceIds.isEmpty() ? good.acquisitionLabel()
+                                                          : QString::number(eligiblePetCount(good))));
       const ResourceStatus balance = resourceStatus(good);
       auto* balanceItem = textItem(balance.text);
       balanceItem->setToolTip(balance.tip);
@@ -1123,7 +1140,7 @@ void ShopWindow::continuePetRows(quint64 generation) {
   petTable_->setUpdatesEnabled(true);
   if (pendingPetRow_ < pendingPetIds_.size() || petTable_->rowCount() > pendingPetIds_.size()) {
     petTitle_->setText(currentGood_.hasIdentity()
-        ? QStringLiteral("%1 · 正在准备精灵列表 %2/%3").arg(currentGood_.description).arg(pendingPetRow_).arg(pendingPetIds_.size())
+        ? QStringLiteral("%1 · 正在准备精灵列表 %2/%3").arg(currentGood_.displayName()).arg(pendingPetRow_).arg(pendingPetIds_.size())
         : QStringLiteral("请选择兑换项目，正在整理列表……"));
     QTimer::singleShot(0,this,[this,generation] { continuePetRows(generation); }); return;
   }
@@ -1223,15 +1240,20 @@ void ShopWindow::fillPetRow(int row, const QJsonObject& pet,
 
 void ShopWindow::updatePetTitle() {
   if (!currentGood_.hasIdentity()) return;
+  if (currentGood_.manualSelectionRequired && currentGood_.raceIds.isEmpty()) {
+    petTitle_->setText(QStringLiteral("%1 · %2 · %3；%4")
+        .arg(currentGood_.shopName, currentGood_.displayName(), currentGood_.acquisitionLabel(), costText(currentGood_)));
+    return;
+  }
   if (petRowsPreparing_) {
-    petTitle_->setText(QStringLiteral("%1 · 正在准备精灵列表 %2/%3").arg(currentGood_.description).arg(pendingPetRow_).arg(pendingPetIds_.size())); return;
+    petTitle_->setText(QStringLiteral("%1 · 正在准备精灵列表 %2/%3").arg(currentGood_.displayName()).arg(pendingPetRow_).arg(pendingPetIds_.size())); return;
   }
   int usableCount = 0;
   for (const ShopPetEligibility& value : currentEligibility_)
     if (value.state == ShopPetEligibilityState::Usable) ++usableCount;
   petTitle_->setText(
       QStringLiteral("%1 · %2 · 所需 %3　｜　对应 %4 只，可用上 %5 只")
-          .arg(currentGood_.shopName, currentGood_.description,
+          .arg(currentGood_.shopName, currentGood_.displayName(),
                costText(currentGood_))
           .arg(petTable_->rowCount()).arg(usableCount));
 }
@@ -1283,7 +1305,7 @@ void ShopWindow::showPetDetail(qint64 instanceId, bool requestLatest) {
         "<b>%2：%3</b><p style='font-size:12px;'>判断依据：%4<br>缓存：%5<br>资源、次数、解锁需分别确认，来源见工作台顶部。</p>"
         "</td></tr></table><p style='background-color:white;color:#233044;font-size:2px;'>&nbsp;</p>")
         .arg(usable ? QStringLiteral("#35638d") : QStringLiteral("#667085"),
-             html(currentGood_.description), html(state), html(eligibility.reason),
+             html(currentGood_.displayName()), html(state), html(eligibility.reason),
              savedAt.isValid() ? savedAt.toString(QStringLiteral("yyyy-MM-dd HH:mm:ss"))
                                : QStringLiteral("背包当前数据/时间未知"));
     rendered.replace(QStringLiteral("<body>"), QStringLiteral("<body>%1").arg(qualification));

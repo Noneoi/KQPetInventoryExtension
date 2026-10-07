@@ -183,11 +183,20 @@ function Test-KqClientRunning {
     $root = (Assert-KqPlainPath $ClientRoot).TrimEnd('\')
     $clientNames = @(Get-ChildItem -LiteralPath $root -Filter '*.exe' -File |
         Where-Object { $_.Name -ine 'KQPetLauncher.exe' } | ForEach-Object { $_.BaseName })
+    $selected = ''
+    $selectionFile = Join-Path $root 'KQPetClient.txt'
+    if ((Test-Path -LiteralPath $selectionFile -PathType Leaf) -and (Get-Item -LiteralPath $selectionFile).Length -le 65536) {
+        $selected = [IO.File]::ReadAllText($selectionFile,[Text.Encoding]::Unicode).TrimEnd("`r","`n")
+        if ([IO.Path]::IsPathRooted($selected) -and [IO.Path]::GetExtension($selected) -ieq '.exe') {
+            $clientNames += [IO.Path]::GetFileNameWithoutExtension($selected)
+        } else { $selected = '' }
+    }
     foreach ($process in @(Get-Process -ErrorAction Stop | Where-Object { $clientNames -contains $_.ProcessName })) {
         try { $path = $process.MainModule.FileName }
         catch { throw 'The running client path could not be verified; offline mutation is refused.' }
         if ([string]::IsNullOrWhiteSpace($path)) { throw 'The running client identity is unknown; offline mutation is refused.' }
         if ([IO.Path]::GetDirectoryName($path).Equals($root, [StringComparison]::OrdinalIgnoreCase)) { return $true }
+        if ($selected -and $path.Equals($selected,[StringComparison]::OrdinalIgnoreCase)) { return $true }
     }
     return $false
 }

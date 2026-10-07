@@ -62,12 +62,22 @@ try {
     [IO.File]::WriteAllBytes($renamed, [byte[]]@(0))
     Assert-True ((Get-KqTarget -OriginalDir $empty -OriginalExe $renamed).Path -ceq $renamed) 'explicit target retains the complete arbitrary EXE path'
     Assert-Throws { Get-KqTarget -OriginalDir $newer -OriginalExe $renamed } 'explicit target cannot silently select a different client directory'
+    $selection = Join-Path $newer 'KQPetClient.txt'
+    [IO.File]::WriteAllText($selection, $renamed, [Text.Encoding]::Unicode)
+    Assert-True ((Get-KqTarget -OriginalDir $newer).Path -ceq $renamed) 'remembered selection can target an updated client in another folder'
     function Get-Process {
         param($ErrorAction)
         [pscustomobject]@{ ProcessName = 'Renamed-client-next'; MainModule = [pscustomobject]@{ FileName = $renamed } }
     }
-    try { Assert-True (Test-KqClientRunning $empty) 'renamed running client must block offline activation' }
+    try {
+        Assert-True (Test-KqClientRunning $empty) 'renamed running client must block offline activation'
+        Assert-True (Test-KqClientRunning $newer) 'externally selected running client must also block activation'
+    }
     finally { Remove-Item Function:\Get-Process }
+    [IO.File]::WriteAllText($selection, (Join-Path $empty 'missing.exe'), [Text.Encoding]::Unicode)
+    Assert-True ((Get-KqTarget -OriginalDir $newer).Name -ceq 'KQProV1.1.4.exe') 'missing selection falls back to automatic discovery'
+    [IO.File]::WriteAllText($selection, 'malformed', [Text.Encoding]::UTF8)
+    Assert-True ((Get-KqTarget -OriginalDir $newer).Name -ceq 'KQProV1.1.4.exe') 'malformed selection falls back to automatic discovery'
     Assert-Throws { Get-KqChildPath $fixtureRoot '..\outside' } 'release paths cannot escape their root'
     Assert-Throws { Assert-KqReleaseId 'CON.json' } 'Windows device release IDs are rejected'
     $immutable = Join-Path $fixtureRoot 'immutable.dll'

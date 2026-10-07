@@ -313,7 +313,7 @@ class Updater:
     def pets(self, versions: dict) -> bool:
         current = self.current("pets")
         previous = current.get("source", {}).get("resources", {})
-        dictionary_changed = (current.get("petDictionarySchema") != 3 or len(current.get("pets", {})) < 9000 or
+        dictionary_changed = (current.get("petDictionarySchema") != 4 or len(current.get("pets", {})) < 9000 or
             any(not isinstance(pet, dict) or not isinstance(pet.get("sign"), str) for pet in current.get("pets", {}).values()) or
             not all(matching_resource(previous, label, key, versions) for label, key, _ in PET_RESOURCES))
         rules_upgrade = not power_rules_valid(current)
@@ -347,7 +347,7 @@ class Updater:
             if len(pets) < 9000 or len(pets) < len(current.get("pets", {})) * 0.9:
                 raise ValueError("精灵字典不完整，保留旧字典")
             current["pets"] = pets
-            current["petDictionarySchema"] = 3
+            current["petDictionarySchema"] = 4
         if stars_changed:
             emit("progress", message="正在更新星神战力、搭配限制与职业规则")
             swfs = {}
@@ -432,16 +432,25 @@ class Updater:
         return True
 
     def shop(self, versions: dict) -> bool:
+        from public_activity_exchange_updater import load_selectable_packages
+        self.selectable_package_source = load_selectable_packages(self, versions)
+        package_versions = self.selectable_package_source["versions"]
         original = self.current("shop")
         current = original
-        changed = not current.get("shops") or current.get("source", {}).get("shopVersion") != versions.get(RESOURCE)
+        # Parser upgrades also invalidate same-version caches: old catalogs
+        # either omitted selectable rewards or included unrelated material rows.
+        changed = (not current.get("shops") or current.get("source", {}).get("shopVersion") != versions.get(RESOURCE)
+                   or current.get("source", {}).get("shopParserVersion") != 4
+                   or current.get("source", {}).get("selectablePackageVersions", {}) != package_versions)
         if changed:
             swf, resource = self.resource(RESOURCE, versions)
             emit("progress", message="正在整理指定精灵兑换项目")
             script = self.export(swf, self.scratch / "shop", CONFIG_CLASS)
-            source = {"clientVersion": self.start_version, "shopVersion": resource["version"], "resources": {"shop": resource},
+            source = {"clientVersion": self.start_version, "shopVersion": resource["version"], "shopParserVersion": 4, "resources": {"shop": resource},
+                      "selectablePackageVersions": package_versions,
                       "configSha256": digest(script), "extractor": "JPEXS 26.2.1; public_data_updater.py"}
-            current = parse_config(script.read_text(encoding="utf-8-sig"), source)
+            current = parse_config(script.read_text(encoding="utf-8-sig"), source, include_manual=True,
+                                   selectable_packages=self.selectable_package_source["packages"])
         try:
             changed = self.activity_exchanges(versions) or changed
         except Exception as error:
@@ -453,12 +462,22 @@ class Updater:
             else:
                 current = {**current, "shops": [shop for shop in current.get("shops", []) if not shop.get("sourceKey")] + activity["shops"],
                            "activitySource": {key: activity.get("source", {}).get(key) for key in
-                               ("kind","configVersion","configResource")}, "activityCoverage": activity.get("coverage", {})}
+                               ("kind","configVersion","configResource")}, "activityCoverage": activity.get("coverage", {}),
+                           "activityPending": activity.get("pending", [])}
         elif changed:
             # A newly updated SEF module must not discard previously saved
             # activities merely because their independent refresh failed.
             current = {**current, "shops": [shop for shop in current.get("shops", []) if not shop.get("sourceKey")] +
                        [shop for shop in original.get("shops", []) if shop.get("sourceKey")]}
+        from generate_shop_exchange_data import relevant_shops
+        from activity_reward_structures import upgrade_cultivation_description
+        support = activity.get('source', {}).get('rewardSupport', {})
+        current = {**current, 'shops': relevant_shops(current.get('shops', [])),
+                   'rewardDescriptions': {key: support.get(key, {}) for key in ('descriptions', 'descriptionParameters')}}
+        for shop in current['shops']:
+            for good in shop['goods']:
+                good['description'] = upgrade_cultivation_description(good.get('description', ''), good.get('rewardRaw', ''),
+                                                                      good.get('enhanceType', ''), support)
         changed = changed or current != original
         if read_object(self.catalog / COMPONENTS["shop"]) != current:
             atomic_json(self.catalog / COMPONENTS["shop"], current)
@@ -554,6 +573,10 @@ class Updater:
                         results[name]["error"] = "仍有官方字段待补齐：" + "；".join(missing[:3])
                 if name == "shop":
                     catalog = self.current("shop")
+                    scanned_goods = [good for shop in catalog.get("shops", []) for good in shop.get("goods", [])]
+                    results[name]["scanCounts"] = {"shops": len(catalog.get("shops", [])),
+                        "automaticGoods": sum(not good.get("manualSelectionRequired") for good in scanned_goods),
+                        "manualGoods": sum(bool(good.get("manualSelectionRequired")) for good in scanned_goods)}
                     activity_shops = [shop for shop in catalog.get("shops", []) if shop.get("sourceKey")]
                     activity_goods = [good for shop in activity_shops for good in shop.get("goods", [])]
                     results[name]["activityCounts"] = {
@@ -574,7 +597,7 @@ class Updater:
                                       if code.strip() and not supported_code(code.strip())})
                     if pending:
                         results[name]["unsupportedTypes"] = pending
-                        results[name]["error"] = "新增兑换培养类型待适配：" + "、".join(pending[:16])
+                        results[name]["error"] = "奖励已识别，部分培养适用判断待适配：" + "、".join(pending[:16])
                     problems = list(self.activity_exchange_failures)
                     if self.activity_exchange_pending:
                         results[name]["pendingActivities"] = self.activity_exchange_pending

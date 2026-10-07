@@ -27,6 +27,21 @@ bool AssetAnalysisFilterProxyModel::filterAcceptsRow(
   const auto* model = qobject_cast<const AssetAnalysisModel*>(sourceModel());
   const PetAssetRecord* pet = model ? model->petAt(sourceRow) : nullptr;
   if (!pet || !AssetDerivation::matchesFilter(*pet, filter_)) return false;
+  if (!AssetDerivation::matchesCultivationCategory(*pet, category_) ||
+      (!era_.isEmpty() && pet->pet.value(QStringLiteral("_metaEra")).toString() != era_) ||
+      (!rating_.isEmpty() && pet->pet.value(QStringLiteral("_metaRating")).toString() != rating_)) return false;
   return query_.isEmpty() || pet->name.contains(query_, Qt::CaseInsensitive) ||
          QString::number(pet->instanceId).contains(query_);
+}
+
+void AssetAnalysisFilterProxyModel::setCultivationFilters(const QString& category, const QString& era, const QString& rating) {
+  if (category_ == category && era_ == era && rating_ == rating) return;
+  category_ = category; era_ = era; rating_ = rating; invalidateRowsFilter();
+}
+
+QString AssetAnalysisFilterProxyModel::materialSummary() const {
+  QList<const PetAssetRecord*> selected;
+  const auto* model = qobject_cast<const AssetAnalysisModel*>(sourceModel());
+  if (model) for (int row = 0; row < rowCount(); ++row) selected.append(model->petAt(mapToSource(index(row,0)).row()));
+  return AssetDerivation::cultivationMaterialSummary(selected,category_);
 }

@@ -53,6 +53,8 @@ add_library(KQPetUi STATIC
   src/ui/detail/pet_raw_data_tree.h
   src/ui/shop/shop_window.cpp
   src/ui/shop/shop_window.h
+  src/ui/shop/shop_selection_dialog.cpp
+  src/ui/shop/shop_selection_dialog.h
   src/ui/routine/routine_overview_window.cpp
   src/ui/routine/routine_overview_window.h
   src/ui/analysis/asset_analysis_filter_proxy_model.cpp
@@ -87,7 +89,7 @@ add_custom_command(OUTPUT "${KQPET_RCC_BINARY}"
           assets/activity-exchange-data.json
           tools/cache-manager.ps1 tools/public_data_updater.py tools/bootstrap-public-data.ps1
           tools/public_names_updater.py tools/public_icon_updater.py tools/public_routine_updater.py assets/stargod-icons/sources.json
-          tools/public_activity_exchange_updater.py tools/activity_evolution_selector.py
+          tools/public_activity_exchange_updater.py tools/activity_evolution_selector.py tools/activity_reward_structures.py tools/activity_periods.py tools/activity_trade_facts.py
           tools/generate_pet_detail_data.py tools/generate_pet_skill_data.py tools/public_skill_updater.py
           tools/generate_shop_exchange_data.py tools/generate_stargod_icons.py VERBATIM)
 configure_file(src/extension/embedded_resources.rc.in

@@ -40,6 +40,20 @@ function Assert-KqGitHubAssetUrl {
     return $uri.AbsoluteUri
 }
 
+function Get-KqGitHubReleaseTagFromUrl {
+    param([Parameter(Mandatory = $true)][string]$Url)
+    $uri = $null
+    if (-not [Uri]::TryCreate($Url, [UriKind]::Absolute, [ref]$uri) -or
+        $uri.Scheme -cne 'https' -or $uri.Host -ine 'github.com') {
+        throw 'The latest-release page did not resolve to HTTPS github.com.'
+    }
+    $match = [regex]::Match([Uri]::UnescapeDataString($uri.AbsolutePath),
+        '^/Noneoi/KQPetInventoryExtension/releases/tag/(?<tag>v[0-9]+[.][0-9]+[.][0-9]+)$',
+        [Text.RegularExpressions.RegexOptions]::CultureInvariant)
+    if (-not $match.Success) { throw 'The latest-release page did not resolve to a stable version tag.' }
+    return $match.Groups['tag'].Value
+}
+
 function Select-KqGitHubReleaseAssets {
     param([Parameter(Mandatory = $true)]$Release)
     if ($Release.draft -ne $false -or $Release.prerelease -ne $false -or

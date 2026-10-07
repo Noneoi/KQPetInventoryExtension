@@ -32,6 +32,9 @@ public:
   static std::shared_ptr<const ShopCatalogSnapshot> prepare(
       const QJsonObject& root, const QString& source, const QDateTime& updatedAt,
       QString* error = nullptr);
+  static std::shared_ptr<const ShopCatalogSnapshot> withManualSelection(
+      std::shared_ptr<const ShopCatalogSnapshot> catalog, const QSet<QString>& selected,
+      const QSet<QString>& excludedAutomatic = {});
   static QJsonObject parseOfficialText(const QString& text, const QJsonObject& protocol,
                                       QString* error = nullptr);
 

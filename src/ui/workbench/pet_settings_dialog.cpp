@@ -1,6 +1,7 @@
 #include "pet_settings_dialog.h"
 
 #include "diagnostics/build_info.h"
+#include "ui/shop/shop_selection_dialog.h"
 
 #include <QCheckBox>
 #include <QComboBox>
@@ -93,8 +94,9 @@ bool officialUpdateAssetsReady(const QJsonArray& assets) {
 }
 }
 
-PetSettingsDialog::PetSettingsDialog(const RefreshTimings& timings, QWidget* parent)
-    : QDialog(parent) {
+PetSettingsDialog::PetSettingsDialog(const RefreshTimings& timings, QWidget* parent,
+                                   std::shared_ptr<const PetDetailCatalogSnapshot> shopMetadata)
+    : QDialog(parent), shopMetadata_(std::move(shopMetadata)) {
   setWindowTitle(QStringLiteral("设置 · 精灵工作台 %1").arg(BuildInfo::buildLabel()));
   setModal(true);
   resize(750, 670);
@@ -320,6 +322,14 @@ QWidget* PetSettingsDialog::createDataPage() {
     emit dataUpdateRequested({});
   });
   layout->addWidget(catalogs);
+  auto* shops = new QGroupBox(QStringLiteral("兑换商店：自动添加 + 手动补充"), page);
+  auto* shopLayout = new QVBoxLayout(shops);
+  shopLayout->addWidget(explanation(QStringLiteral("识别出的精灵培养兑换默认勾选，可在下方按商店或项目取消；保存后会记住选择，更新不会重新勾选已取消的项目。其他奖励可手动补充。"), shops));
+  auto* selection = button(QStringLiteral("手动补充商店 / 兑换项目…"), shops);
+  selection->setObjectName(QStringLiteral("KQShopSelection"));
+  connect(selection, &QPushButton::clicked, this, &PetSettingsDialog::openShopSelection);
+  shopLayout->addWidget(selection, 0, Qt::AlignLeft);
+  layout->addWidget(shops);
   auto* images = new QGroupBox(QStringLiteral("本地图片"), page);
   auto* imageLayout = new QVBoxLayout(images);
   imageLayout->addWidget(explanation(QStringLiteral("已有图片直接从磁盘读取。查看精灵时，只为缺失图片下载；下载失败后可右键重试。\n“补齐缺失图片”会下载当前库存缺少的图片，已有图片不会重复下载。"), images));
@@ -754,9 +764,33 @@ void PetSettingsDialog::setDataUpdateStatus(const QString& message, bool busy) {
   dataUpdateButton_->setEnabled(!busy && !imageBatchRunning_);
   for (QPushButton* part : partialUpdateButtons_) part->setEnabled(!busy && !imageBatchRunning_);
   missingImagesButton_->setEnabled(!busy && !imageBatchRunning_);
+  if (shopSelectionDialog_) shopSelectionDialog_->setUpdateBusy(busy || imageBatchRunning_);
+}
+void PetSettingsDialog::setShopSelection(std::shared_ptr<const ShopCatalogSnapshot> catalog,
+                                        bool editable, const QString& message) {
+  if (catalog) shopCatalog_ = std::move(catalog);
+  shopSelectionEditable_ = editable; shopSelectionMessage_ = message;
+  if (shopSelectionDialog_) shopSelectionDialog_->setCatalog(shopCatalog_, editable, message);
+}
+void PetSettingsDialog::openShopSelection() {
+  if (!shopSelectionDialog_) {
+    shopSelectionDialog_ = new ShopSelectionDialog(this, shopMetadata_);
+    shopSelectionDialog_->setAttribute(Qt::WA_DeleteOnClose);
+    connect(shopSelectionDialog_, &ShopSelectionDialog::selectionRequested, this, &PetSettingsDialog::shopSelectionRequested);
+    connect(shopSelectionDialog_, &ShopSelectionDialog::selectionSaveRequested, this, &PetSettingsDialog::shopSelectionSaveRequested);
+    connect(shopSelectionDialog_, &ShopSelectionDialog::scanRequested, this, [this] {
+      setDataUpdateStatus(QStringLiteral("正在更新并扫描兑换商店…"), true);
+      emit dataUpdateRequested({QStringLiteral("shop")});
+    });
+  }
+  shopSelectionDialog_->setCatalog(shopCatalog_, shopSelectionEditable_, shopSelectionMessage_);
+  shopSelectionDialog_->setUpdateBusy(dataUpdateBusy_ || imageBatchRunning_);
+  shopSelectionDialog_->open();
+  emit shopSelectionRequested();
 }
 void PetSettingsDialog::setImageBatchProgress(int completed, int total, int failed) {
   imageBatchRunning_ = true;
+  if (shopSelectionDialog_) shopSelectionDialog_->setUpdateBusy(true);
   dataUpdateButton_->setEnabled(false);
   for (QPushButton* part : partialUpdateButtons_) part->setEnabled(false);
   missingImagesButton_->setEnabled(false);
@@ -766,6 +800,7 @@ void PetSettingsDialog::setImageBatchProgress(int completed, int total, int fail
 }
 void PetSettingsDialog::finishImageBatch(bool cancelled, int failed) {
   imageBatchRunning_ = false;
+  if (shopSelectionDialog_) shopSelectionDialog_->setUpdateBusy(dataUpdateBusy_);
   dataUpdateButton_->setEnabled(!dataUpdateBusy_);
   for (QPushButton* part : partialUpdateButtons_) part->setEnabled(!dataUpdateBusy_);
   imagePause_->setChecked(false); imagePause_->setText(QStringLiteral("暂停"));

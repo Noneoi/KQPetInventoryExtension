@@ -6,6 +6,7 @@
 #include <algorithm>
 #include <cstring>
 #include "client_target.h"
+#include "client_picker.h"
 #include "remote_module.h"
 #include "command_line.h"
 #include "data_root_config.h"
@@ -153,7 +154,9 @@ int WINAPI wWinMain(HINSTANCE instance, HINSTANCE, PWSTR, int) {
     showError(dataRootError);
     return 65;
   }
-  const auto original = kqpet::launcher::findClientExecutable(clientRoot);
+  auto original = kqpet::launcher::findClientExecutable(clientRoot);
+  if (original.empty() && kqpet::launcher::chooseClientExecutable(clientRoot))
+    original = kqpet::launcher::findClientExecutable(clientRoot);
   if (clientRoot.empty() || original.empty()) { showError(L"指定目录没有可识别接口的原版客户端。"); return 2; }
   const auto extension = versionDirectory / L"KQPetInventory.dll";
   const auto disk = kqpet::compatibility::checkTargetFile(original.wstring(), extension.wstring());
@@ -180,7 +183,7 @@ int WINAPI wWinMain(HINSTANCE instance, HINSTANCE, PWSTR, int) {
   PROCESS_INFORMATION process{};
   const DWORD flags = CREATE_SUSPENDED | (channel ? CREATE_UNICODE_ENVIRONMENT : 0);
   if (!CreateProcessW(original.c_str(), command.data(), nullptr, nullptr, FALSE, flags,
-      channel ? environment.data() : nullptr, clientRoot.c_str(), &startup, &process)) {
+      channel ? environment.data() : nullptr, original.parent_path().c_str(), &startup, &process)) {
     showError(L"无法启动原版客户端。"); return 5;
   }
   if (channel && !channel->bindChild(process.hProcess, process.dwProcessId)) {

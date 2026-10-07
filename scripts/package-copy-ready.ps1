@@ -49,12 +49,15 @@ $script = [IO.File]::ReadAllText((Join-Path $PSScriptRoot 'start-copy-ready.ps1'
 [IO.File]::WriteAllText((Join-Path $bundle 'start.ps1'),$script,(New-Object Text.UTF8Encoding($true)))
 $command = "@echo off`r`n`"%SystemRoot%\System32\WindowsPowerShell\v1.0\powershell.exe`" -NoLogo -NoProfile -ExecutionPolicy Bypass -File `"%~dp0KQPetQuickStart\start.ps1`"`r`nif errorlevel 1 pause`r`n"
 [IO.File]::WriteAllText((Join-Path $root '启动精灵工作台.cmd'),$command,[Text.Encoding]::ASCII)
+$chooseCommand = $command.Replace('start.ps1"','start.ps1" -SelectClient')
+[IO.File]::WriteAllText((Join-Path $root '选择氪奇主程序.cmd'),$chooseCommand,[Text.Encoding]::ASCII)
 $instructions = @'
 精灵工作台：复制后双击启动
 
 1. 关闭氪奇。
 2. 将本包全部内容复制到氪奇主程序 KQPro*.exe 所在文件夹。
 3. 双击“启动精灵工作台.cmd”。首次自动安装，之后自动启动。
+4. 氪奇更新后找不到程序，会自动弹出 EXE 选择窗口；也可双击“选择氪奇主程序.cmd”更换，路径会记住。
 
 请保留 KQPetQuickStart 文件夹，不需要打开里面的程序。
 以后发布 GitHub 正式版后，可在“设置 → 软件更新”中手动检查、阅读更新说明并确认安装。
@@ -64,7 +67,7 @@ $instructions = @'
 '@
 [IO.File]::WriteAllText((Join-Path $root '精灵工作台-使用说明.txt'),$instructions,(New-Object Text.UTF8Encoding($true)))
 # Archive the contents, so extraction exposes the entry directly.
-Compress-Archive -LiteralPath @((Join-Path $root '启动精灵工作台.cmd'),$bundle,(Join-Path $root '精灵工作台-使用说明.txt')) -DestinationPath $zip -CompressionLevel Optimal
+Compress-Archive -LiteralPath @((Join-Path $root '启动精灵工作台.cmd'),(Join-Path $root '选择氪奇主程序.cmd'),$bundle,(Join-Path $root '精灵工作台-使用说明.txt')) -DestinationPath $zip -CompressionLevel Optimal
 $digest = (Get-KqArtifactRecord $zip).sha256
 [IO.File]::WriteAllText(($zip + '.sha256'),($digest + '  ' + [IO.Path]::GetFileName($zip) + [Environment]::NewLine),(New-Object Text.UTF8Encoding($false)))
 Write-Host "Copy-ready package: $zip"

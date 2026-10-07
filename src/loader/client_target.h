@@ -27,4 +27,11 @@ bool preferClientFilename(std::wstring_view candidate, std::wstring_view current
 // their name. Traditional filename ranking remains the original-only fallback.
 std::filesystem::path findClientExecutable(const std::filesystem::path& directory);
 
+// The explicit selection may live outside the extension installation folder.
+// A small UTF-16 file is shared with the copy-ready PowerShell entry.
+std::filesystem::path configuredClientExecutable(const std::filesystem::path& directory);
+bool validClientSelection(const std::filesystem::path& executable);
+bool saveClientSelection(const std::filesystem::path& directory,
+                         const std::filesystem::path& executable);
+
 }  // namespace kqpet::launcher
