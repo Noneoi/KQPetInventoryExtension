@@ -414,6 +414,11 @@ struct CatalogIoService::Impl {
   std::shared_ptr<Candidate> candidate;
   QTimer retry;
   CatalogIoStats stats;
+  quint64 selectionReadId = 0, selectionWriteId = 0;
+  bool selectionLoaded = false;
+  QSet<QString> selection, pendingSelection;
+  QSet<QString> excludedAutomatic, pendingExcludedAutomatic;
+  QString selectionMessage;
 };
 
 CatalogIoService::CatalogIoService(StorageService* storage, CatalogIoOptions options, QObject* parent)
@@ -434,6 +439,49 @@ CatalogIoService::CatalogIoService(StorageService* storage, CatalogIoOptions opt
   if (storage) {
     impl_->shared = storage->createSharedContext();
     connect(storage, &StorageService::completed, this, [this](const StorageResult& result) {
+      if (impl_->state->closing.load()) return;
+      if (result.taskId == impl_->selectionReadId && impl_->selectionReadId) {
+        impl_->selectionReadId = 0;
+        QJsonParseError error{};
+        const auto document = QJsonDocument::fromJson(result.content, &error);
+        const auto object = document.object();
+        const auto values = object.value(QStringLiteral("selected"));
+        const auto excludedValues = object.value(QStringLiteral("excludedAutomatic"));
+        const int schema = object.value(QStringLiteral("schema")).toInt();
+        bool valid = result.status == StorageStatus::NotFound ||
+            (result.status == StorageStatus::Loaded && error.error == QJsonParseError::NoError &&
+             (schema == 1 || schema == 2) && values.isArray() && values.toArray().size() <= 20000 &&
+             (schema == 1 || (excludedValues.isArray() && excludedValues.toArray().size() <= 20000)));
+        QSet<QString> selected, excluded;
+        const auto readKeys = [&valid](const QJsonArray& array, QSet<QString>& keys) {
+          for (const auto& value : array) {
+            if (!value.isString() || value.toString().isEmpty() || value.toString().size() > 160) { valid = false; break; }
+            keys.insert(value.toString());
+          }
+        };
+        if (valid && result.status != StorageStatus::NotFound) {
+          readKeys(values.toArray(), selected);
+          if (schema == 2) readKeys(excludedValues.toArray(), excluded);
+          if (selected.intersects(excluded)) valid = false;
+        }
+        impl_->selectionLoaded = valid;
+        impl_->selectionMessage = valid ? QStringLiteral("商店选择已载入；默认项目也可以取消勾选。")
+            : QStringLiteral("手动选择读取失败，原文件已保留；请重新读取后再修改。%1").arg(result.error);
+        if (valid) { impl_->selection = selected; impl_->excludedAutomatic = excluded; publishShopSelection(); }
+        emit shopSelectionChanged();
+        return;
+      }
+      if (result.taskId == impl_->selectionWriteId && impl_->selectionWriteId) {
+        impl_->selectionWriteId = 0;
+        const bool saved = result.status == StorageStatus::Saved;
+        impl_->selectionMessage = saved ? QStringLiteral("手动选择已保存，商店界面已更新。")
+            : QStringLiteral("保存失败，仍使用上次的选择。%1").arg(result.error);
+        if (saved) { impl_->selection = impl_->pendingSelection; impl_->excludedAutomatic = impl_->pendingExcludedAutomatic; publishShopSelection(); }
+        impl_->pendingSelection.clear();
+        impl_->pendingExcludedAutomatic.clear();
+        emit shopSelectionChanged();
+        return;
+      }
       if (!impl_->writeId || result.taskId != impl_->writeId) return;
       impl_->writeId = 0;
       if (impl_->active.cancelled->load()) { complete(StorageStatus::Cancelled, QStringLiteral("目录请求已被新请求替代")); return; }
@@ -460,6 +508,55 @@ void CatalogIoService::close() {
 }
 quint64 CatalogIoService::requestReload(CatalogKind kind) { return request(kind, CatalogRequestMode::Reload); }
 quint64 CatalogIoService::requestOfficialUpdate(CatalogKind kind) { return request(kind, CatalogRequestMode::OfficialUpdate); }
+bool CatalogIoService::shopSelectionEditable() const {
+  return impl_->selectionLoaded && !impl_->selectionReadId && !impl_->selectionWriteId && !impl_->state->closing.load();
+}
+QString CatalogIoService::shopSelectionMessage() const { return impl_->selectionMessage; }
+void CatalogIoService::loadShopSelection() {
+  if (!impl_->storage || impl_->state->closing.load() || impl_->selectionLoaded ||
+      impl_->selectionReadId || impl_->selectionWriteId) return;
+  const auto submitted = impl_->storage->submitRead({impl_->shared,
+      QStringLiteral("catalog/shop-selection.json"), 0, 1024 * 1024});
+  impl_->selectionReadId = submitted.accepted ? submitted.taskId : 0;
+  impl_->selectionMessage = submitted.accepted ? QStringLiteral("正在读取手动选择…")
+      : QStringLiteral("暂时无法读取手动选择，请稍后重试。%1").arg(submitted.error);
+  emit shopSelectionChanged();
+}
+void CatalogIoService::saveShopSelection(const QStringList& selected, const QStringList& excludedAutomatic) {
+  if (!shopSelectionEditable()) { emit shopSelectionChanged(); return; }
+  const auto invalidKeys = [](const QStringList& keys) {
+    return keys.size() > 20000 || std::any_of(keys.begin(), keys.end(), [](const QString& key) {
+      return key.isEmpty() || key.size() > 160;
+    });
+  };
+  const QSet<QString> selectedKeys(selected.begin(), selected.end());
+  const QSet<QString> excludedKeys(excludedAutomatic.begin(), excludedAutomatic.end());
+  if (invalidKeys(selected) || invalidKeys(excludedAutomatic) || selectedKeys.intersects(excludedKeys)) {
+    impl_->selectionMessage = QStringLiteral("选择内容无效，保留上次设置。");
+    emit shopSelectionChanged(); return;
+  }
+  impl_->pendingSelection = selectedKeys;
+  impl_->pendingExcludedAutomatic = excludedKeys;
+  QStringList canonical = impl_->pendingSelection.values();
+  canonical.sort();
+  QStringList canonicalExcluded = excludedKeys.values();
+  canonicalExcluded.sort();
+  const QJsonObject value{{QStringLiteral("schema"), 2},
+      {QStringLiteral("selected"), QJsonArray::fromStringList(canonical)},
+      {QStringLiteral("excludedAutomatic"), QJsonArray::fromStringList(canonicalExcluded)}};
+  const auto submitted = impl_->storage->submitJsonWrite({impl_->shared,
+      QStringLiteral("catalog/shop-selection.json"), nextTransportTaskId(), value, 1024 * 1024, true});
+  impl_->selectionWriteId = submitted.accepted ? submitted.taskId : 0;
+  impl_->selectionMessage = submitted.accepted ? QStringLiteral("正在保存手动选择…")
+      : QStringLiteral("暂时无法保存，仍使用上次的选择。%1").arg(submitted.error);
+  emit shopSelectionChanged();
+}
+void CatalogIoService::publishShopSelection() {
+  auto& catalog = ShopExchangeCatalog::instance();
+  const auto next = ShopExchangeCatalog::withManualSelection(catalog.snapshot(), impl_->selection, impl_->excludedAutomatic);
+  catalog.publish(next);
+  emit catalogUpdated(CatalogKind::Shop, next->revision);
+}
 quint64 CatalogIoService::request(CatalogKind kind, CatalogRequestMode mode) {
   if (!impl_->storage || impl_->state->closing.load() ||
       (kind != CatalogKind::Shop && kind != CatalogKind::Routine && kind != CatalogKind::PetDetail &&
@@ -540,7 +637,10 @@ void CatalogIoService::receive(std::shared_ptr<Candidate> candidate) {
 }
 void CatalogIoService::publish(const std::shared_ptr<Candidate>& candidate) {
   quint64 revision = 0;
-  if (candidate->shop) { revision = candidate->shop->revision; ShopExchangeCatalog::instance().publish(candidate->shop); }
+  if (candidate->shop) {
+    const auto selected = ShopExchangeCatalog::withManualSelection(candidate->shop, impl_->selection, impl_->excludedAutomatic);
+    revision = selected->revision; ShopExchangeCatalog::instance().publish(selected);
+  }
   else if (candidate->routine) { revision = candidate->routine->revision; RoutineOverviewCatalog::instance().publish(candidate->routine); }
   else if (candidate->detail) { revision = candidate->detail->revision; PetDetailCatalog::instance().publish(candidate->detail); }
   else if (candidate->skill) { revision = candidate->skill->revision; PetSkillCatalog::instance().publish(candidate->skill); }

@@ -10,7 +10,7 @@ class AssetAnalysisModel final : public QAbstractTableModel {
 public:
   enum Role { SortRole = Qt::UserRole, InstanceIdRole };
   enum Column { Pet = 0, Location, CurrentPower, MaximumPower, Completion,
-                Gaps, Shop, ColumnCount };
+                Gaps, Shop, Era, Rating, Materials, ColumnCount };
 
   explicit AssetAnalysisModel(QObject* parent = nullptr);
 
@@ -23,10 +23,12 @@ public:
 
   void setOverview(const AccountAssetOverview& overview);
   void clear();
+  void setCultivationCategory(const QString& category);
   const PetAssetRecord* petAt(int row) const;
   bool shopDataKnown() const { return shopDataKnown_; }
 
 private:
   QList<PetAssetRecord> pets_;
   bool shopDataKnown_ = false;
+  QString category_;
 };

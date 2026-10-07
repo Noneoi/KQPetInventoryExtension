@@ -155,6 +155,27 @@ int main() {
     fixture.addRecognizedClient(L"KQProV99.42.0.exe");
     require(findClientExecutable(fixture.path).filename() == L"KQProV99.42.0.exe",
             "new version with recognized interfaces was blocked by historical identity");
+    DirectoryFixture external;
+    external.addFile(L"新版氪奇.exe");
+    fixture.addFile(L"KQPetClient.txt");
+    require(saveClientSelection(fixture.path, external.path / L"新版氪奇.exe"),
+            "manual selection in another directory was not persisted");
+    require(configuredClientExecutable(fixture.path) == external.path / L"新版氪奇.exe" &&
+            findClientExecutable(fixture.path) == external.path / L"新版氪奇.exe",
+            "remembered selection must override automatic discovery without losing its full path");
+    external.addFile(L"KQPetLauncher.exe");
+    require(!saveClientSelection(fixture.path, external.path / L"KQPetLauncher.exe") &&
+            !saveClientSelection(fixture.path, external.path / L"missing.exe") &&
+            !saveClientSelection(fixture.path, L"relative.exe"),
+            "launcher recursion, missing and relative selections must be rejected");
+    require(configuredClientExecutable(fixture.path) == external.path / L"新版氪奇.exe",
+            "rejected selection damaged the previous choice");
+    std::filesystem::remove(external.path / L"新版氪奇.exe");
+    require(configuredClientExecutable(fixture.path).empty() &&
+            findClientExecutable(fixture.path).filename() == L"KQProV99.42.0.exe",
+            "deleted remembered executable must allow rediscovery");
+    { std::ofstream corrupt(fixture.path / L"KQPetClient.txt", std::ios::binary | std::ios::trunc); corrupt << "invalid"; }
+    require(configuredClientExecutable(fixture.path).empty(), "malformed saved path must be ignored");
   } catch (const std::exception& error) {
     std::fprintf(stderr, "FAIL: %s\n", error.what());
     return 1;

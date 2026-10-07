@@ -20,6 +20,17 @@ Assert-True ((Compare-KqReleaseId $newBuild $old) -eq 1) 'a later same-version b
 Assert-True ((Compare-KqReleaseId $newVersion $newBuild) -eq 1) 'a higher semantic version was not newer'
 Assert-True ((Compare-KqReleaseId $old $old) -eq 0) 'an identical release did not compare equal'
 Assert-True ($null -eq (Compare-KqReleaseId 'legacy' $old)) 'an unorderable release was assigned an order'
+Assert-True ((Get-KqGitHubReleaseTagFromUrl 'https://github.com/Noneoi/KQPetInventoryExtension/releases/tag/v3.1.0') -ceq 'v3.1.0') `
+    'the exact official latest-release target was rejected'
+foreach ($unsafeReleaseUrl in @(
+    'http://github.com/Noneoi/KQPetInventoryExtension/releases/tag/v3.1.0',
+    'https://github.example/Noneoi/KQPetInventoryExtension/releases/tag/v3.1.0',
+    'https://github.com/Other/KQPetInventoryExtension/releases/tag/v3.1.0',
+    'https://github.com/Noneoi/KQPetInventoryExtension/releases/tag/v3.1.0-preview.1',
+    'https://github.com/Noneoi/KQPetInventoryExtension/releases/latest')) {
+    Capture-Failure { Get-KqGitHubReleaseTagFromUrl $unsafeReleaseUrl } `
+        'an unsafe or unstable latest-release target was accepted' | Out-Null
+}
 
 $archiveName = "KQPetInventory-$newVersion-win-x64-copy-ready.zip"
 $release = [pscustomobject]@{

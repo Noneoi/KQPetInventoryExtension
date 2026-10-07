@@ -6,6 +6,9 @@
     <file alias="data-updater/public_icon_updater.py">../../tools/public_icon_updater.py</file>
     <file alias="data-updater/public_routine_updater.py">../../tools/public_routine_updater.py</file>
     <file alias="data-updater/public_activity_exchange_updater.py">../../tools/public_activity_exchange_updater.py</file>
+    <file alias="data-updater/activity_reward_structures.py">../../tools/activity_reward_structures.py</file>
+    <file alias="data-updater/activity_periods.py">../../tools/activity_periods.py</file>
+    <file alias="data-updater/activity_trade_facts.py">../../tools/activity_trade_facts.py</file>
     <file alias="data-updater/activity_evolution_selector.py">../../tools/activity_evolution_selector.py</file>
     <file alias="stargod-icons/sources.json">../../assets/stargod-icons/sources.json</file>
     <file alias="data-updater/bootstrap-public-data.ps1">../../tools/bootstrap-public-data.ps1</file>

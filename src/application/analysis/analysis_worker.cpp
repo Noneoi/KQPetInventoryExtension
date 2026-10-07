@@ -338,7 +338,7 @@ public:
       } else if (pet_ < input_.overview.pets.size()) {
         const auto& pet = input_.overview.pets.at(pet_++);
         bytes += stringCharge(pet.name) + stringCharge(pet.location) +
-                 stringsCharge(pet.gapKeys) + stringsCharge(pet.gaps);
+                 stringsCharge(pet.gapKeys) + stringsCharge(pet.gaps) + cultivationRequirementsRetainedBytes(pet.cultivationRequirements);
         pushJson(pet.pet);
       } else if (input_.catalogSnapshot && shop_ < input_.catalogSnapshot->allShops.size()) {
         const auto& shop = input_.catalogSnapshot->allShops.at(shop_);
@@ -361,6 +361,8 @@ public:
         pushJson(input_.metadata.sacredStarPlans);
         pushJson(input_.metadata.sacredStagePlans);
         pushJson(input_.metadata.badges);
+        pushJson(input_.metadata.items);
+        pushJson(input_.metadata.sacredEquipment);
       } else if (rawInputs_ < 3) {
         if (rawInputs_ == 0) {
           materialsStartBytes_ = bytes;

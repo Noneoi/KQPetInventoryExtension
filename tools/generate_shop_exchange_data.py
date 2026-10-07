@@ -28,6 +28,15 @@ LIMIT_TYPES = [{"index": i, "key": key, "label": label}
 PROTOCOL = {"extension": "TimelinessActExtension", "getInfoCommand": "1008_20260313_es_0",
             "getInfoParams": {}, "activityId": 1792, "itemKeyPrefix": "bi", "shopKeyPrefix": "si"}
 
+# User-requested exclusions apply to these activity identities, including all
+# their reward tables. The permanent eternal-battlefield exchange is separate.
+EXCLUDED_ACTIVITIES = frozenset({'godfantasynuoyachallenge', 'eternalbattlefield',
+                                'shenyundaqiaoevo', 'lingchushenandishitianchallenge'})
+
+
+def excluded_activity(source_key: str) -> bool:
+    return source_key.split('#', 1)[0].rsplit('/', 1)[-1] in EXCLUDED_ACTIVITIES
+
 
 def field(block: str, name: str) -> str:
     match = re.search(rf'"{name}"\s*:\s*("(?:\\.|[^"\\])*"|-?\d+)', block)
@@ -35,6 +44,86 @@ def field(block: str, name: str) -> str:
         return ""
     value = match[1]
     return json.loads(value) if value.startswith('"') else value
+
+
+def package_reward_ids(value) -> set[int]:
+    if not isinstance(value, str):
+        return set()
+    result = set()
+    for part in value.lstrip("!").split("|"):
+        fields = part.lstrip("!").split(",")
+        if len(fields) < 2 or fields[0] not in ("Material", "BatchMaterial"):
+            continue
+        for item in fields[1].split("#"):
+            match = re.fullmatch(r"139:([1-9]\d*):[1-9]\d*", item)
+            if match:
+                result.add(int(match[1]))
+    return result
+
+
+def selectable_package_ids(value, packages=()) -> list[int]:
+    return sorted(package_reward_ids(value) & {int(key) for key in packages})
+
+
+def selectable_reward(value, packages=()) -> bool:
+    """Use the official reward operator, never a promotional description."""
+    return (isinstance(value, str) and bool(re.search(r"(?:^!?|\|!?)(?:Choice|SelectPrizes),[^\n]+", value)) or
+            bool(selectable_package_ids(value, packages)))
+
+
+def cultivation_alternative(row: dict) -> bool:
+    """One explicit cultivation effect OR ordinary materials, not a choice box.
+
+    Validate the raw target/effect against the normalized facts as well, so an
+    old or malformed cached Choice cannot acquire an invented cultivation rule.
+    """
+    raw = row.get('rewardRaw', '')
+    if not isinstance(raw, str) or not raw.removeprefix('!').startswith('Choice,|') or row.get('rewardOptions'):
+        return False
+    parts = raw.removeprefix('!').split('|')
+    if len(parts) != 3:
+        return False
+    enhance = [p for p in parts[1:] if p.startswith('CommonEnhancePrize,')]
+    material = [p for p in parts[1:] if re.fullmatch(
+        r'(?:Material|BatchMaterial),[1-9]\d*:[1-9]\d*:[1-9]\d*(?:#[1-9]\d*:[1-9]\d*:[1-9]\d*)*(?:,[1-9]\d*)?', p)]
+    if len(enhance) != 1 or len(material) != 1 or package_reward_ids(material[0]):
+        return False
+    fields = enhance[0].split(',')
+    if len(fields) not in (5, 6) or (len(fields) == 6 and fields[5] not in ('VALID_ALL', 'GAIN_BATCH')):
+        return False
+    if not re.fullmatch(r'[1-9]\d*(?:\$[1-9]\d*)?(?:-[1-9]\d*(?:\$[1-9]\d*)?)*', fields[3]):
+        return False
+    if not re.fullmatch(r'[1-9]\d*(?:#[1-9]\d*)*(?::(?:false|0))?', fields[4]):
+        return False
+    races = list(dict.fromkeys(map(int, fields[4].split(':')[0].split('#'))))
+    return fields[3] == row.get('enhanceType') and races == row.get('raceIds')
+
+
+def excluded_choice(row: dict) -> bool:
+    if cultivation_alternative(row):
+        return False
+    return (selectable_reward(row.get('rewardRaw'), row.get('selectablePackageIds', ())) or
+            bool(row.get('rewardOptions')) or
+            bool(re.search(r'自选|任选|[二三四五六七八九十0-9]+选[一二三四五六七八九十0-9]+', str(row.get('description', '')))))
+
+
+def relevant_good(row: dict) -> bool:
+    return not excluded_choice(row) and (bool(row.get("enhanceType") and row.get("raceIds")) or
+                                        targeted_reward(row.get('rewardRaw')))
+
+
+def targeted_reward(value) -> bool:
+    # A known Strengthen effect with a runtime/exclusion filter is a manual
+    # candidate; it must not become an unconstrained cultivation rule.
+    return isinstance(value, str) and bool(re.match(r'^Strengthen,[1-9]\d*(?:\$[1-9]\d*)?(?:-[1-9]\d*(?:\$[1-9]\d*)?)*,', value))
+
+
+def relevant_shops(shops: list) -> list:
+    # Also migrate older broad scans and last-known-good fallback records.
+    return [{**shop, "goods": goods} for shop in shops
+            if not excluded_activity(shop.get('sourceKey', '')) and
+            (goods := [{**good, 'manualSelectionRequired': True} if cultivation_alternative(good) else good
+                       for good in shop.get("goods", []) if relevant_good(good)])]
 
 
 def official_date(value: str) -> str:
@@ -45,6 +134,8 @@ def official_date(value: str) -> str:
     """
     if not value:
         return ""
+    if re.fullmatch(r'\d{4}-\d{2}-\d{2}(?: \d{2}:\d{2}:\d{2})?', value):
+        value = value[:10].replace('-', '') + value[10:]
     timestamp = re.fullmatch(r"(\d{8}) (\d{2}):(\d{2}):(\d{2})", value)
     if timestamp:
         # Some newer activity tables use the game's full DateUtil timestamp.
@@ -61,17 +152,22 @@ def official_date(value: str) -> str:
     return (date(year, month + 1, 1) + timedelta(days=day - 1)).strftime("%Y%m%d")
 
 
-def parse_objects(body: str, shop: dict | None = None) -> list[dict]:
+def parse_objects(body: str, shop: dict | None = None, *, include_manual: bool = False, selectable_packages=()) -> list[dict]:
     items = []
     for match in re.finditer(r"\{([^{}]+)\}", body):
         block = match[1]
-        simple = field(block, "simpleParams").split(",")
-        if simple[0] != "CommonEnhancePrize":
+        reward = field(block, "simpleParams")
+        if excluded_choice({'rewardRaw': reward, 'description': field(block, 'basicDescription'),
+                            'selectablePackageIds': selectable_package_ids(reward, selectable_packages)}):
             continue
-        if (len(simple) != 5 or not re.fullmatch(r"[1-9]\d*(?:-[1-9]\d*)*", simple[3])
+        simple = reward.split(",")
+        automatic = simple[0] == "CommonEnhancePrize"
+        if not automatic and not (include_manual and selectable_reward(reward, selectable_packages) and field(block, "cost")):
+            continue
+        if automatic and (len(simple) != 5 or not re.fullmatch(r"[1-9]\d*(?:-[1-9]\d*)*", simple[3])
                 or not re.fullmatch(r"[1-9]\d*(?:#[1-9]\d*)*", simple[4])):
             raise ValueError("invalid designated-pet CommonEnhancePrize payload")
-        races = list(dict.fromkeys(int(x) for x in simple[4].split("#")))
+        races = list(dict.fromkeys(int(x) for x in simple[4].split("#"))) if automatic else []
         limit = field(block, "limit")
         limit_index = limit_count = -1
         if re.fullmatch(r"[0-4]:\d+", limit):
@@ -88,23 +184,33 @@ def parse_objects(body: str, shop: dict | None = None) -> list[dict]:
             # history; do not give it this season's later start date.
             if shop_start and (not end or end >= shop_start):
                 start = max(start, shop_start)
+        cost = field(block, "cost")
+        cost_keys = [part.rsplit(":", 1)[0] for part in cost.split("#")]
+        # Some ordinary SEF rewards have account-dependent prices separated
+        # by '#'. Do not add up multiple alternatives for the same currency.
+        known_cost = automatic or (bool(re.fullmatch(r"[1-9]\d*:[0-9]+:[1-9]\d*(?:#[1-9]\d*:[0-9]+:[1-9]\d*)*", cost))
+                                   and len(set(cost_keys)) == len(cost_keys))
         items.append({
             "id": int(field(block, "id")), "itemServerId": int(field(block, "serverId")),
             "tab": int(field(block, "tab") or 0),
-            "description": field(block, "basicDescription"),
+            "description": field(block, "basicDescription") or reward,
             "shelfTime": start, "removalTime": end,
             "officialShelfTime": raw_start, "officialRemovalTime": raw_end,
             "limit": limit, "limitIndex": limit_index, "limitCount": limit_count,
             "limitKey": LIMIT_TYPES[limit_index]["key"] if limit_index >= 0 else "",
             "limitLabel": LIMIT_TYPES[limit_index]["label"] if limit_index >= 0 else "",
-            "cost": field(block, "cost"), "enhanceType": simple[3], "raceIds": races,
+            "cost": cost, "costKnown": known_cost,
+            "costDescription": "" if known_cost else "价格条件待确认：" + cost,
+            "enhanceType": simple[3] if automatic else "", "raceIds": races,
+            "manualSelectionRequired": not automatic, "rewardRaw": reward,
+            "selectablePackageIds": selectable_package_ids(reward, selectable_packages),
             "filterKey": field(block, "filterKey"), "unlock": field(block, "unlock"),
             "tag": field(block, "tag"),
         })
     return items
 
 
-def parse_config(text: str, provenance: dict | None = None) -> dict:
+def parse_config(text: str, provenance: dict | None = None, *, include_manual: bool = False, selectable_packages=()) -> dict:
     total = re.search(r"TOTAL_CONFIG:Object\s*=\s*(.*?);", text, re.S)
     shop_metadata = {}
     if total:
@@ -123,7 +229,7 @@ def parse_config(text: str, provenance: dict | None = None) -> dict:
         meta = shop_metadata.get(shop_id, {})
         if meta.get("isOnline") == "FALSE":
             continue
-        goods = parse_objects(body, meta)
+        goods = parse_objects(body, meta, include_manual=include_manual, selectable_packages=selectable_packages)
         if not goods:
             continue
         shops.append({"shopId": shop_id, "name": meta.get("name") or f"商店 {shop_id}",

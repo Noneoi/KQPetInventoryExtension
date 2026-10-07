@@ -18,12 +18,14 @@ endfunction()
 # Python tools, PowerShell scripts and architecture guards
 # =============================================================================
 add_test(NAME public_data_updater_smoke COMMAND Python3::Interpreter -B "${CMAKE_CURRENT_SOURCE_DIR}/tests/python/test_public_data_updater.py")
+add_test(NAME shop_extraction_smoke COMMAND Python3::Interpreter -B "${CMAKE_CURRENT_SOURCE_DIR}/tests/python/test_generate_shop_exchange_data.py")
 add_test(NAME pet_skill_data_smoke COMMAND Python3::Interpreter -B "${CMAKE_CURRENT_SOURCE_DIR}/tests/python/test_pet_skill_data.py")
 add_test(NAME public_names_updater_smoke COMMAND Python3::Interpreter -B "${CMAKE_CURRENT_SOURCE_DIR}/tests/python/test_public_names_updater.py")
 add_test(NAME public_icons_updater_smoke COMMAND Python3::Interpreter -B "${CMAKE_CURRENT_SOURCE_DIR}/tests/python/public_icon_updater_test.py")
 add_test(NAME public_routine_updater_smoke COMMAND Python3::Interpreter -B "${CMAKE_CURRENT_SOURCE_DIR}/tests/python/test_public_routine_updater.py")
 add_test(NAME activity_evolution_selector_smoke COMMAND Python3::Interpreter -B "${CMAKE_CURRENT_SOURCE_DIR}/tests/python/test_activity_evolution_selector.py")
 add_test(NAME public_activity_exchange_smoke COMMAND Python3::Interpreter -B "${CMAKE_CURRENT_SOURCE_DIR}/tests/python/public_activity_exchange_updater_test.py")
+add_test(NAME activity_trade_facts_smoke COMMAND Python3::Interpreter -B "${CMAKE_CURRENT_SOURCE_DIR}/tests/python/test_activity_trade_facts.py")
 add_test(NAME public_updater_output_encoding_smoke COMMAND Python3::Interpreter -B "${CMAKE_CURRENT_SOURCE_DIR}/tests/python/public_updater_output_encoding_test.py")
 add_test(NAME cache_manager_smoke COMMAND Python3::Interpreter -B "${CMAKE_CURRENT_SOURCE_DIR}/tests/python/test_cache_manager.py")
 add_test(NAME power_metadata_smoke COMMAND Python3::Interpreter -B "${CMAKE_CURRENT_SOURCE_DIR}/tests/python/test_power_metadata.py")
@@ -329,6 +331,13 @@ target_compile_options(KQAssetAnalysisSmoke PRIVATE $<$<CXX_COMPILER_ID:MSVC>:/u
 target_link_libraries(KQAssetAnalysisSmoke PRIVATE KQPetApplication)
 add_test(NAME asset_analysis_smoke COMMAND KQAssetAnalysisSmoke)
 
+add_executable(KQAnalysisDetailRepairSmoke tests/application/analysis_detail_repair_smoke.cpp src/extension/resources.qrc)
+target_compile_options(KQAnalysisDetailRepairSmoke PRIVATE $<$<CXX_COMPILER_ID:MSVC>:/utf-8>)
+target_link_libraries(KQAnalysisDetailRepairSmoke PRIVATE KQPetApplication)
+add_test(NAME analysis_detail_repair_smoke COMMAND KQAnalysisDetailRepairSmoke)
+set_tests_properties(analysis_detail_repair_smoke PROPERTIES TIMEOUT 60)
+kqpet_use_qt_runtime(analysis_detail_repair_smoke)
+
 add_executable(KQAnalysisWorkerSmoke tests/application/analysis_worker_smoke.cpp)
 target_link_libraries(KQAnalysisWorkerSmoke PRIVATE KQPetAnalysisWorker)
 target_compile_options(KQAnalysisWorkerSmoke PRIVATE $<$<CXX_COMPILER_ID:MSVC>:/utf-8>)
@@ -430,6 +439,13 @@ target_link_libraries(KQShopUiPreview PRIVATE KQPetUi KQPetApplication)
 kqpet_use_build_info(KQShopUiPreview)
 add_test(NAME shop_ui_preview_smoke COMMAND KQShopUiPreview)
 
+add_executable(KQShopSelectionSmoke tests/ui/shop_selection_smoke.cpp src/extension/resources.qrc)
+target_compile_options(KQShopSelectionSmoke PRIVATE $<$<CXX_COMPILER_ID:MSVC>:/utf-8>)
+target_link_libraries(KQShopSelectionSmoke PRIVATE KQPetUi KQPetApplication)
+add_test(NAME shop_selection_smoke COMMAND KQShopSelectionSmoke)
+set_tests_properties(shop_selection_smoke PROPERTIES TIMEOUT 45 ENVIRONMENT "QT_QPA_PLATFORM=offscreen")
+kqpet_use_qt_runtime(shop_selection_smoke)
+
 add_executable(KQRoutineUiPreview tests/ui/routine_ui_preview.cpp)
 target_compile_options(KQRoutineUiPreview PRIVATE $<$<CXX_COMPILER_ID:MSVC>:/utf-8 /wd4828>)
 target_link_libraries(KQRoutineUiPreview PRIVATE KQPetUi KQPetApplication)
@@ -446,6 +462,13 @@ target_compile_options(KQAssetAnalysisUiPreview PRIVATE $<$<CXX_COMPILER_ID:MSVC
 target_link_libraries(KQAssetAnalysisUiPreview PRIVATE KQPetUi KQPetApplication)
 kqpet_use_build_info(KQAssetAnalysisUiPreview)
 add_test(NAME asset_analysis_ui_preview_smoke COMMAND KQAssetAnalysisUiPreview)
+
+add_executable(KQCultivationFilterSmoke tests/ui/cultivation_filter_smoke.cpp)
+target_compile_options(KQCultivationFilterSmoke PRIVATE $<$<CXX_COMPILER_ID:MSVC>:/utf-8>)
+target_link_libraries(KQCultivationFilterSmoke PRIVATE KQPetUi KQPetDiagnostics)
+kqpet_use_build_info(KQCultivationFilterSmoke)
+add_test(NAME cultivation_filter_smoke COMMAND KQCultivationFilterSmoke)
+kqpet_use_qt_runtime(cultivation_filter_smoke)
 
 set_tests_properties(
   pet_ui_preview_smoke shop_ui_preview_smoke routine_ui_preview_smoke

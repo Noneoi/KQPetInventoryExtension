@@ -5,6 +5,7 @@
 #include <QMap>
 #include <QSet>
 #include <QStringList>
+#include <algorithm>
 #include <cmath>
 #include <limits>
 
@@ -275,4 +276,80 @@ struct Builder {
 PetCultivationRequirements calculatePetCultivationRequirements(const QJsonObject& pet,
     const QJsonObject& metadataRoot, const PetBattlePowerState& power) {
   return Builder{pet,metadataRoot,power}.run();
+}
+
+QJsonObject cultivationRequirementsToJson(const PetCultivationRequirements& value) {
+  QJsonArray rows;
+  for (const auto& row : value.items) {
+    QJsonArray materials;
+    for (const auto& item : row.materials) materials.append(QJsonObject{
+        {"type",item.type},{"id",item.id},{"extra",item.extra},{"count",item.count},
+        {"name",item.name},{"known",item.known},{"scope",item.scope}});
+    rows.append(QJsonObject{{"key",row.key},{"category",row.category},{"name",row.name},
+        {"status",row.status},{"known",row.known},{"materials",materials}});
+  }
+  return {{"completeKnown",value.completeKnown},{"complete",value.complete},{"items",rows}};
+}
+
+PetCultivationRequirements compactCultivationRequirements(PetCultivationRequirements value) {
+  QList<PetCultivationRequirement> rows;
+  for (const auto& row : value.items) {
+    if (row.category == QStringLiteral("other") || row.key == QStringLiteral("stargod_level") ||
+        row.key == QStringLiteral("stargod_equip")) continue;
+    auto existing = std::find_if(rows.begin(),rows.end(),[&](const auto& item) { return item.category == row.category; });
+    if (existing == rows.end()) {
+      rows.append({row.category == QStringLiteral("stargods") ? QStringLiteral("stargod_state") : QString{},
+          row.category, {}, {}, {}, true});
+      existing = rows.end()-1;
+    }
+    existing->known = existing->known && row.known;
+    for (const auto& material : row.materials) {
+      if (!material.known) { existing->known = false; continue; }
+      if (material.count <= 0) continue;
+      Builder::appendMaterial(existing->materials,material);
+    }
+  }
+  for (auto& row : rows) row.materials.squeeze();
+  rows.squeeze(); value.items = std::move(rows);
+  return value;
+}
+
+std::optional<PetCultivationRequirements> cultivationRequirementsFromJson(const QJsonObject& value) {
+  if (value.size() != 3 || !value.value("completeKnown").isBool() || !value.value("complete").isBool() ||
+      !value.value("items").isArray() || value.value("items").toArray().size() > 128) return {};
+  PetCultivationRequirements result;
+  result.completeKnown = value.value("completeKnown").toBool(); result.complete = value.value("complete").toBool();
+  if (result.complete && !result.completeKnown) return {};
+  const auto text = [](const QJsonObject& object, const char* key, QString* output) {
+    const auto field = object.value(QLatin1String(key));
+    if (!field.isString() || field.toString().size() > 4096) return false;
+    *output = field.toString(); return true;
+  };
+  for (const auto& entry : value.value("items").toArray()) {
+    const auto object = entry.toObject(); PetCultivationRequirement row;
+    if (object.size() != 6 || !text(object,"key",&row.key) || !text(object,"category",&row.category) ||
+        !text(object,"name",&row.name) || !text(object,"status",&row.status) || !object.value("known").isBool() ||
+        !object.value("materials").isArray() || object.value("materials").toArray().size() > 128) return {};
+    row.known = object.value("known").toBool();
+    for (const auto& material : object.value("materials").toArray()) {
+      const auto item = material.toObject(); PetCultivationMaterial parsed;
+      if (item.size() != 7 || !integer(item.value("type"),&parsed.type) || !integer(item.value("id"),&parsed.id) ||
+          !integer(item.value("extra"),&parsed.extra) || !integer(item.value("count"),&parsed.count,0,std::numeric_limits<int>::max()) ||
+          !text(item,"name",&parsed.name) || !text(item,"scope",&parsed.scope) || !item.value("known").isBool()) return {};
+      parsed.known = item.value("known").toBool(); row.materials.append(std::move(parsed));
+    }
+    result.items.append(std::move(row));
+  }
+  return result;
+}
+
+quint64 cultivationRequirementsRetainedBytes(const PetCultivationRequirements& value) {
+  const auto text = [](const QString& s) { return s.isEmpty() ? quint64(0) : 64 + quint64(qMax(s.size(),s.capacity())) * sizeof(QChar); };
+  quint64 bytes = quint64(value.items.capacity()) * sizeof(PetCultivationRequirement);
+  for (const auto& row : value.items) {
+    bytes += text(row.key) + text(row.category) + text(row.name) + text(row.status) +
+        quint64(row.materials.capacity()) * sizeof(PetCultivationMaterial);
+    for (const auto& item : row.materials) bytes += text(item.name) + text(item.scope);
+  }
+  return bytes;
 }

@@ -9,6 +9,9 @@
 
 #include <QApplication>
 #include <QCheckBox>
+#include <QComboBox>
+#include <QPlainTextEdit>
+#include <QFontDatabase>
 #include <QJsonArray>
 #include <QJsonDocument>
 #include <QLabel>
@@ -26,6 +29,8 @@
 
 int main(int argc, char* argv[]) {
   QApplication application(argc, argv);
+  QFontDatabase::addApplicationFont(QStringLiteral("C:/Windows/Fonts/msyh.ttc"));
+  QFontDatabase::addApplicationFont(QStringLiteral("C:/Windows/Fonts/segoeui.ttf"));
   application.setApplicationName(QStringLiteral("KQAssetAnalysisUiPreview"));
   AssetAnalysisModel unknownModel;
   AccountAssetOverview unknownOverview;
@@ -212,7 +217,7 @@ int main(int argc, char* argv[]) {
           window->findChild<QTableView*>(QStringLiteral("KQNearFullRecommendationTable"));
       const bool valid =
           refresh &&
-          refresh->text() == QStringLiteral("重新计算养成分析（仅本地）") &&
+          refresh->text() == QStringLiteral("重新计算养成分析") &&
           overviewLocalUpdate &&
           window->findChild<QTableWidget*>(QStringLiteral("KQAssetOverviewTable")) &&
           diagnostics && diagnostics->model() && rowsBeforeDetail == 1 &&
@@ -232,7 +237,23 @@ int main(int argc, char* argv[]) {
               Qt::ScrollBarAlwaysOff &&
           window->findChild<QCheckBox*>(QStringLiteral("KQShowAllRecommendations")) &&
           window->findChild<QTableWidget*>(QStringLiteral("KQAssetInstanceHistoryTable"));
-      application.exit(valid ? 0 : 2);
+      const auto category = window->findChild<QComboBox*>(QStringLiteral("KQCultivationCategoryFilter"));
+      const auto era = window->findChild<QComboBox*>(QStringLiteral("KQCultivationEraFilter"));
+      const auto rating = window->findChild<QComboBox*>(QStringLiteral("KQCultivationRatingFilter"));
+      const auto totals = window->findChild<QPlainTextEdit*>(QStringLiteral("KQCultivationTotals"));
+      bool filtersValid = category && era && rating && totals && category->count() == 5 && era->count() == 3 && rating->count() == 6;
+      if (filtersValid) {
+        filtersValid = totals->toPlainText().contains(QStringLiteral("神源兽"));
+        category->setCurrentIndex(2);
+        filtersValid &= totals->toPlainText().contains(QStringLiteral("星轮精华")) && !totals->toPlainText().contains(QStringLiteral("神源兽"));
+        category->setCurrentIndex(0);
+        for (auto tabs : window->findChildren<QTabWidget*>())
+          for (int index = 0; index < tabs->count(); ++index)
+            if (tabs->tabText(index).contains(QStringLiteral("诊断"))) tabs->setCurrentIndex(index);
+        application.processEvents();
+        window->grab().save(QStringLiteral("asset-cultivation-preview.png"));
+      }
+      application.exit(valid && filtersValid ? 0 : 2);
       if (!valid) std::fprintf(stderr, "FAIL: rows=%d stale=%d dirty=%lld history=%lld status=%s\n",
           rowsBeforeDetail, staleWasShown, static_cast<long long>(controller->dirtyPetIds().size()),
           static_cast<long long>(controller->snapshots().size()), analysisStatus ? analysisStatus->text().toUtf8().constData() : "missing");

@@ -3,6 +3,8 @@
 
 #include <algorithm>
 #include <limits>
+#include <fstream>
+#include <windows.h>
 
 namespace kqpet::launcher {
 namespace {
@@ -80,6 +82,7 @@ bool preferClientFilename(std::wstring_view candidate, std::wstring_view current
 }
 
 std::filesystem::path findClientExecutable(const std::filesystem::path& directory) {
+  if (const auto selected = configuredClientExecutable(directory); !selected.empty()) return selected;
   std::filesystem::path best;
   std::filesystem::path recognized;
   std::error_code error;
@@ -103,6 +106,42 @@ std::filesystem::path findClientExecutable(const std::filesystem::path& director
     iterator.increment(error);
   }
   return error ? std::filesystem::path{} : recognized.empty() ? best : recognized;
+}
+
+bool validClientSelection(const std::filesystem::path& executable) {
+  std::error_code error;
+  const auto name = asciiLower(executable.filename().wstring());
+  return executable.is_absolute() && asciiLower(executable.extension().wstring()) == L".exe" &&
+      name.rfind(L"kqpet", 0) != 0 && std::filesystem::is_regular_file(executable, error) && !error;
+}
+
+std::filesystem::path configuredClientExecutable(const std::filesystem::path& directory) {
+  std::ifstream file(directory / L"KQPetClient.txt", std::ios::binary | std::ios::ate);
+  if (!file) return {};
+  const std::streamoff size = file.tellg();
+  if (size < 4 || size > 65536 || size % 2) return {};
+  std::wstring text(static_cast<size_t>(size) / sizeof(wchar_t), L'\0');
+  file.seekg(0);
+  if (!file.read(reinterpret_cast<char*>(text.data()), size) || text.front() != 0xfeff) return {};
+  text.erase(0, 1);
+  while (!text.empty() && (text.back() == L'\r' || text.back() == L'\n')) text.pop_back();
+  if (text.find_first_of(L"\r\n") != std::wstring::npos || text.find(L'\0') != std::wstring::npos) return {};
+  const std::filesystem::path path(text);
+  return validClientSelection(path) ? path : std::filesystem::path{};
+}
+
+bool saveClientSelection(const std::filesystem::path& directory, const std::filesystem::path& executable) {
+  if (!validClientSelection(executable)) return false;
+  const auto target = directory / L"KQPetClient.txt";
+  const auto temporary = directory / (L"KQPetClient." + std::to_wstring(GetCurrentProcessId()) + L".tmp");
+  const std::wstring text = std::wstring(1, 0xfeff) + executable.wstring();
+  {
+    std::ofstream file(temporary, std::ios::binary | std::ios::trunc);
+    if (!file.write(reinterpret_cast<const char*>(text.data()), text.size() * sizeof(wchar_t))) return false;
+  }
+  if (MoveFileExW(temporary.c_str(), target.c_str(), MOVEFILE_REPLACE_EXISTING | MOVEFILE_WRITE_THROUGH)) return true;
+  DeleteFileW(temporary.c_str());
+  return false;
 }
 
 }  // namespace kqpet::launcher

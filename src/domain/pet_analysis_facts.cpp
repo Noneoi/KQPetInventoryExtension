@@ -128,6 +128,10 @@ std::optional<PetAnalysisFacts> derivePetAnalysisFacts(const PetAssetRecord& see
   }
   facts.asset = AssetDerivation::derivePetWithPower(seed,facts.battlePower);
   AssetDerivation::applyCultivation(&facts.asset,facts.eligibility);
+  if (seed.detailAvailable) facts.asset.cultivationRequirements = compactCultivationRequirements(calculatePetCultivationRequirements(seed.pet,
+      {{"pets",metadata.pets},{"badges",metadata.badges},{"astrolabe",metadata.astrolabe},
+       {"sacredStarPlans",metadata.sacredStarPlans},{"sacredStagePlans",metadata.sacredStagePlans},
+       {"sacredEquipment",metadata.sacredEquipment},{"items",metadata.items}}, facts.battlePower));
   facts.asset.pet = AssetDerivation::identityFields(seed.pet);
   if (!facts.asset.pet.contains(QStringLiteral("id"))) facts.asset.pet.insert(QStringLiteral("id"),seed.instanceId);
   if (!facts.asset.pet.contains(QStringLiteral("r")) && !facts.asset.pet.contains(QStringLiteral("ri")) && seed.raceId > 0)
@@ -159,6 +163,19 @@ bool validatePetAnalysisFacts(const PetAnalysisFacts& facts, QString* error) {
     return fail(error,QStringLiteral("compact identity is missing or inconsistent"));
   if (asset.pet != AssetDerivation::identityFields(asset.pet))
     return fail(error,QStringLiteral("compact facts retain non-identity JSON"));
+  const auto& requirements = asset.cultivationRequirements;
+  if (requirements.items.size() > 128 || (requirements.complete && !requirements.completeKnown) ||
+      (!asset.detailAvailable && (!requirements.items.isEmpty() || requirements.completeKnown || requirements.complete)))
+    return fail(error,QStringLiteral("invalid cultivation material facts"));
+  for (const auto& requirement : requirements.items) {
+    if (requirement.materials.size() > 128 || requirement.key.size() > 4096 || requirement.category.size() > 4096 ||
+        requirement.name.size() > 4096 || requirement.status.size() > 4096)
+      return fail(error,QStringLiteral("cultivation material fact exceeds bounds"));
+    for (const auto& material : requirement.materials)
+      if (material.type < 0 || material.id < 0 || material.extra < 0 || material.count < 0 ||
+          material.name.size() > 4096 || material.scope.size() > 4096)
+        return fail(error,QStringLiteral("invalid cultivation material range"));
+  }
   if (eligibility.raceId < 0 || eligibility.metadataRaceId < 0 || asset.raceId != eligibility.raceId ||
       eligibility.metadataRaceId != asset.pet.value(QStringLiteral("_metaRaceId")).toInt() ||
       asset.detailAvailable != eligibility.hasFullDetail)
@@ -234,6 +251,7 @@ bool validatePetAnalysisFacts(const PetAnalysisFacts& facts, QString* error) {
 quint64 petAnalysisFactsRetainedBytes(const PetAnalysisFacts& facts) {
   const auto& asset = facts.asset;
   quint64 bytes = sizeof(PetAnalysisFacts) + textBytes(asset.name) + textBytes(asset.location) +
+      cultivationRequirementsRetainedBytes(asset.cultivationRequirements) +
       listBytes(asset.gapKeys) + listBytes(asset.gaps) +
       quint64(facts.battlePower.componentGaps.capacity()) * sizeof(PetBattlePowerGap);
   for (auto field = asset.pet.constBegin(); field != asset.pet.constEnd(); ++field)
@@ -291,6 +309,7 @@ QJsonObject petAnalysisFactsToJson(const PetAnalysisFacts& facts) {
   auto identity = facts.asset.pet;
   identity.insert(QStringLiteral("id"),QString::number(facts.asset.instanceId));
   asset.insert(QStringLiteral("identity"),identity);
+  asset.insert(QStringLiteral("requirements"),cultivationRequirementsToJson(facts.asset.cultivationRequirements));
   QJsonArray components;
   for (const auto value : facts.eligibility.components) components.append(int(value));
   const QJsonObject eligibility{{QStringLiteral("raceId"),facts.eligibility.raceId},
@@ -342,7 +361,7 @@ std::optional<PetAnalysisFacts> petAnalysisFactsFromJson(const QJsonObject& obje
   PetAnalysisFacts facts;
   facts.analysisVersion = int(version);
   const auto asset = object.value(QStringLiteral("asset")).toObject();
-  if (asset.size() != qsizetype(std::size(assetIntegers)+std::size(assetBooleans)+6) ||
+  if (asset.size() != qsizetype(std::size(assetIntegers)+std::size(assetBooleans)+7) ||
       !readScalars(asset,&facts.asset,assetIntegers,assetBooleans) ||
       !asset.value(QStringLiteral("instanceId")).isString() ||
       !DomainNumeric::checkedInteger(asset.value(QStringLiteral("instanceId")),&facts.asset.instanceId,1) ||
@@ -353,6 +372,9 @@ std::optional<PetAnalysisFacts> petAnalysisFactsFromJson(const QJsonObject& obje
   facts.asset.name = asset.value(QStringLiteral("name")).toString();
   facts.asset.location = asset.value(QStringLiteral("location")).toString();
   facts.asset.pet = asset.value(QStringLiteral("identity")).toObject();
+  const auto requirements = cultivationRequirementsFromJson(asset.value(QStringLiteral("requirements")).toObject());
+  if (!requirements) return invalid();
+  facts.asset.cultivationRequirements = *requirements;
   const auto eligibility = object.value(QStringLiteral("eligibility")).toObject();
   qint64 race = 0, metadataRace = 0, changeableLevel = 0;
   if (eligibility.size() != 12 || !DomainNumeric::checkedInteger(eligibility.value(QStringLiteral("raceId")),&race,0,std::numeric_limits<int>::max()) ||

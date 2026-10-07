@@ -17,7 +17,7 @@ quint64 goodPayloadBytes(const CompiledShopGood& value) {
   const auto& good = value.good;
   quint64 bytes = textBytes(good.shopName) + textBytes(good.description) + textBytes(good.cost) +
       textBytes(good.enhanceType) + textBytes(good.unlock) + textBytes(good.limitKey) +
-      textBytes(good.limitText) + textBytes(good.limitLabel) + textBytes(good.tag) +
+      textBytes(good.limitText) + textBytes(good.limitLabel) + textBytes(good.tag) + textBytes(good.rewardRaw) + textBytes(good.acquisitionKind) +
       textBytes(good.provenGapCode) + textBytes(good.sourceKey) + textBytes(good.sourceUrl) + textBytes(good.costDescription) +
       quint64(QJsonDocument(good.activityQueries).toJson(QJsonDocument::Compact).size() +
         QJsonDocument(good.quotaObservation).toJson(QJsonDocument::Compact).size() +

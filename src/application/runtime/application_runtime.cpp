@@ -188,6 +188,7 @@ protected:
           [analysis = services.analysis](std::function<void()> job) { return analysis->postPriorityCompute(std::move(job)); },
           services.storage, {}, services.root);
       services.analysis->setDerivationCache(services.derivations);
+      services.analysis->setDetailRefreshController(services.refresh);
       services.analysis->setCompatibilityIdentity(state->options.buildIdentity, state->options.profileIdentity,
                                                    state->options.compatibilityVerified);
       QObject::connect(services.catalogs, &CatalogIoService::catalogUpdated, services.root,
@@ -196,6 +197,18 @@ protected:
       });
       for (auto kind : {CatalogKind::Shop, CatalogKind::Routine, CatalogKind::PetDetail, CatalogKind::PetSkill})
         services.catalogs->requestReload(kind);
+      const auto selectionChanged = [state, services] {
+        const auto catalog = ShopExchangeCatalog::instance().snapshot();
+        const bool editable = services.catalogs->shopSelectionEditable();
+        const auto message = services.catalogs->shopSelectionMessage();
+        notify(state, [catalog, editable, message](ApplicationRuntime* target) {
+          emit target->shopSelectionChanged(catalog, editable, message);
+        }, QStringLiteral("shop-selection"));
+      };
+      QObject::connect(services.catalogs, &CatalogIoService::shopSelectionChanged, services.root, selectionChanged);
+      QObject::connect(services.catalogs, &CatalogIoService::catalogUpdated, services.root,
+          [selectionChanged](CatalogKind kind, quint64) { if (kind == CatalogKind::Shop) selectionChanged(); });
+      services.catalogs->loadShopSelection();
       ImageServiceOptions imageOptions;
       imageOptions.dataRoot = state->options.dataRoot;
       imageOptions.resourceVersion = state->options.imageResourceVersion.isEmpty() ? QStringLiteral("1") : state->options.imageResourceVersion;
@@ -627,6 +640,22 @@ bool ApplicationRuntime::deliverReceipt(const SendReceipt& receipt) {
 }
 bool ApplicationRuntime::closing() const { return state_->closing.load(std::memory_order_acquire); }
 
+void ApplicationRuntime::requestShopSelection() {
+  const auto state = state_;
+  if (!postUnscoped([state](const CoreServices& services) {
+    services.catalogs->loadShopSelection();
+    const auto catalog = ShopExchangeCatalog::instance().snapshot();
+    const auto message = services.catalogs->shopSelectionMessage();
+    const bool editable = services.catalogs->shopSelectionEditable();
+    notify(state, [catalog, editable, message](ApplicationRuntime* target) {
+      emit target->shopSelectionChanged(catalog, editable, message);
+    }, QStringLiteral("shop-selection"));
+  })) emit shopSelectionChanged({}, false, QStringLiteral("暂时无法读取商店，请稍后重试。"));
+}
+void ApplicationRuntime::saveShopSelection(const QStringList& selected, const QStringList& excludedAutomatic) {
+  if (!postUnscoped([selected, excludedAutomatic](const CoreServices& services) { services.catalogs->saveShopSelection(selected, excludedAutomatic); }))
+    emit shopSelectionChanged({}, true, QStringLiteral("保存请求未提交，请稍后重试。"));
+}
 void ApplicationRuntime::requestDataUpdate(const QStringList& components) {
   const auto state = state_;
   if (!postUnscoped([state, components](const CoreServices& services) {

@@ -101,6 +101,8 @@ int main(int argc, char** argv) {
   facts.battlePower = power;
   facts.asset = AssetDerivation::derivePetWithPower(seed, power);
   facts.asset.pet = AssetDerivation::identityFields(pet);
+  facts.asset.cultivationRequirements.items = {{"astrolabe_light","astrolabe",QStringLiteral("星轮点亮"),"",
+      {{4,2076,0,QStringLiteral("星迹精华"),75,true}},true}};
   facts.eligibility = deriveShopPetWithPower(pet, true, {}, power);
   QString factError;
   ok &= require(validatePetAnalysisFacts(facts, &factError), "new consumer fact fixture is invalid");
@@ -113,6 +115,9 @@ int main(int argc, char** argv) {
       decoded->battlePower.components.first().gapKnown &&
       decoded->battlePower.unknownReasons == power.unknownReasons,
       "new detailed power fields did not survive facts cache round trip");
+  ok &= require(decoded && decoded->asset.cultivationRequirements.items.size() == 1 &&
+      decoded->asset.cultivationRequirements.items.first().materials.first().count == 75,
+      "cultivation materials were lost from the durable facts index");
   auto invalidFacts = facts;
   invalidFacts.battlePower.components[0].currentKnown = false;
   ok &= require(!validatePetAnalysisFacts(invalidFacts) && petAnalysisFactsToJson(invalidFacts).isEmpty(),

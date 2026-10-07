@@ -8,6 +8,8 @@ struct ShopPetDerived;
 class AssetDerivation final {
 public:
   static bool matchesFilter(const PetAssetRecord& pet, PetAssetFilter filter);
+  static bool matchesCultivationCategory(const PetAssetRecord& pet, const QString& category);
+  static QString cultivationMaterialSummary(const QList<const PetAssetRecord*>& pets, const QString& category = {});
   static PetAssetRecord derivePet(const PetAssetRecord& seed, const QJsonObject& stargods,
                                   const QJsonObject& astrolabe = {}, const QJsonObject& pets = {});
   static PetAssetRecord derivePetWithPower(const PetAssetRecord& seed, const PetBattlePowerState& power);

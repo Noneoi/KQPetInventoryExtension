@@ -32,6 +32,8 @@ public:
   QJsonObject sacredStarPlans() const { return snapshot()->root.value(QStringLiteral("sacredStarPlans")).toObject(); }
   QJsonObject sacredStagePlans() const { return snapshot()->root.value(QStringLiteral("sacredStagePlans")).toObject(); }
   QJsonObject badgeDefinitions() const { return snapshot()->root.value(QStringLiteral("badges")).toObject(); }
+  QJsonObject itemDefinitions() const { return snapshot()->root.value(QStringLiteral("items")).toObject(); }
+  QJsonObject sacredEquipmentDefinitions() const { return snapshot()->root.value(QStringLiteral("sacredEquipment")).toObject(); }
   QJsonObject materialDefinitions() const;
   QString itemName(int itemId) const;
   QString moneyName(int moneyId) const;
@@ -39,6 +41,7 @@ public:
   QString materialCostText(int type, int materialId, int count) const;
   QJsonObject metadataFor(const QJsonObject& pet) const;
   QString resolvedOriginalName(const QJsonObject& pet) const;
+  QString resolvedRating(const QJsonObject& pet) const;
   QString resolvedAttributes(const QJsonObject& pet) const;
   QString resolvedJobs(const QJsonObject& pet) const;
   QString resolvedEra(const QJsonObject& pet) const;

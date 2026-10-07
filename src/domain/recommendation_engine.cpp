@@ -133,7 +133,7 @@ quint64 catalogRowHeapBytes(const ActionRecommendation& row) {
 }
 
 quint64 assetHeapBytes(const PetAssetRecord& pet) {
-  quint64 bytes = textBytes(pet.name) + textBytes(pet.location) +
+  quint64 bytes = textBytes(pet.name) + textBytes(pet.location) + cultivationRequirementsRetainedBytes(pet.cultivationRequirements) +
       quint64(pet.gaps.capacity() + pet.gapKeys.capacity()) * sizeof(QString);
   for (const auto& text : pet.gaps) bytes += textBytes(text);
   for (const auto& text : pet.gapKeys) bytes += textBytes(text);
@@ -319,6 +319,11 @@ struct RecommendationSession::Impl {
             petPowerMetadataFromCatalog(seed.pet, seed.metadataSlotMaxLevel,
                 metadata.stargods, metadata.astrolabe, metadata.pets));
         overview.pets[petIndex] = AssetDerivation::derivePetWithPower(seed, calculatedPower);
+        if (seed.detailAvailable) overview.pets[petIndex].cultivationRequirements = compactCultivationRequirements(
+            calculatePetCultivationRequirements(seed.pet, {{"pets",metadata.pets},{"badges",metadata.badges},
+                {"astrolabe",metadata.astrolabe},{"sacredStarPlans",metadata.sacredStarPlans},
+                {"sacredStagePlans",metadata.sacredStagePlans},{"sacredEquipment",metadata.sacredEquipment},
+                {"items",metadata.items}}, calculatedPower));
         if (overview.pets.at(petIndex).detailAvailable) {
           derived = deriveShopPetWithPower(overview.pets.at(petIndex).pet, true, metadata, calculatedPower, stats);
           cultivationDerived = true;

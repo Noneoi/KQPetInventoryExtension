@@ -55,6 +55,7 @@ public slots:
   void resumeWarehouseDetailRefresh();
   void cancelWarehouseDetailRefresh();
   void requestSingleDetail(qint64 instanceId);
+  bool requestMissingDetailOnce(qint64 instanceId);
   void requestMoveToWarehouse(qint64 instanceId);
   void requestMoveToBackpack(qint64 instanceId);
   void chooseMoveReplacement(qint64 outgoingInstanceId);
@@ -225,6 +226,7 @@ private:
   QList<qint64> priorityQueue_;
   QList<qint64> batchQueue_;
   QSet<qint64> queuedIds_;
+  QSet<qint64> oneShotDetailIds_;
   QSet<qint64> batchIds_;
   bool batchRunning_ = false;
   bool batchPaused_ = false;

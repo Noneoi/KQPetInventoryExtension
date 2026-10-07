@@ -4,6 +4,7 @@
 #include <QJsonObject>
 #include <QList>
 #include <QString>
+#include <optional>
 
 // Counts are the total remaining consumption, before any account inventory is
 // applied. A missing official cost is unknown, never an implicit zero.
@@ -36,3 +37,10 @@ struct PetCultivationRequirements {
 PetCultivationRequirements calculatePetCultivationRequirements(
     const QJsonObject& pet, const QJsonObject& metadataRoot,
     const PetBattlePowerState& power);
+
+QJsonObject cultivationRequirementsToJson(const PetCultivationRequirements& value);
+std::optional<PetCultivationRequirements> cultivationRequirementsFromJson(const QJsonObject& value);
+quint64 cultivationRequirementsRetainedBytes(const PetCultivationRequirements& value);
+// The account table needs four categories and quantities; detail-only text
+// stays in the on-demand detail calculation.
+PetCultivationRequirements compactCultivationRequirements(PetCultivationRequirements value);

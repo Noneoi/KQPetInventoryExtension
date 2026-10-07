@@ -122,6 +122,7 @@ private:
     const QStringList names{QStringLiteral("public_data_updater.py"), QStringLiteral("bootstrap-public-data.ps1"),
         QStringLiteral("public_names_updater.py"),QStringLiteral("public_icon_updater.py"),QStringLiteral("public_routine_updater.py"),
         QStringLiteral("public_activity_exchange_updater.py"),QStringLiteral("activity_evolution_selector.py"),
+        QStringLiteral("activity_reward_structures.py"),QStringLiteral("activity_periods.py"),QStringLiteral("activity_trade_facts.py"),
         QStringLiteral("generate_pet_detail_data.py"), QStringLiteral("generate_pet_skill_data.py"),
         QStringLiteral("public_skill_updater.py"), QStringLiteral("generate_shop_exchange_data.py"),
         QStringLiteral("generate_stargod_icons.py")};
@@ -187,7 +188,7 @@ private:
       if ((status == QStringLiteral("updated") || status == QStringLiteral("unchanged")) && !components_.contains(component)) components_.append(component);
       static const QHash<QString,QString> labels{{QStringLiteral("pets"),QStringLiteral("精灵与养成资料")},
           {QStringLiteral("skills"),QStringLiteral("精灵技能资料")},
-          {QStringLiteral("shop"),QStringLiteral("指定精灵兑换")},{QStringLiteral("images"),QStringLiteral("精灵图片")},
+          {QStringLiteral("shop"),QStringLiteral("兑换商店")},{QStringLiteral("images"),QStringLiteral("精灵图片")},
           {QStringLiteral("icons"),QStringLiteral("星神与属性图标")},{QStringLiteral("routines"),QStringLiteral("日常与活动")}};
       const QString error = object.value(QStringLiteral("error")).toString();
       state_->progress(labels.value(component,component) + QStringLiteral("：") +
@@ -206,6 +207,12 @@ private:
         if (!error.isEmpty()) errors.append(error);
       }
       if (!errors.isEmpty()) resultMessage_ = errors.join(QStringLiteral("；"));
+      const auto shopCounts = values.value(QStringLiteral("shop")).toObject().value(QStringLiteral("scanCounts")).toObject();
+      if (!shopCounts.isEmpty()) resultMessage_.prepend(
+          QStringLiteral("兑换商店扫描：%1 个商店，自动添加 %2 项，%3 项可手动补充。 ")
+              .arg(shopCounts.value(QStringLiteral("shops")).toInt())
+              .arg(shopCounts.value(QStringLiteral("automaticGoods")).toInt())
+              .arg(shopCounts.value(QStringLiteral("manualGoods")).toInt()));
     }
   }
   void readOutput() {

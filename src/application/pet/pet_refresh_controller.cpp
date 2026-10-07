@@ -576,6 +576,7 @@ void PetRefreshController::finishCurrentDetail(bool succeeded, const QString& re
     detailTimer_.stop();
   }
   queuedIds_.remove(finishedId);
+  oneShotDetailIds_.remove(finishedId);
   currentDetailId_ = 0;
   currentDetailGeneration_ = 0;
   currentDetailRetries_ = 0;

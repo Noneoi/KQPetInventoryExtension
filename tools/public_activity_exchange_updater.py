@@ -19,9 +19,14 @@ import xml.etree.ElementTree as ET
 import zlib
 
 from public_routine_updater import _atomic_json, _arguments, _balanced, _declaration, _read
-from generate_shop_exchange_data import official_date
+from generate_shop_exchange_data import official_date, selectable_reward, selectable_package_ids, relevant_shops, targeted_reward, excluded_activity
+from activity_reward_structures import (normalize_tables, reward_hints, symbolic, description_parameters,
+                                        upgrade_cultivation_description, module_deadline, apply_activity_period)
+from activity_periods import (period_hints, period_metadata, entry_opening, load_panel_periods,
+                             panel_periods_reusable, apply_graph_periods, table_deadlines)
+from activity_trade_facts import table_contracts, enrich_reward_facts
 
-PARSER_VERSION = 7
+PARSER_VERSION = 18
 FILENAME = "activity-exchange-data.json"
 CONFIG_RESOURCE = "config/config"
 EMERGENCY_RESOURCE = "configinemergency/configinemergency"
@@ -30,6 +35,95 @@ MAIN_SHOP_RESOURCE = "newactivityext/newact20260313/storeexchangeframework/store
 RESOURCE_PATTERN = re.compile(r"newactivityext/newact[0-9]{8}/[A-Za-z0-9_]+/[A-Za-z0-9_]+")
 MAX_SWF = 64 * 1024 * 1024
 MAX_MODULES = 512
+STATIC_DECLARATION = re.compile(r"\bstatic\s+(?:const|var)\s+(\w+)\s*:\s*[\w.*<>]+\s*=\s*")
+
+PACKAGE_RESOURCES = (("library/materialdata", "mmo.materialdata.OpenablePackageData"),
+                     ("library/materialdataupdate", "mmo.materialdata.update.OpenablePackageData_Update"))
+
+
+def parse_selectable_packages(text):
+    """Official OpenablePackage.isRandomItemPackage checks positive % rates."""
+    packages = {}
+    for match in re.finditer(r'new\s+OpenablePackage\s*\(', text):
+        expression, _ = _balanced(text, match.end() - 1)
+        args = LiteralReader("[" + expression[1:-1] + "]").parse()
+        if len(args) not in (5, 6) or type(args[0]) is not int or args[0] <= 0 or not isinstance(args[2], str):
+            raise ValueError("官方可开启礼包定义结构待适配")
+        parts = args[2].split("#")
+        if any(not re.fullmatch(r'(?:[1-9]\d*:[1-9]\d*:[1-9]\d*|Pet(?:Skin|Gain):[1-9]\d*)(?:%(?:\d+(?:\.\d+)?))?', part) for part in parts):
+            raise ValueError("官方礼包内容结构待适配")
+        selectable = not any(float(part.split("%",1)[1]) > 0 for part in parts if "%" in part)
+        # Keep random rows as tombstones so an update can change an old choice
+        # into a random package without inheriting the old classification.
+        packages[str(args[0])] = {"name": args[1], "content": args[2], "selectable": selectable}
+    if "new OpenablePackage" not in text and not re.search(r'\bdata\s*:\s*Object\s*=\s*\{\s*\}', text):
+        raise ValueError("官方礼包静态目录未识别")
+    return packages
+
+
+def load_selectable_packages(updater, versions):
+    dependency = {key: versions[key] for key, _ in PACKAGE_RESOURCES if key in versions}
+    previous = _read(updater.root / "catalog" / FILENAME).get("source", {}).get("selectablePackages", {})
+    if len(dependency) != len(PACKAGE_RESOURCES):
+        return {"versions": {}, "packages": {}}
+    if previous.get("versions") == dependency and isinstance(previous.get("packages"), dict):
+        return previous
+    packages, resources = {}, {}
+    for key, cls in PACKAGE_RESOURCES:
+        swf, source = updater.resource(key, versions)
+        path = updater.export(swf, updater.scratch / ("choice-packages-" + key.rsplit("/",1)[-1]), cls)
+        packages.update(parse_selectable_packages(path.read_text(encoding="utf-8-sig")))
+        resources[key] = source
+    return {"versions": dependency, "resources": resources,
+            "packages": {key: row for key, row in packages.items() if row["selectable"]}}
+
+
+def load_reward_support(updater, versions):
+    resources = (('library/interfaces', 'mmo.interfaces.strengthencombo.StrengthenComboBasicType'),
+                 ('library/interfaces', 'mmo.interfaces.strengthencombo.StrengthenComboDisplayType'),
+                 ('strengthencombo/strengthencomboservice', 'mmo.strengthencombo.update.StrengthenComboContents'),
+                 ('strengthencombo/strengthencomboservice', 'mmo.strengthencombo.util.StrengthenComboDescUtil'))
+    dependency = {key: versions[key] for key, _ in resources if key in versions}
+    previous = _read(updater.root / 'catalog' / FILENAME).get('source', {}).get('rewardSupport', {})
+    if previous.get('versions') == dependency and previous.get('schema') == 2 and not previous.get('error'):
+        return previous
+    result = {'schema': 2, 'versions': dependency, 'basicTypes': {}, 'prices': {}, 'pets': {}, 'descriptions': {}, 'descriptionParameters': {}}
+    if len(dependency) < 2:
+        return result
+    try:
+        emit('更新公共养成奖励与强化类型定义')
+        for key, cls in resources:
+            swf, _ = updater.resource(key, versions)
+            file = updater.export(swf, updater.scratch / 'reward-support', cls)
+            source = file.read_text(encoding='utf-8-sig')
+            if cls.endswith('StrengthenComboContents'):
+                _, constants = parse_tables({file.name: source})
+                prices = constants.get('StrengthenComboContents.PRICE_CONTENTS')
+                pets = constants.get('StrengthenComboContents.PET_CONTENTS')
+                if not isinstance(prices, dict) or not isinstance(pets, list) or not prices or not pets or symbolic(prices) or symbolic(pets):
+                    raise ValueError('公共养成奖励目录结构待适配')
+                result['prices'] = prices
+                result['pets'] = {str(p['race']): p for p in pets if isinstance(p, dict) and 'race' in p}
+            elif cls.endswith('StrengthenComboBasicType'):
+                for match in re.finditer(r'\bconst\s+(\w+)\s*:\s*StrengthenComboBasicType\s*=\s*create\((\d+),\s*("(?:\\.|[^"\\])*"),', source):
+                    name = json.loads(match[3]).split('|')[0]
+                    result['basicTypes'][match[1]] = {'id': int(match[2]), 'name': name}
+                    result['descriptions'][match[2]] = name
+                if not result['basicTypes']:
+                    raise ValueError('公共强化类型定义结构待适配')
+            elif cls.endswith('StrengthenComboDescUtil'):
+                result['descriptionParameters'] = description_parameters(source, result['basicTypes'])
+            else:
+                match = re.search(r'\bTESTING_HIDDEN\s*:\s*StrengthenComboDisplayType\s*=\s*create\((\d+),', source)
+                if not match:
+                    raise ValueError('公共养成测试项目的隐藏规则待适配')
+                result['hiddenDisplayId'] = int(match[1])
+    except Exception as error:
+        # Independent event tables can still update if a shared dependency
+        # fails. Never reuse stale public package contents as current facts.
+        result.update(error=str(error), prices={}, pets={})
+        updater.activity_exchange_failures.append('公共养成奖励配置读取失败：' + str(error))
+    return result
 
 
 def emit(message):
@@ -208,11 +302,17 @@ def resolve_alias(alias: str, discovery: dict) -> tuple[str, dict] | None:
     requested = alias
     requested_evidence = discovery.get("rootEvidence", {}).get(requested, {"kind": "referenced", "date": ""})
     direct_link = ""
+    period_evidence = []
     while alias not in seen:
         seen.add(alias)
         if alias in discovery.get("blocked", []):
             return None
         row = discovery["entries"].get(alias, {})
+        hud = discovery.get("hud", {}).get(alias, {})
+        for kind, entry in (('registry', row), ('hud', hud)):
+            period = {key: entry[key] for key in ('startTime', 'endTime') if entry.get(key)}
+            if period:
+                period_evidence.append({**period, 'kind': kind, 'alias': alias})
         if str(row.get("online", "true")).lower() == "false":
             return None
         path = row.get("file", "")
@@ -223,6 +323,7 @@ def resolve_alias(alias: str, discovery: dict) -> tuple[str, dict] | None:
             metadata["startTime"] = hud.get("startTime") or row.get("startTime", "")
             metadata["endTime"] = hud.get("endTime") or row.get("endTime", "")
             metadata["activityAlias"] = alias
+            metadata['periodEvidence'] = period_evidence
             metadata["navigationLink"] = direct_link or navigation_link(alias, row, hud)
             target_evidence = discovery.get("rootEvidence", {}).get(alias, {})
             evidence = target_evidence if target_evidence.get("kind") == "hud" else requested_evidence
@@ -287,9 +388,10 @@ def apply_discovery_overrides(updater, versions: dict, discovery: dict) -> dict:
 
 class LiteralReader:
     """Small literal parser: no eval, function calls, arithmetic or AS runtime."""
-    pattern = re.compile(r'\s*("(?:\\.|[^"\\])*"|-?\d+(?:\.\d+)?|[A-Za-z_$][A-Za-z0-9_$.]*|[][{}:,+])')
-    def __init__(self, text):
+    pattern = re.compile(r'\s*("(?:\\.|[^"\\])*"|-?\d+(?:\.\d+)?|[A-Za-z_$][A-Za-z0-9_$.]*|[][{}:,+()])')
+    def __init__(self, text, *, static_calls=False):
         self.tokens, self.at = [], 0
+        self.static_calls = static_calls
         cursor = 0
         while cursor < len(text):
             match = self.pattern.match(text, cursor)
@@ -306,9 +408,29 @@ class LiteralReader:
         self.at += 1
         return token
     def atom(self, depth=0):
+        result = self.primary(depth)
+        while self.at < len(self.tokens) and self.tokens[self.at] == "[":
+            self.take()
+            index = self.value(depth + 1)
+            if self.take() != "]":
+                raise ValueError("静态索引不完整")
+            result = {"$index": result, "$key": index}
+        return result
+    def primary(self, depth=0):
         if depth > 64:
             raise ValueError("静态配置嵌套过深")
         token = self.take()
+        if token == "new":
+            constructor = self.take()
+            if not re.fullmatch(r"[A-Za-z_$][A-Za-z0-9_$.]*", constructor) or self.take() != "(":
+                raise ValueError("静态构造参数无效")
+            args = []
+            while self.tokens[self.at] != ")":
+                args.append(self.value(depth + 1))
+                if self.tokens[self.at] != ")" and self.take() != ",":
+                    raise ValueError("静态构造参数分隔符无效")
+            self.take()
+            return {"$new": constructor, "$args": args}
         if token == "[":
             result = []
             while self.tokens[self.at] != "]":
@@ -335,6 +457,22 @@ class LiteralReader:
             return float(token) if "." in token else int(token)
         if token in ("true", "false", "null"):
             return {"true": True, "false": False, "null": None}[token]
+        if token == "(":
+            result = self.value(depth + 1)
+            if self.take() != ")":
+                raise ValueError("静态括号不完整")
+            return result
+        if self.at < len(self.tokens) and self.tokens[self.at] == "(":
+            if not self.static_calls:
+                raise ValueError('函数调用只能由静态配置解析器解析为符号')
+            self.take()
+            args = []
+            while self.tokens[self.at] != ")":
+                args.append(self.value(depth + 1))
+                if self.tokens[self.at] != ")" and self.take() != ",":
+                    raise ValueError("静态函数参数分隔符无效")
+            self.take()
+            return {"$call": token, "$args": args}
         return {"$ref": token}
     def value(self, depth=0):
         result = self.atom(depth)
@@ -348,7 +486,7 @@ class LiteralReader:
         # constant concatenation.  Numeric arithmetic and runtime expressions
         # remain rejected rather than being evaluated or guessed.
         if not any(isinstance(piece, str) for piece in pieces) or any(
-                not isinstance(piece, str) and not (
+                type(piece) not in (str, int) and not (
                     isinstance(piece, dict) and set(piece) == {"$ref"})
                 for piece in pieces):
             raise ValueError("只支持静态字符串常量拼接")
@@ -362,9 +500,38 @@ class LiteralReader:
 
 def parse_tables(scripts: dict[str, str]) -> tuple[dict, dict]:
     constants, tables = {}, {}
+    constructors, functions = {}, {}
     for filename, text in scripts.items():
         cls = Path(filename).stem
-        for match in re.finditer(r"\bstatic\s+(?:const|var)\s+(\w+)\s*:\s*[\w.<>]+\s*=\s*", text):
+        for match in re.finditer(r'\bstatic\s+function\s+(\w+)\s*\(([^)]*)\)\s*:\s*[\w.*<>]+\s*\{\s*return\s+([^;]+);\s*\}', text):
+            expression = match[3].strip()
+            # A copied static array and a read-only index are the only method
+            # bodies interpreted here. No AS code or arbitrary call executes.
+            expression = re.sub(r'^\((.+)\s+as\s+Array\)\.concat\(\)$', r'\1', expression)
+            expression = re.sub(r'\.concat\(\)$', '', expression)
+            try:
+                functions[cls + "." + match[1]] = (re.findall(r'(\w+)\s*:', match[2]), LiteralReader(expression, static_calls=True).parse())
+            except (ValueError, IndexError):
+                pass
+    for filename, text in scripts.items():
+        cls = Path(filename).stem
+        match = re.search(r"function\s+" + re.escape(cls) + r"\s*\([^)]*\)\s*\{", text)
+        if not match:
+            continue
+        try:
+            body, _ = _balanced(text, match.end() - 1)
+        except ValueError:
+            continue
+        fields = dict(re.findall(r"this\.(\w+)\s*=\s*(param\d+)\s*;", body))
+        mapping = {field: int(param[5:]) - 1 for field, param in fields.items() if not field.startswith("_")}
+        for getter in re.finditer(r"function\s+get\s+(\w+)\s*\(\s*\)\s*:\s*[\w.<>]+\s*\{\s*return\s+this\.(\w+)\s*;\s*\}", text):
+            if getter[2] in fields:
+                mapping[getter[1]] = int(fields[getter[2]][5:]) - 1
+        if mapping:
+            constructors[cls] = mapping
+    for filename, text in scripts.items():
+        cls = Path(filename).stem
+        for match in STATIC_DECLARATION.finditer(text):
             key, begin = cls + "." + match[1], match.end()
             try:
                 if text[begin:begin + 1] in ("[", "{"):
@@ -372,26 +539,58 @@ def parse_tables(scripts: dict[str, str]) -> tuple[dict, dict]:
                 else:
                     end = text.index(";", begin)
                     expression = text[begin:end]
-                value = LiteralReader(expression).parse()
+                vector = re.fullmatch(r'Vector\.<[\w.]+>\s*\((.*)\)', expression.strip(), re.S)
+                value = LiteralReader(vector[1] if vector else expression, static_calls=True).parse()
                 constants[key] = value
                 if isinstance(value, (dict, list)) and "$ref" not in value:
                     tables[key] = (filename, value)
+                elif isinstance(value, str) and re.match(r"!?(?:Material|CommonEnhancePrize|Pet|Choice|SelectPrizes),", value):
+                    tables[key] = (filename, {"simpleParams": value})
             except (ValueError, IndexError, json.JSONDecodeError):
                 continue
-    def resolve(value, namespace="", stack=()):
+    def resolve(value, namespace="", stack=(), arguments=None):
+        if len(stack) > 64:
+            return {"$ref": "static-resolution-depth"}
         if isinstance(value, dict):
+            if set(value) == {"$new", "$args"}:
+                mapping = constructors.get(value["$new"].rsplit(".", 1)[-1])
+                if not mapping or any(index >= len(value["$args"]) for index in mapping.values()):
+                    return {"$ref": "unresolved-constructor"}
+                return {field: resolve(value["$args"][index], namespace, stack) for field, index in mapping.items()}
             if set(value) == {"$ref"}:
                 name = value["$ref"]
+                if arguments and name in arguments:
+                    return arguments[name]
                 qualified = name if name in constants else namespace + "." + name
                 if qualified in constants and qualified not in stack:
                     return resolve(constants[qualified], qualified.split(".", 1)[0], stack + (qualified,))
                 return value
+            if set(value) == {"$index", "$key"}:
+                target = resolve(value["$index"], namespace, stack, arguments)
+                key = resolve(value["$key"], namespace, stack, arguments)
+                if isinstance(target, list) and type(key) is int and 0 <= key < len(target):
+                    return target[key]
+                if isinstance(target, dict) and isinstance(key, str) and key in target:
+                    return target[key]
+                return {"$ref": "unresolved-static-index"}
+            if set(value) == {"$call", "$args"}:
+                name = value["$call"]
+                qualified = name if name in functions else namespace + "." + name
+                args = [resolve(arg, namespace, stack, arguments) for arg in value["$args"]]
+                if qualified in functions and qualified not in stack:
+                    params, expression = functions[qualified]
+                    if len(params) == len(args):
+                        return resolve(expression, qualified.split(".", 1)[0], stack + (qualified,), dict(zip(params, args)))
+                return {"$ref": "unresolved-call:" + name}
             if set(value) == {"$concat"}:
                 pieces = [resolve(child, namespace, stack) for child in value["$concat"]]
-                return "".join(pieces) if all(isinstance(piece, str) for piece in pieces) else {"$concat": pieces}
-            return {key: resolve(child, namespace, stack) for key, child in value.items()}
+                # AS string + integer is a string (common for tab navigation).
+                if pieces and isinstance(pieces[0], str) and all(type(piece) in (str, int) for piece in pieces):
+                    return "".join(str(piece) for piece in pieces)
+                return {"$concat": pieces}
+            return {key: resolve(child, namespace, stack, arguments) for key, child in value.items()}
         if isinstance(value, list):
-            return [resolve(child, namespace, stack) for child in value]
+            return [resolve(child, namespace, stack, arguments) for child in value]
         return value
     def symbolic(value):
         if isinstance(value, dict):
@@ -399,7 +598,8 @@ def parse_tables(scripts: dict[str, str]) -> tuple[dict, dict]:
         return isinstance(value, list) and any(symbolic(child) for child in value)
     resolved = {key: (filename, resolve(value, key.split(".", 1)[0]))
                 for key, (filename, value) in tables.items()}
-    return {key: pair for key, pair in resolved.items() if not symbolic(pair[1])}, constants
+    return ({key: pair for key, pair in resolved.items() if not symbolic(pair[1])},
+            {key: resolve(value, key.split(".", 1)[0]) for key, value in constants.items()})
 
 
 def positive_ids(value) -> list[int]:
@@ -415,7 +615,9 @@ def supported_enhancement_expression(value) -> bool:
     # Parameter variants stay evidence-bound.  39$3 and 89$1 are present in
     # the official 2026-09-18 cultivation sale; other new variants remain
     # pending until an official table gives them a concrete meaning.
-    token = r"(?:[1-9]\d*|33\$[1-9]\d*|39\$(?:1|3)|89\$1)"
+    # The official return/new-player tables use 35$<star-definition-id>.
+    # Preserve the parameter; do not treat it as the general red-star effect.
+    token = r"(?:[1-9]\d*|(?:33|35)\$[1-9]\d*|39\$(?:1|3)|89\$1)"
     return isinstance(value, str) and bool(re.fullmatch(token + r"(?:-" + token + r")*", value))
 
 
@@ -442,18 +644,107 @@ def enhancement(simple: str, expand=None) -> tuple[str, list[int]]:
     return parts[3], positive_ids(exact)
 
 
+def reward_row(value):
+    if not isinstance(value, dict):
+        return None
+    if "simpleParams" in value or value.get("type") == "Strengthen" and 'params' in value:
+        return value
+    for key in ("prizeParams", "prize", "prizes", "reward", "rewards", "rewardParams"):
+        raw = value.get(key)
+        if isinstance(raw, list) and raw and all(isinstance(item, str) for item in raw):
+            raw = "|".join(raw)
+        if isinstance(raw, str) and re.match(r"!?(?:Material|CommonEnhancePrize|Pet|Choice|SelectPrizes),", raw):
+            return {**value, "simpleParams": raw}
+    return None
+
+
+def additional_reward_fields(value):
+    if not isinstance(value, dict):
+        return []
+    primary = reward_row(value)
+    result = []
+    for key, raw in value.items():
+        # Passes and staged events keep several reward lanes in one row.
+        # Preserve each lane separately; its id/eligibility is not the row id.
+        if not re.match(r"(?:prize|reward|bonus|extBonus)", key, re.I):
+            continue
+        if not isinstance(raw, str) or not re.match(r"!?(?:Material|CommonEnhancePrize|Pet|Choice|SelectPrizes),", raw):
+            continue
+        if primary is not None and raw == primary.get("simpleParams"):
+            continue
+        result.append((key, {**value, "simpleParams": raw, "_rewardField": key}))
+    return result
+
+
 def leaf_arrays(value, path=""):
     if isinstance(value, list):
-        rows = [row for row in value if isinstance(row, dict) and ("simpleParams" in row or row.get("type") == "Strengthen")]
+        rows = [reward_row(row) for row in value]
+        rows = [row for row in rows if row is not None]
         if rows:
             yield path, rows
+        extras = {}
+        for row in value:
+            for key, projected in additional_reward_fields(row):
+                extras.setdefault(key, []).append(projected)
+        for key, projected in extras.items():
+            yield path + "/" + key, projected
+        literal_prizes = [{"simpleParams": item} for item in value if isinstance(item, str) and
+                          re.match(r"!?(?:Material|CommonEnhancePrize|Pet|Choice|SelectPrizes),", item)]
+        if literal_prizes:
+            yield path + "/prizes", literal_prizes
         for index, child in enumerate(value):
-            if isinstance(child, (list, dict)) and child not in rows:
+            if isinstance(child, (list, dict)) and reward_row(child) is None and not additional_reward_fields(child):
                 yield from leaf_arrays(child, path + "/" + str(index))
     elif isinstance(value, dict):
-        for name, child in value.items():
-            if isinstance(child, (list, dict)):
-                yield from leaf_arrays(child, path + "/" + name)
+        row = reward_row(value)
+        if row is not None:
+            yield path, [row]
+        extras = additional_reward_fields(value)
+        for key, projected in extras:
+            yield path + "/" + key, [projected]
+        if row is None and not extras:
+            for name, child in value.items():
+                if isinstance(child, (list, dict)):
+                    yield from leaf_arrays(child, path + "/" + name)
+
+
+def acquisition_kind(row, table, activity, commands):
+    if row.get('_acquisitionKind') in ('exchange', 'progress', 'signin', 'reward', 'lottery'):
+        return row['_acquisitionKind']
+    if row.get("_acquisitionUnknown"):
+        return "unknown"
+    if 'probability' in row or 'guaranteed' in row:
+        return 'lottery'
+    has_cost = any(key in row for key in ("cost", "costD", "prices", "price", "discount", "orgPrice"))
+    if has_cost:
+        return "exchange"
+    if "daibi" in row:
+        if any("exchange" in name.lower() for name in commands):
+            return "exchange"
+        if any("progress" in name.lower() for name in commands):
+            return "progress"
+        return "unknown"
+    label = table.lower() + " " + activity.get("activityName", "")
+    if any(word in label for word in ("signin", "sign_in", "qiandao", "签到")):
+        return "signin"
+    if any(word in label for word in ("progress", "levelprize", "passtask", "累计")):
+        return "progress"
+    return "reward"
+
+
+def reward_branches(value, config_text):
+    """Keep explicitly filtered player tiers in separate identity namespaces.
+
+    Tier values are catalog variants, not evidence of the current player's
+    tier. Their counters/prices must not be applied to the account.
+    """
+    tier_filter = re.search(r'\["lv"\]\s*==\s*[A-Za-z_]\w*\b', config_text)
+    for branch, rows in leaf_arrays(value):
+        if tier_filter and rows and all(type(row.get("lv")) is int and row["lv"] > 0 for row in rows):
+            for level in sorted({row["lv"] for row in rows}):
+                yield branch + "/lv=" + str(level), [row for row in rows if row["lv"] == level], level
+        else:
+            yield branch, rows, None
 
 
 def as_methods(text: str):
@@ -528,6 +819,7 @@ def trade_profile(scripts: dict, constants: dict, tables: dict, cls: str, rows: 
     text = "\n".join(scripts.values())
     profile = {"text": text, "requests": [], "constants": constants, "rows": rows}
     requests = read_requests(scripts, constants, shop_id)
+    profile['stateReadUnambiguous'] = len(requests) == 1
     exchange_info = [item for item in requests if item["command"] == "1008_20260313_es_2"]
     selected = []
     if exchange_info:
@@ -626,9 +918,9 @@ def enrich_trade_item(item: dict, row: dict, profile: dict) -> None:
     limit = row.get("limit")
     period_keys, period_labels = ("dl", "wl", "ml", "pl", "tl"), ("日", "周", "月", "期", "总")
     maximum = -1
-    if isinstance(limit, str) and re.fullmatch(r"[0-4]:\d+", limit):
+    if isinstance(limit, str) and re.fullmatch(r"\d+:\d+", limit):
         kind, maximum = map(int, limit.split(":"))
-        if style == "bundle-bi" or style == "total-bi" and kind == 4:
+        if kind <= 4 and (style == "bundle-bi" or style == "total-bi" and kind == 4):
             item.update(limitIndex=kind, limitKey=period_keys[kind], limitLabel=period_labels[kind], quotaCycleKnown=True)
     elif type(limit) is int and limit > 0:
         maximum = limit
@@ -669,7 +961,7 @@ def enrich_trade_item(item: dict, row: dict, profile: dict) -> None:
             observation.update(path=["b" + str(row["buyId"]), "by" + str(row["index"])])
         elif style == "p-index":
             observation.update(path=["p", {"find": "i", "equals": row.get("index", identity)}, "l"], missingValue=0)
-        if observation.get("path") and maximum >= 0:
+        if observation.get("path") and all(value != '' for value in observation['path']) and maximum >= 0:
             item["quotaObservation"] = observation
     elif style == "pet-ep" and identity in profile["petQuotas"]:
         item["quotaObservationPending"] = {"requestKey": "state", "valueKind": "used", "encoding": "id-counts", "itemId": identity,
@@ -728,30 +1020,131 @@ def enrich_trade_item(item: dict, row: dict, profile: dict) -> None:
         isinstance(cost, str) and cost.startswith("8:2:") for cost in standard_costs) else "activity"
 
 
-def parse_module(scripts: dict[str, str], module: str, activity: dict, expand=None) -> tuple[list, list, bool]:
+def constructed_reward_tables(scripts: dict[str, str], tables: dict, constants: dict) -> dict:
+    """Normalize the official typed reward wrapper without executing its AS.
+
+    The Sep-30 sale moved literal rows behind a constructor. Follow only the
+    explicit table, parameter, race and diamond-cost mappings in that wrapper;
+    never infer a currency or pet from a display name.
+    """
+    tables = copy.deepcopy(tables)
+    for filename, text in scripts.items():
+        wrapper = Path(filename).stem
+        reward = re.search(r'this\.(\w+)\.indexOf\(":"\)\s*>=\s*0\s*\?\s*"Material,"\s*\+\s*this\.\1\s*:\s*"CommonEnhancePrize,,,"\s*\+\s*this\.\1\s*\+\s*","\s*\+\s*(\w+)\.(\w+)', text)
+        if not reward:
+            continue
+        parameter = re.search(r'this\.' + re.escape(reward[1]) + r'\s*=\s*\w+\["(\w+)"\]', text)
+        race = constants.get(reward[2] + "." + reward[3])
+        if not parameter or type(race) is not int or race <= 0:
+            continue
+        required_mappings = ("index", "cost", "limit", "serverIdForTimes")
+        if any(not re.search(r'this\._' + name + r'\s*=\s*\w+\["' + name + r'"\]', text) for name in required_mappings):
+            continue
+        diamond = False
+        for consumer in scripts.values():
+            for variable in re.findall(r'\bvar\s+(\w+)\s*:\s*' + re.escape(wrapper) + r'\b', consumer):
+                diamond |= bool(re.search(r'enableConsume\(AQGDialog\.CT_DIAMOND,\s*' + re.escape(variable) + r'\.cost\)', consumer))
+        if not diamond:
+            continue
+        for key, (source_file, rows) in list(tables.items()):
+            if not key.startswith(reward[2] + ".") or not isinstance(rows, list):
+                continue
+            if not re.search(r'for each\(\w+\s+in\s+' + re.escape(key) + r'\)', text):
+                continue
+            normalized = []
+            for row in rows:
+                if not isinstance(row, dict):
+                    continue
+                param, cost, quota = row.get(parameter[1]), row.get("cost"), row.get("limit")
+                identity = row.get("serverIdForBuying", row.get("serverIdForTimes"))
+                if not isinstance(param, str) or type(cost) is not int or cost <= 0 or type(identity) is not int or identity < 0:
+                    continue
+                normalized.append({**row, "serverId": identity,
+                    "simpleParams": "Material," + param if ":" in param else f"CommonEnhancePrize,,,{param},{race}",
+                    "cost": f"8:2:{cost}", "limit": f"4:{quota}" if type(quota) is int and quota > 0 else ""})
+            if normalized:
+                tables[key] = source_file, normalized
+    return tables
+
+
+def parse_module(scripts: dict[str, str], module: str, activity: dict, expand=None, *, include_manual=False, selectable_packages=(), reward_support=None) -> tuple[list, list, bool]:
     tables, constants = parse_tables(scripts)
-    pending, shops = [], []
+    tables = constructed_reward_tables(scripts, tables, constants)
+    tables, structural_issues = normalize_tables(scripts, tables, constants, reward_support)
+    contracts = table_contracts(scripts, tables, constants)
+    table_ends = table_deadlines(scripts, tables, constants)
+    # A dynamically constructed shop can still contain complete literal bonus
+    # objects. Resolve only verified selectable packages from those objects;
+    # the surrounding runtime prices and claim IDs remain unknown.
+    if include_manual and selectable_packages:
+        for filename, text in scripts.items():
+            for match in re.finditer(r'\bstatic\s+(?:const|var)\s+(\w+)\s*:\s*[\w.<>]+\s*=\s*', text):
+                table = Path(filename).stem + "." + match[1]
+                if (table in tables and not symbolic(tables[table][1])) or text[match.end():match.end()+1] not in ("[", "{"):
+                    continue
+                try:
+                    expression, _ = _balanced(text, match.end())
+                except ValueError:
+                    continue
+                rows = []
+                for candidate in re.finditer(r'\{\s*"', expression):
+                    try:
+                        literal, _ = _balanced(expression, candidate.start())
+                        row = LiteralReader(literal).parse()
+                        bonus = row.get("bonus")
+                        if not isinstance(bonus,str) or not re.fullmatch(r'[1-9]\d*:[1-9]\d*:[1-9]\d*(?:#[1-9]\d*:[1-9]\d*:[1-9]\d*)*', bonus):
+                            continue
+                        reward = "Material," + bonus
+                        if not selectable_package_ids(reward,selectable_packages) or not (row.get("name") or row.get("desc")):
+                            continue
+                        rows.append({**row,"simpleParams":reward,"_rewardField":"bonus","_acquisitionUnknown":True})
+                    except (ValueError,TypeError,IndexError):
+                        continue
+                if rows:
+                    tables[table + ".staticPackageRewards"] = (filename,rows)
+    pending = [{**issue, 'module': module, 'activityName': activity.get('activityName', '')}
+               for issue in structural_issues]
+    shops = []
     all_text = "\n".join(scripts.values())
+    # Respect a module-wide entry gate only when its getter and caller both
+    # provide evidence. A date constant elsewhere could gate an unrelated tab.
+    opening_gates = set()
+    for filename, text in scripts.items():
+        cls = Path(filename).stem
+        for match in re.finditer(r'static\s+function\s+(\w+)\(\s*\)\s*:\s*Boolean\s*\{\s*return\s+DateUtil\.isAfterTimeWithDelayClose\(\s*([\w.]+)\s*\)\s*;\s*\}', text):
+            if not re.search(r'if\s*\(\s*!\s*' + re.escape(cls + '.' + match[1]) + r'\(\s*\)\s*\)', all_text):
+                continue
+            date = constants.get(match[2], constants.get(cls + '.' + match[2]))
+            if isinstance(date, str) and official_date(date):
+                opening_gates.add(date)
+    module_start = next(iter(opening_gates)) if len(opening_gates) == 1 else ''
+    if module_start and ' ' not in module_start:
+        module_start += ' 02:00:00'
+    entry_start = entry_opening(scripts, activity, constants)
+    if entry_start:
+        from activity_reward_structures import period_point
+        module_start = max(filter(None, (module_start, entry_start)), key=period_point)
+    module_end = module_deadline(scripts, constants)
     commands = {match[1]: match[2] for match in re.finditer(r'\b(?:const|var)\s+(\w+)\s*:\s*String\s*=\s*"(\d+(?:_[A-Za-z0-9]+)+)"', all_text)}
     direct_links = {value for key, value in constants.items()
-                    if key.endswith(".RESHOW_SELF_ACT_KEY") and isinstance(value, str) and
+                    if key.rsplit(".", 1)[-1].replace("_", "").lower() == "reshowselfactkey" and isinstance(value, str) and
                     re.fullmatch(r"btnNewAct_[A-Za-z0-9]+_[A-Za-z0-9_]+", value)}
     direct_navigation = next(iter(direct_links)) if len(direct_links) == 1 else activity.get("navigationLink", "")
     navigation_source = "module" if len(direct_links) == 1 else "activity" if direct_navigation else ""
     has_evolution = False
     for filename, text in scripts.items():
-        for match in re.finditer(r"\bstatic\s+(?:const|var)\s+(\w+)\s*:\s*[\w.<>]+\s*=\s*", text):
+        for match in STATIC_DECLARATION.finditer(text):
             key = Path(filename).stem + "." + match[1]
             if key in tables:
                 continue
             end = text.find(";", match.end())
             expression = text[match.end():end if end >= 0 else len(text)]
-            if "CommonEnhancePrize" in expression and any(name in expression for name in ('"cost"', '"prices"', '"price"', '"daibi"')):
+            if re.search(r'(?:CommonEnhancePrize|Choice|SelectPrizes),|"rewardType"\s*:\s*"(?:Strengthen|NChoose1|ArbitraryChoice)"|"rewardTypes"', expression):
                 pending.append({"module": module, "activityName": activity.get("activityName", ""),
-                                "table": key, "reason": "指定精灵兑换表包含尚未支持的动态表达式"})
+                                "table": key, "reason": "养成或任选奖励表包含尚未支持的动态表达式"})
     for table, (filename, value) in tables.items():
         cls = table.split(".", 1)[0]
-        for branch, rows in leaf_arrays(value):
+        for branch, rows, tier in reward_branches(value, scripts[filename]):
             shop_id = next((constants[cls + "." + name] for name in ("SHOP_ID", "ExchangeShopId", "ShopId")
                             if cls + "." + name in constants), 1)
             if type(shop_id) is not int or shop_id <= 0:
@@ -761,24 +1154,24 @@ def parse_module(scripts: dict[str, str], module: str, activity: dict, expand=No
             for row in rows:
                 simple = row.get("simpleParams", "")
                 strengthen = row.get("type") == "Strengthen"
-                if not (isinstance(simple, str) and "CommonEnhancePrize," in simple or strengthen):
+                automatic = isinstance(simple, str) and "CommonEnhancePrize," in simple or strengthen
+                if not automatic and not (include_manual and (selectable_reward(simple, selectable_packages) or targeted_reward(simple))):
                     continue
-                # Sign-in and pass-level rewards have the same reward syntax,
-                # but no exchange cost. They are not inserted into the shop.
-                if not any(key in row for key in ("cost", "costD", "daibi", "prices", "price")):
+                kind = acquisition_kind(row, table, activity, commands)
+                if kind != "exchange" and not include_manual:
                     continue
                 identity = next((row[key] for key in ("serverId", "serverIndex", "bi", "dataIndex", "id", "index") if type(row.get(key)) is int), None)
                 try:
-                    if set(row).intersection(("cost", "costD", "prices", "price")) == set() and "daibi" in row:
-                        has_exchange = any("exchange" in name.lower() for name in commands)
-                        if not has_exchange and any("progress" in name.lower() for name in commands):
-                            # Cumulative ticket thresholds are progress prizes,
-                            # not a currency expenditure / exchange cost.
-                            continue
-                        if not has_exchange:
-                            raise ValueError("代币字段未确认是兑换扣费还是累计奖励门槛")
+                    synthetic = identity is None or identity < 0 or bool(row.get("_rewardField"))
+                    if synthetic and include_manual:
+                        # Display identity only. Never used for server counters or claims.
+                        identity_basis = row
+                        if row.get('_structure'):
+                            identity_basis = {key: row[key] for key in ('_rewardField', 'serverId', 'serverIndex', 'bi', 'dataIndex', 'id', 'index', 'idN', 'idE', 'day', 'days', 'level', 'campaignId', 'needToken', 'needChargeMonth', 'openDiamond') if key in row}
+                            identity_basis['reward'] = simple
+                        identity = int(hashlib.sha256(json.dumps(identity_basis, sort_keys=True, ensure_ascii=False).encode()).hexdigest()[:7], 16)
                     if identity is None or identity < 0 or identity > 2**31 - 1:
-                        raise ValueError("兑换条目缺少明确的本地编号")
+                        raise ValueError("奖励条目缺少明确的本地编号")
                     conditional = type(row.get("index")) is int and row["index"] < 0
                     if conditional and not (type(row.get("baseOnId")) is int and row["baseOnId"] >= 0):
                         raise ValueError("隐藏条件兑换分支没有明确的关联条目")
@@ -792,13 +1185,17 @@ def parse_module(scripts: dict[str, str], module: str, activity: dict, expand=No
                         codes = row.get("params", "")
                         if not supported_enhancement_expression(codes):
                             raise ValueError("养成代码尚待适配")
-                    else:
+                    elif row.get('_typedCodes'):
+                        codes, races = row['_typedCodes'], positive_ids([int(v) for v in simple.split(',')[4].split('#')])
+                    elif automatic:
                         has_evolution |= "@sb" in simple
                         codes, races = enhancement(simple, expand)
-                    raw_cost = {key: row[key] for key in ("cost", "costD", "daibi", "prices", "price") if key in row}
+                    else:
+                        codes, races = "", []
+                    raw_cost = {key: row[key] for key in ("cost", "costD", "daibi", "prices", "price", "discount", "orgPrice", "coin", "vipCoin") if key in row}
                     cost = row.get("cost", "")
                     cost_known = isinstance(cost, str) and bool(re.fullmatch(r"[1-9]\d*:[0-9]+:[1-9]\d*(?:[:][0-9]+)?(?:#[1-9]\d*:[0-9]+:[1-9]\d*(?:[:][0-9]+)?)*", cost))
-                    cost_known = cost_known and not conditional
+                    cost_known = cost_known and not conditional and kind == "exchange" and tier is None
                     # For event currencies, retain their literal quantities
                     # and official labels without inventing an item ID.
                     cost_description = ""
@@ -806,12 +1203,29 @@ def parse_module(scripts: dict[str, str], module: str, activity: dict, expand=No
                         label = constants.get(cls + ".DaibiName")
                         if isinstance(label, str):
                             cost_description = str(row["daibi"]) + " " + label
-                    raw_start = row.get("shelfTime") or activity.get("startTime", "")
-                    raw_end = row.get("removalTime") or activity.get("endTime", "")
+                    if kind != "exchange":
+                        cost_description = {"signin": "签到领取；签到天数与领取状态以活动内为准",
+                                            "progress": "达成进度后领取；门槛以活动内为准",
+                                            "lottery": "抽中后领取或选择；概率、保底与参与条件以活动内为准",
+                                            "reward": "活动奖励；领取方式与条件请在活动内查看",
+                                            "unknown": "领取或兑换方式尚待确认；请在活动内查看"}[kind]
+                    raw_start = row.get("shelfTime") or row.get('openTime') or module_start or activity.get("startTime", "")
+                    raw_end = row.get("removalTime") or row.get('endTime') or activity.get("endTime", "")
                     start = official_date(raw_start) if isinstance(raw_start, str) and raw_start else ""
                     end = official_date(raw_end) if isinstance(raw_end, str) and raw_end else ""
+                    description = row.get("basicDescription") or row.get("desc") or row.get("name") or ("指定精灵养成" if automatic or targeted_reward(simple) else "任选奖励")
+                    if not isinstance(description, str):
+                        description = '指定精灵养成' if automatic or targeted_reward(simple) else '任选奖励'
+                    description = upgrade_cultivation_description(description, simple, codes, reward_support)
+                    if row.get("_rewardField"):
+                        position = row.get("index")
+                        if type(position) is int and position >= 0:
+                            description += f" · 第 {position} 项"
+                        cost_description += "；奖励所属档位、解锁条件和领取状态请在活动内确认"
                     item = {"id": row.get("id", identity), "itemServerId": identity,
-                            "description": row.get("basicDescription") or row.get("desc") or row.get("name") or "指定精灵养成",
+                            "description": description,
+                            "manualSelectionRequired": not automatic or kind != "exchange" or tier is not None or synthetic or bool(row.get('_manualReward')),
+                            "acquisitionKind": kind, "displayIdentityOnly": synthetic or tier is not None or bool(row.get('_structure')),
                             "tab": row.get("tab", row.get("tabId", 0)), "cost": cost if cost_known else "", "costKnown": cost_known,
                             "costRaw": raw_cost, "costDescription": cost_description, "enhanceType": codes, "raceIds": races,
                              "shelfTime": start, "removalTime": end, "availableKnown": bool(start),
@@ -821,12 +1235,49 @@ def parse_module(scripts: dict[str, str], module: str, activity: dict, expand=No
                             "quotaRaw": {key: row[key] for key in ("limit", "maxNum", "limitType", "specBi", "baseOnId", "unlock", "ypFlag", "lvFlag", "lv", "buyId", "gainId", "addGainTimesNum") if key in row},
                             "unlock": ("关联条目 %s 的条件兑换，适用状态待确认" % row["baseOnId"] if conditional else row.get("unlock") or row.get("lvFlag", "")),
                             "conditionsRaw": {key: row[key] for key in ("index", "baseOnId", "specBi", "filter", "lvFlag", "ypFlag") if key in row},
-                            "rewardRaw": simple or row,
+                            "rewardRaw": simple or json.dumps(row, ensure_ascii=False, sort_keys=True),
+                            "selectablePackageIds": selectable_package_ids(simple, selectable_packages),
                             "source": {"configClass": table, "configFile": filename, "commands": commands,
-                                       "shelfTimeSource": "row" if row.get("shelfTime") else "activity",
-                                       "removalTimeSource": "row" if row.get("removalTime") else "activity",
-                                       "selection": "explicit-literal-filter" if strengthen else "CommonEnhancePrize"}}
-                    enrich_trade_item(item, row, profile)
+                                       "shelfTimeSource": "row" if row.get("shelfTime") or row.get('openTime') else "module" if module_start else "activity",
+                                       "removalTimeSource": "row" if row.get("removalTime") or row.get('endTime') else "activity",
+                                       "periodBounds": {'rowStart': row.get('shelfTime') or row.get('openTime') or '',
+                                                        'rowEnd': row.get('removalTime') or row.get('endTime') or '',
+                                                        'moduleStart': module_start, 'moduleEnd': module_end,
+                                                        'tableEnd': table_ends.get(table, '')},
+                                       "selection": row.get('_structure') or ("explicit-literal-filter" if strengthen else "CommonEnhancePrize")}}
+                    apply_activity_period(item, activity)
+                    if row.get('_structure'):
+                        item['rewardStructure'] = row['_structure']
+                        item['rewardOptions'] = row.get('_rewardOptions', [])
+                        item['targetingRaw'] = row.get('_targeting')
+                        item['officialRewardRaw'] = row.get('_rawReward', '')
+                        # Shared ActReward counters/prices are not equivalent
+                        # to the legacy shop protocol. Preserve literal facts,
+                        # never bind guessed requests or cross-table counters.
+                        if row.get('_targetScopeUnknown'):
+                            item['unlock'] = '可选择精灵养成；具体适用精灵范围请在活动内确认'
+                        if row.get('_choiceScopeExternal'):
+                            item['unlock'] = '任选奖励；可选范围由活动公共配置提供，请在活动内查看'
+                        for key, label in [('needToken', '所需进度'), ('needChargeMonth', '累计充值月数'), ('openDiamond', '累计钻石数量'), ('needUsedScore', '累计消耗积分'), ('day', '签到天数')]:
+                            if type(row.get(key)) is int and row[key] > 0:
+                                item['costDescription'] += ('；' if item['costDescription'] else '') + f'{label}：{row[key]}'
+                    if kind == "exchange" and not synthetic and tier is None and not row.get('_structure'):
+                        enrich_trade_item(item, row, profile)
+                    else:
+                        item["exchangeKind"] = "activity"
+                    if tier is not None:
+                        item["conditionsRaw"]["lv"] = tier
+                        item["unlock"] = f"奖励档位 {tier}；你的适用档位和领取状态以活动内为准"
+                        item["costDescription"] += ("；" if item["costDescription"] else "") + item["unlock"]
+                    if kind != "exchange":
+                        conditions = {key: value for key, value in row.items() if key not in ("simpleParams", "basicDescription", "desc", "name")}
+                        item["claimConditionsRaw"] = conditions
+                        # Keep literal evidence for diagnostics without exposing
+                        # implementation fields as a player-facing condition.
+                        day = row.get("day", row.get("days"))
+                        if kind in ("signin", "progress") and str(day).isdigit() and 0 < int(day) <= 366:
+                            item["costDescription"] += f"；活动天数：{int(day)} 天"
+                    enrich_reward_facts(item, row, table, contracts, profile)
                     if any(previous["itemServerId"] == identity for previous in goods):
                         raise ValueError("同表兑换编号重复，不能合并不同条目")
                     goods.append(item)
@@ -834,12 +1285,14 @@ def parse_module(scripts: dict[str, str], module: str, activity: dict, expand=No
                     pending.append({"module": module, "activityName": activity.get("activityName", ""),
                                     "table": table + branch, "itemId": identity, "reason": str(error)})
             if goods:
-                observation = {"schema": 1, "requests": profile["requests"]}
+                observation = {"schema": 1, "requests": profile["requests"] if any(g.get("acquisitionKind") == "exchange" and not g.get("displayIdentityOnly") for g in goods) else []}
                 if profile.get("pendingRequest"):
                     observation["pendingRequest"] = profile["pendingRequest"]
                     observation["unavailableReason"] = "该官方读取需要客户端生成变更序号，静态配置可用，当前次数尚未读取"
                 shops.append({"sourceKey": module + "#" + table + branch, "shopId": shop_id,
-                              "name": "活动·" + activity.get("activityName", activity.get("name", "")),
+                              "name": "活动·" + activity.get("activityName", activity.get("name", "")) +
+                                      (f" · 奖励档位 {tier}" if tier is not None else ""),
+                              "rewardTier": tier,
                               "activityName": activity.get("activityName", ""), "goods": goods, "observation": observation,
                               "navigationLink": direct_navigation,
                               "activityEvidence": activity.get("activityEvidence", "referenced"),
@@ -848,12 +1301,35 @@ def parse_module(scripts: dict[str, str], module: str, activity: dict, expand=No
                                          "class": table, "commands": commands,
                                          "navigationLinkSource": navigation_source,
                                          "quotaSupported": any("quotaObservation" in good for good in goods)}})
-    if "CommonEnhancePrize" in all_text and not shops and not pending:
-        # Normal rewards are explicitly recognized as non-exchanges, while a
-        # dynamic cost/reward construction remains visible for later support.
-        if not any("CommonEnhancePrize" in json.dumps(value, ensure_ascii=False) for _, value in tables.values()):
+    if not shops and not pending and re.search(r'"!?(?:CommonEnhancePrize|Choice|SelectPrizes),[^"\n]*"\s*\+', all_text):
+        # Overview pages use CommonEnhancePrize only to render icons and link
+        # elsewhere. They have no claim rows. Follow their official links in
+        # discovery; do not invent an unparsed-reward item for their posters.
+        overview = any(isinstance(row, dict) and "jumpStr" in row and "mStrForActIcon" in row
+                       for _, value in tables.values() if isinstance(value, list) for row in value)
+        if not overview and not any("CommonEnhancePrize" in json.dumps(value, ensure_ascii=False) or
+                                    "Choice," in json.dumps(value, ensure_ascii=False) or
+                                    "SelectPrizes," in json.dumps(value, ensure_ascii=False)
+                                    for _, value in tables.values()):
             pending.append({"module": module, "activityName": activity.get("activityName", ""),
-                            "reason": "发现养成奖励引用，但静态兑换结构尚未识别"})
+                            "reason": "奖励由运行时代码组装，尚无可验证的静态奖励表"})
+    # Preserve partial coverage as partial. An unresolved row next to a valid
+    # row must never disappear merely because the module produced one shop.
+    for table, (_, value) in tables.items():
+        def unresolved_rewards(value):
+            if isinstance(value, dict):
+                if ('simpleParams' in value and symbolic(value['simpleParams']) or
+                    value.get('rewardType') in ('Strengthen', 'NChoose1', 'ArbitraryChoice') and
+                    'simpleParams' not in value):
+                    return True
+                return any(unresolved_rewards(v) for v in value.values())
+            return isinstance(value, list) and any(unresolved_rewards(v) for v in value)
+        if unresolved_rewards(value) and not any(p.get('table') == table for p in pending):
+            pending.append({'module': module, 'activityName': activity.get('activityName', ''),
+                            'table': table, 'reason': '相关奖励包含未解析的动态参数或选项'})
+    if not shops and not pending and re.search(r'\.show(?:StrengthenPanel|PanelCombo)\(', all_text):
+        pending.append({'module': module, 'activityName': activity.get('activityName', ''),
+                        'reason': '发现精灵强化入口，奖励由公共服务或运行时配置提供，尚未提取完整奖励表'})
     return shops, pending, has_evolution
 
 
@@ -882,7 +1358,7 @@ def preserve_pending_rows(previous: dict, shops: list, pending: list) -> list:
         return shops
     result = copy.deepcopy(shops)
     current = {shop["sourceKey"]: shop for shop in result}
-    for prior in previous["shops"]:
+    for prior in relevant_shops(previous["shops"]):
         table = prior.get("sourceKey", "").split("#", 1)[-1]
         issues = [issue for issue in pending if not issue.get("table") or issue.get("table") == table]
         if not issues:
@@ -922,11 +1398,16 @@ def update_activity_exchanges(updater, versions: dict) -> bool:
     updater.activity_exchange_failures = []
     previous_source = current.get("source", {})
     previous_modules = current.get("modules", {})
+    packages = getattr(updater, "selectable_package_source", None)
+    if packages is None:
+        packages = load_selectable_packages(updater, versions)
+    reward_support = load_reward_support(updater, versions)
     config_version = versions.get(CONFIG_RESOURCE)
     if not re.fullmatch(r"\d{8,20}", config_version or ""):
         raise ValueError("官方活动目录资源版本缺失")
     discovery = previous_source.get("discovery", {})
     discovery_versions = {key: versions[key] for key in (CONFIG_RESOURCE, EMERGENCY_RESOURCE, BLOCK_RESOURCE) if key in versions}
+    reward_dependencies = {key: versions[key] for key in ('library/interfaces', 'library/gameconst', 'library/common', 'library/util', 'strengthencombo/strengthencomboservice') if key in versions}
     if previous_source.get("discoveryVersions") != discovery_versions or not discovery.get("entries") or current.get("parserVersion") != PARSER_VERSION:
         emit("更新官方活动入口与当前发布目录")
         swf, config_source = updater.resource(CONFIG_RESOURCE, versions)
@@ -963,6 +1444,10 @@ def update_activity_exchanges(updater, versions: dict) -> bool:
         previous = previous_modules.get(module, {})
         evo_version = dependency_revision(versions)
         reusable = (current.get("parserVersion") == PARSER_VERSION and previous.get("versionToken") == token and
+                    not reward_support.get('error') and
+                    panel_periods_reusable(previous, versions, activity) and
+                    previous.get('rewardDependencies', {}) == reward_dependencies and
+                    (not previous.get("hasSelectablePackage") or previous.get("packageVersions") == packages["versions"]) and
                     (not previous.get("hasEvolutionSelector") or previous.get("evolutionVersion") == evo_version))
         if reusable and previous.get("status") != "failed":
             record = copy.deepcopy(previous)
@@ -970,7 +1455,7 @@ def update_activity_exchanges(updater, versions: dict) -> bool:
             # versioned exchange module stays byte-identical.
             for shop in record.get("shops", []):
                 shop["activityName"] = activity.get("activityName", "")
-                shop["name"] = "活动·" + shop["activityName"]
+                shop["name"] = "活动·" + shop["activityName"] + (f" · 奖励档位 {shop['rewardTier']}" if shop.get("rewardTier") else "")
                 # A module-owned RESHOW_SELF_ACT_KEY remains valid while that
                 # exact module version is reused. Activity-owned HUD/registry
                 # routes follow the current discovery metadata instead.
@@ -983,6 +1468,11 @@ def update_activity_exchanges(updater, versions: dict) -> bool:
                 if isinstance(shop.get("source"), dict):
                     shop["source"]["activityAlias"] = activity.get("activityAlias", activity.get("name", ""))
                 for good in shop.get("goods", []):
+                    if 'periodBounds' in good.get('source', {}):
+                        apply_activity_period(good, activity)
+                        if good.get('catalogStale'):
+                            good['availableKnown'] = False
+                        continue
                     if good.get("source", {}).get("shelfTimeSource") == "activity":
                         date = activity.get("startTime", "")
                         good["shelfTime"] = official_date(date) if date else ""
@@ -1008,39 +1498,64 @@ def update_activity_exchanges(updater, versions: dict) -> bool:
                         references.add(value)
                     references.update(re.findall(r"btnNewAct_([A-Za-z0-9]+)_", value))
                 module_shops, unsupported, has_evolution = [], [], False
-                if any("CommonEnhancePrize" in value for value in strings):
+                timing, panels = {}, []
+                if reward_hints(strings) or period_hints(strings):
                     scripts = export_scripts(updater, path, updater.scratch / ("activity-export-" + hashlib.sha256(module.encode()).hexdigest()[:20]))
+                    timing = period_metadata(scripts, activity)
+                    references.update(tab['targetAlias'] for tab in timing['tabs'])
+                if reward_hints(strings):
                     def expand(seeds):
                         from activity_evolution_selector import expand_selector
                         return expand_selector(updater, versions, seeds)
-                    module_shops, unsupported, has_evolution = parse_module(scripts, module, activity, expand)
-                    module_shops = preserve_pending_rows(previous, module_shops, unsupported)
+                    module_shops, unsupported, has_evolution = parse_module(scripts, module, activity, expand, include_manual=True,
+                                                                          selectable_packages=packages["packages"], reward_support=reward_support)
+                    module_shops = relevant_shops(preserve_pending_rows(previous, module_shops, unsupported))
+                if module_shops or timing.get('tabs'):
+                    panels = load_panel_periods(updater, versions, scripts, module, activity, previous)
+                    for panel in panels:
+                        if panel.get('error'):
+                            updater.activity_exchange_failures.append(activity.get('activityName', alias) + '：有效期面板读取失败，保留已确认的截止时间：' + panel['error'])
                 record = {"versionToken": token, "version": version, "source": resource,
-                          "status": "supported" if module_shops else "pending" if unsupported else "no-designated-exchange",
+                          "status": "partial" if module_shops and unsupported else "supported" if module_shops else "pending" if unsupported else "no-relevant-rewards",
+                          "diagnostic": ("已解析部分相关奖励，仍有未支持结构，原因见 pending" if module_shops and unsupported else
+                                         "已解析指定精灵养成奖励，包含明确的养成或材料分支" if module_shops else
+                                         "发现相关奖励但尚未完整解析，原因见 pending" if unsupported else
+                                         "未发现非自选的指定精灵养成奖励；自选、普通奖励和仅导航/宣传的页面不列入手动添加"),
                           "shops": module_shops, "pending": unsupported, "references": sorted(references),
+                          'periodMetadata': timing, 'panelPeriods': panels,
+                          "hasSelectablePackage": any(re.search(r'(?:^|[,#])139:', value) for value in strings),
+                          "packageVersions": packages["versions"],
+                          "rewardDependencies": reward_dependencies,
                           "hasEvolutionSelector": has_evolution, "evolutionVersion": evo_version}
             except Exception as error:
                 record = {**previous, "status": "failed", "error": str(error)}
                 updater.activity_exchange_failures.append(activity.get("activityName", alias) + "：" + str(error))
+        record["shops"] = relevant_shops(record.get("shops", []))
+        record['activity'] = activity
+        if excluded_activity(module):
+            record['pending'] = []
+            record['status'] = 'excluded'
+            record['diagnostic'] = '此活动已按用户要求移除'
         modules[module] = record
         shops.extend(record.get("shops", []))
         pending.extend(record.get("pending", []))
-        if depth < 3:
-            queue.extend((name, depth + 1) for name in record.get("references", []))
-        elif record.get("references"):
-            for name in record["references"]:
-                target = resolve_alias(name, discovery)
-                if target and target[0] not in visited:
-                    pending.append({"activityName": activity.get("activityName", ""), "module": target[0],
-                                    "reason": "活动多层引用仍需进一步解析"})
+        # Traverse the complete reachable graph. visited and MAX_MODULES bound
+        # cycles/work; a new event behind four tabs must not silently vanish.
+        queue.extend((name, depth + 1) for name in record.get("references", []))
+    apply_graph_periods(modules, discovery)
     result = {"schema": 1, "parserVersion": PARSER_VERSION,
-              "selection": "official live activities; explicit designated-pet enhancement exchanges only",
+              "selection": "designated-pet cultivation, including a verified cultivation-or-material alternative; exclude pet/material choices and selectable packages",
               "source": {"kind": "aoqi-official-activity-registry", "configVersion": config_version,
                          "configResource": config_source, "discoveryVersions": discovery_versions,
+                         "selectablePackages": packages,
+                         "rewardSupport": reward_support,
                          "overrideResources": override_resources, "loaderDefault": default, "discovery": discovery},
               "shops": sorted(shops, key=lambda shop: shop["sourceKey"]), "pending": pending,
               "modules": modules, "coverage": {"activityModules": len(modules), "shops": len(shops),
-                          "goods": sum(len(shop["goods"]) for shop in shops), "pending": len(pending)}}
+                          "goods": sum(len(shop["goods"]) for shop in shops), "pending": len(pending),
+                          "partialModules": sum(record.get('status') == 'partial' for record in modules.values()),
+                          "pendingModules": sum(record.get('status') == 'pending' for record in modules.values()),
+                          "withoutRelevantRewards": sum(record.get("status") == "no-relevant-rewards" for record in modules.values())}}
     changed = result != current
     if result != on_disk:
         _atomic_json(cache_path, result)

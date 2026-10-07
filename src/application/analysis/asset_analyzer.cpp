@@ -5,6 +5,7 @@
 #include "domain/recommendation_engine.h"
 #include "application/catalog/pet_detail_catalog.h"
 #include "domain/pet_identity.h"
+#include "domain/pet_era.h"
 #include "application/pet/pet_repository.h"
 #include "application/catalog/routine_overview_catalog.h"
 #include "application/routine/routine_overview_controller.h"
@@ -214,6 +215,8 @@ PetAssetRecord AssetAnalyzer::summarySeed(const QJsonObject& brief, bool complet
   seed.instanceId = petInstanceId(brief); seed.raceId = petRaceId(brief);
   seed.name = displayName(brief, metadata); seed.location = petLocationText(brief);
   seed.pet = AssetDerivation::identityFields(brief);
+  seed.pet.insert(QStringLiteral("_metaEra"), petEraDisplayName(resolvePetEra(brief, metadata.petDefinitions())));
+  seed.pet.insert(QStringLiteral("_metaRating"), metadata.resolvedRating(brief));
   seed.detailAvailable = complete && !brief.value(QStringLiteral("_visualMismatch")).toBool();
   seed.observationVerified = sourceKnown && !brief.value(QStringLiteral("_unverifiedObservation")).toBool();
   qint64 level = 0;
@@ -281,6 +284,8 @@ AccountAssetOverview AssetAnalyzer::captureInput(std::shared_ptr<const PetDetail
     if (PacketContracts::checkedInteger(metadata.metadataFor(required)
           .value(QStringLiteral("stargodSlotMaxLevel")), &level, 1, std::numeric_limits<int>::max()))
       pet.metadataSlotMaxLevel = static_cast<int>(level);
+    required.insert(QStringLiteral("_metaEra"), petEraDisplayName(resolvePetEra(required, metadata.petDefinitions())));
+    required.insert(QStringLiteral("_metaRating"), metadata.resolvedRating(required));
     pet.pet = required;
     input.pets.append(std::move(pet));
   }
@@ -308,7 +313,7 @@ AccountAssetOverview AssetAnalyzer::analyze() const {
   const PetMetadataView metadata(PetDetailCatalog::instance().snapshot());
   RecommendationSession calculation(input.account, input, prepared,
       {metadata.stargodDefinitions(), metadata.astrolabeDefinitions(), metadata.petDefinitions(),
-       metadata.sacredStarPlans(), metadata.sacredStagePlans(), metadata.badgeDefinitions()}, nullptr, true);
+       metadata.sacredStarPlans(), metadata.sacredStagePlans(), metadata.badgeDefinitions(), metadata.itemDefinitions(), metadata.sacredEquipmentDefinitions()}, nullptr, true);
   while (calculation.step() == RecommendationSession::Status::Running) {}
   return calculation.takeOverview();
 }

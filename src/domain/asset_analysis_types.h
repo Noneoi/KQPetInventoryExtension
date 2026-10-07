@@ -9,6 +9,7 @@
 #include <memory>
 
 #include "asset_analysis_version.h"
+#include "pet_cultivation_requirements.h"
 
 enum class PetAssetFilter {
   All = 0,
@@ -66,6 +67,7 @@ struct PetAssetRecord {
   bool changeableRed = false;
   QStringList gapKeys;
   QStringList gaps;
+  PetCultivationRequirements cultivationRequirements;
   QJsonObject pet;
 };
 

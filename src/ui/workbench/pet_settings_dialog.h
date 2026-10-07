@@ -4,6 +4,8 @@
 
 #include <QDialog>
 #include <QJsonObject>
+#include <QPointer>
+#include <memory>
 
 class QSpinBox;
 class QLineEdit;
@@ -17,17 +19,22 @@ class QNetworkAccessManager;
 class QNetworkReply;
 class QProcess;
 class QDialogButtonBox;
+class ShopSelectionDialog;
+struct ShopCatalogSnapshot;
+struct PetDetailCatalogSnapshot;
 
 class PetSettingsDialog final : public QDialog {
   Q_OBJECT
 
 public:
   explicit PetSettingsDialog(const RefreshTimings& timings,
-                             QWidget* parent = nullptr);
+                             QWidget* parent = nullptr,
+                             std::shared_ptr<const PetDetailCatalogSnapshot> shopMetadata = {});
   RefreshTimings timings() const;
   void setCacheRoot(const QString& root);
   void applyCacheResult(const QString& action, const QJsonObject& result);
   void setDataUpdateStatus(const QString& message, bool busy);
+  void setShopSelection(std::shared_ptr<const ShopCatalogSnapshot> catalog, bool editable, const QString& message);
   void setImageBatchProgress(int completed, int total, int failed);
   void finishImageBatch(bool cancelled, int failed);
 
@@ -35,6 +42,8 @@ signals:
   void cacheActionRequested(const QString& action, const QJsonObject& options);
   // Empty: update everything. Otherwise the selected public data parts.
   void dataUpdateRequested(const QStringList& components);
+  void shopSelectionRequested();
+  void shopSelectionSaveRequested(const QStringList& selected, const QStringList& excludedAutomatic);
   void missingImagesRequested();
   void imageBatchPauseRequested(bool paused);
   void imageBatchCancelRequested();
@@ -45,6 +54,7 @@ private:
   QWidget* createDataPage();
   QWidget* createSoftwareUpdatePage();
   QWidget* createTimingPage();
+  void openShopSelection();
   void checkSoftwareUpdate();
   void checkSoftwareUpdateFallback(const QString& reason);
   void installSoftwareUpdate();
@@ -78,6 +88,11 @@ private:
   QLabel* dataUpdateStatus_ = nullptr;
   QPushButton* dataUpdateButton_ = nullptr;
   QList<QPushButton*> partialUpdateButtons_;
+  QPointer<ShopSelectionDialog> shopSelectionDialog_;
+  std::shared_ptr<const ShopCatalogSnapshot> shopCatalog_;
+  std::shared_ptr<const PetDetailCatalogSnapshot> shopMetadata_;
+  bool shopSelectionEditable_ = false;
+  QString shopSelectionMessage_;
   QPushButton* missingImagesButton_ = nullptr;
   QProgressBar* imageProgress_ = nullptr;
   QLabel* imageStatus_ = nullptr;

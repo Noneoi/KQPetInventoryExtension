@@ -129,6 +129,8 @@ def parse_pets(root: Path) -> dict[str, dict]:
                 "jobs": decode_as_string(args[9]),
                 "groupRaceId": parse_int(args[42]),
                 "sign": sign,
+                # Official PetDictionaryDataItem.create(param54) -> quality (SP/SSS/SS/S/A).
+                "quality": decode_as_string(args[53]),
                 "astrolabeBreakCosts": breakthrough_costs,
                 # PetDictionaryDataItem.create(param31) → maxLevel.
                 "maxLevel": parse_int(args[30], 0),
@@ -562,7 +564,7 @@ def main() -> None:
 
     catalog = {
         "schema": 1,
-        "petDictionarySchema": 3,
+        "petDictionarySchema": 4,
         "powerRuleVersion": 1,
         "cultivationRuleVersion": 1,
         "source": {"kind": "aoqi-official-unpack", "powerRuleVersion": 1},

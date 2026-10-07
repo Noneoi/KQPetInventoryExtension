@@ -151,6 +151,8 @@ ProcessState originalProcessState(const fs::path& clientRoot) {
       candidates.push_back(name);
   }
   if (directoryError) return ProcessState::Unknown;
+  const auto configured = kqpet::launcher::configuredClientExecutable(clientRoot);
+  if (!configured.empty()) candidates.push_back(configured.filename().wstring());
   HANDLE snapshot = CreateToolhelp32Snapshot(TH32CS_SNAPPROCESS, 0);
   if (snapshot == INVALID_HANDLE_VALUE) return ProcessState::Unknown;
   PROCESSENTRY32W entry{sizeof(entry)}; bool uncertain = false;
@@ -165,7 +167,11 @@ ProcessState originalProcessState(const fs::path& clientRoot) {
     std::vector<wchar_t> name(32768); DWORD size = static_cast<DWORD>(name.size());
     const bool read = QueryFullProcessImageNameW(process, 0, name.data(), &size); CloseHandle(process);
     if (!read) { uncertain = true; continue; }
-    const auto actual = fs::path(std::wstring(name.data(), size)).parent_path().lexically_normal().wstring();
+    const auto actualPath = fs::path(std::wstring(name.data(), size)).lexically_normal();
+    if (!configured.empty() && CompareStringOrdinal(actualPath.c_str(), -1, configured.c_str(), -1, TRUE) == CSTR_EQUAL) {
+      CloseHandle(snapshot); return ProcessState::Running;
+    }
+    const auto actual = actualPath.parent_path().wstring();
     const auto expected = clientRoot.lexically_normal().wstring();
     if (CompareStringOrdinal(actual.data(), static_cast<int>(actual.size()), expected.data(), static_cast<int>(expected.size()), TRUE) == CSTR_EQUAL) {
       CloseHandle(snapshot); return ProcessState::Running;

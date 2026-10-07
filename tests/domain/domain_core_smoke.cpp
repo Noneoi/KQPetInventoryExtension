@@ -63,6 +63,13 @@ bool pipeline() {
   bool ok = check(item.isOnlineOn(QDate(2026, 9, 12)) && !item.isOnlineOn(QDate(2019, 1, 1)) &&
       item.itemKey() == QStringLiteral("bi2"), "catalog date is supplied explicitly");
   auto equivalent = item; equivalent.raceIds = {7002, 7001, 7001};
+  auto timed = item;
+  timed.startsAt = QDateTime::fromString(QStringLiteral("2026-10-07T06:00:00+08:00"), Qt::ISODate);
+  timed.endsAt = QDateTime::fromString(QStringLiteral("2026-10-09T02:00:00+08:00"), Qt::ISODate);
+  ok &= check(!timed.isOnlineAt(timed.startsAt.addSecs(-1)) && timed.isOnlineAt(timed.startsAt) &&
+      timed.isOnlineAt(timed.endsAt.addSecs(-1)) && !timed.isOnlineAt(timed.endsAt) &&
+      timed.nextAvailabilityChange(timed.startsAt) == timed.endsAt &&
+      timed.isOnlineAt(timed.startsAt.toUTC()), "activity validity lost the precise UTC+8 opening or expiry boundary");
   auto reordered = equivalent; reordered.raceIds = {7001, 7002};
   ok &= check(equivalent.stableKey() == reordered.stableKey(), "stable identity canonicalizes duplicate/order of races");
   AlgorithmPipelineStats stats;

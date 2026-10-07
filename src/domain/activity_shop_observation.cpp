@@ -114,6 +114,14 @@ QJsonValue activityObservedValue(const ShopExchangeGood& good,const QJsonObject&
     }
     value = found;
   }
+  if (descriptor.value(QStringLiteral("encoding")).toString() == QStringLiteral("boolean-count")) {
+    if (value.isBool()) value = value.toBool() ? 1 : 0;
+    else if (!value.isUndefined()) {
+      qint64 flag = 0;
+      if (!DomainNumeric::checkedInteger(value, &flag, 0, 1)) return QJsonValue::Null;
+      value = int(flag);
+    }
+  }
   if (value.isUndefined() && descriptor.value(QStringLiteral("missingValue")).isDouble() &&
       descriptor.value(QStringLiteral("missingValue")).toDouble(-1) == 0) return 0;
   return value;

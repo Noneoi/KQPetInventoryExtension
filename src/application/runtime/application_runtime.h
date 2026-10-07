@@ -86,6 +86,8 @@ public:
   bool closing() const;
   // Empty updates every public data part; otherwise only the named parts.
   void requestDataUpdate(const QStringList& components = {});
+  void requestShopSelection();
+  void saveShopSelection(const QStringList& selected, const QStringList& excludedAutomatic);
   void requestCacheAction(const QString& action, const QJsonObject& options = {});
   void requestMissingImages();
   void pauseImageBatch(bool paused);
@@ -102,6 +104,8 @@ signals:
   // Only a queued image request/result capability is exposed to the GUI proxy.
   void imageServiceReady(ImageService* service);
   void dataUpdateStatusChanged(const QString& message, bool busy);
+  void shopSelectionChanged(std::shared_ptr<const ShopCatalogSnapshot> catalog,
+                            bool editable, const QString& message);
   void cacheActionFinished(const QString& action, const QJsonObject& result);
   void imageBatchProgress(int completed, int total, int failed);
   void imageBatchFinished(bool cancelled, int failed);

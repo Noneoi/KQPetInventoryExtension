@@ -50,7 +50,7 @@ class PublicDataUpdateTests(unittest.TestCase):
                             "sacredEquipment": self.sacred, "sacredStarPlans": self.plans, "sacredStagePlans": self.plans,
                             "items": {"1450": {"name": "解神元魂"}}}
         updater.atomic_json(self.baseline / "pet-detail-data.json", {"pets": pets, "source": source, "untouchedSheet": {"x": 1},
-                            "petDictionarySchema":3,
+                            "petDictionarySchema":4,
                             "nameRuleVersion": updater.NAME_RULE_VERSION, "attributes": {"1":"普"}, "jobs":{"1":"利爪"},
                             "fusionJobs":[], "money":{"1":{"name":"金币"}},
                             "powerRuleVersion": updater.POWER_RULE_VERSION, "stargods": self.stars, "astrolabe": self.astrolabe,
@@ -60,7 +60,13 @@ class PublicDataUpdateTests(unittest.TestCase):
                              "pets": {"1": {"name": "pet", "slots": {"normal": 100001}}},
                              "skills": {"100001": {"name": "skill", "description": "desc"}},
                              "entries": {"term": "desc"}, "buffs": {"1": {"name": "buff"}}})
-        updater.atomic_json(self.baseline / "shop-exchange-data.json", {"shops": [{"goods": [{"id": 1}]}], "source": {"shopVersion": self.version}})
+        package_versions = {key: self.version for key in ("library/materialdata", "library/materialdataupdate")}
+        packages = patch("public_activity_exchange_updater.load_selectable_packages",
+                         return_value={"versions": package_versions, "packages": {}})
+        packages.start()
+        self.addCleanup(packages.stop)
+        updater.atomic_json(self.baseline / "shop-exchange-data.json", {"shops": [{"goods": [{"id": 1,"enhanceType":"92","raceIds":[1]}]}], "source": {
+            "shopVersion": self.version, "shopParserVersion": 4, "selectablePackageVersions": package_versions}})
         self.subject = updater.Updater(self.root, self.baseline, self.scratch, fetcher=self.fetch)
         self.subject.icon_exceptions = lambda versions, current: ([], {"version": self.version})
         self.subject.icons = lambda versions: False
@@ -105,6 +111,28 @@ class PublicDataUpdateTests(unittest.TestCase):
         self.assertEqual(set(second), {"pets","skills","shop","images","icons","routines"})
         self.assertTrue(updater.read_object(self.root / "catalog/public-update-status.json")["complete"])
 
+    def test_shop_parser_upgrade_rechecks_unchanged_official_version(self):
+        baseline = self.baseline / "shop-exchange-data.json"
+        previous = updater.read_object(baseline)
+        previous["source"].pop("shopParserVersion")
+        updater.atomic_json(baseline, previous)
+        source = self.scratch / "SEFConfig.as"
+        source.write_text('public static const SERVER_ID_9_REWARD_CONFIG:Array=[{"id":1,"serverId":1,'
+            '"simpleParams":"Choice,|PetOpen,7115|PetOpen,6964","cost":"4:77:1","shelfTime":"20260101"},'
+            '{"id":2,"serverId":2,"simpleParams":"CommonEnhancePrize,-1,1,92,7115","cost":"4:77:1","shelfTime":"20260101"}];', encoding="utf-8")
+        selection = self.root / "catalog/shop-selection.json"
+        updater.atomic_json(selection, {"schema": 1, "selected": ["saved-choice"]})
+        before = selection.read_bytes()
+        with patch.object(self.subject, "resource", return_value=(source, {"version": self.version})) as download, \
+                patch.object(self.subject, "export", return_value=source):
+            self.assertTrue(self.subject.shop(self.versions))
+            self.assertFalse(self.subject.shop(self.versions))
+            self.assertEqual(download.call_count, 1)
+        current = self.subject.current("shop")
+        self.assertEqual(len(current["shops"][0]["goods"]),1)
+        self.assertFalse(current["shops"][0]["goods"][0]["manualSelectionRequired"])
+        self.assertEqual(selection.read_bytes(), before)
+
     def test_selected_components_run_alone_and_keep_other_status(self):
         with patch.object(updater, "runtime_entry", return_value=Path("synthetic-runtime")):
             self.subject.run()
@@ -142,13 +170,13 @@ class PublicDataUpdateTests(unittest.TestCase):
     def test_unknown_shop_rules_are_reported_instead_of_claiming_full_coverage(self):
         path = self.baseline / "shop-exchange-data.json"
         catalog = updater.read_object(path)
-        catalog["shops"][0]["goods"] = [{"enhanceType":"11-31-34-33$5-39$1-39$3-89$1-95"}]
+        catalog["shops"][0]["goods"] = [{"enhanceType":"11-31-34-33$5-39$1-39$3-89$1-95","raceIds":[1]}]
         updater.atomic_json(path,catalog)
         with patch.object(updater,"runtime_entry",return_value=Path("synthetic-runtime")):
             result = self.subject.run()
         self.assertNotIn("error",result["shop"])
         target = self.root / "catalog/shop-exchange-data.json"
-        catalog["shops"][0]["goods"].append({"enhanceType":"777"})
+        catalog["shops"][0]["goods"].append({"enhanceType":"777","raceIds":[1]})
         updater.atomic_json(target,catalog)
         with patch.object(updater,"runtime_entry",return_value=Path("synthetic-runtime")):
             result = self.subject.run()
@@ -224,7 +252,7 @@ class PublicDataUpdateTests(unittest.TestCase):
         self.assertEqual(len(self.calls), 2)
         self.assertTrue(all("petdictionary" in url for url in self.calls))
         current = updater.read_object(target)
-        self.assertEqual(current["petDictionarySchema"], 3)
+        self.assertEqual(current["petDictionarySchema"], 4)
         self.assertEqual(current["pets"]["1"]["sign"], "神运,灵初,皮肤")
         self.assertEqual(current["untouchedSheet"], old["untouchedSheet"])
         self.calls.clear()
@@ -248,10 +276,12 @@ class PublicDataUpdateTests(unittest.TestCase):
         args = ["0"] * 67
         args[0], args[1] = "9001", json.dumps("没有时代前缀的皮肤", ensure_ascii=False)
         args[8], args[9] = '"26"', '"22"'
+        args[53] = '"SP"'
         args[28] = json.dumps("神职,神运,灵初,皮肤", ensure_ascii=False)
         args[62], args[63] = '"8:51:100"', "8"
         fixture.write_text("PetDictionaryDataItem.create(" + ",".join(args) + ");", encoding="utf-8")
         pet = parse_pets(self.scratch)["9001"]
+        self.assertEqual(pet["quality"], "SP")
         self.assertEqual(pet["sign"], "神职,神运,灵初,皮肤")
         self.assertEqual(pet["astrolabeBreakCosts"], "8:51:100")
         for invalid in ("null", "123", "SomeDynamicConstant"):

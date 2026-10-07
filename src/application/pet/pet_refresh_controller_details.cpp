@@ -142,6 +142,17 @@ void PetRefreshController::requestSingleDetail(qint64 instanceId) {
   if (currentDetailId_ <= 0) scheduleNextDetail(0);
 }
 
+bool PetRefreshController::requestMissingDetailOnce(qint64 instanceId) {
+  if (instanceId <= 0 || !repository_->isAuthenticated() || moveRunning() ||
+      !repository_->currentInstanceIds().contains(instanceId)) return false;
+  // Share any existing user request; only a newly admitted automatic read
+  // changes retry behavior, so analysis cannot alter a manual refresh task.
+  if (currentDetailId_ == instanceId || queuedIds_.contains(instanceId)) return true;
+  oneShotDetailIds_.insert(instanceId);
+  requestSingleDetail(instanceId);
+  return true;
+}
+
 void PetRefreshController::scheduleNextDetail(int delayMs) {
   if (currentDetailId_ > 0 || listRunning_ || !repository_->isAuthenticated()) return;
   if (!priorityQueue_.isEmpty()) {
@@ -195,7 +206,7 @@ void PetRefreshController::sendCurrentDetailAttempt() {
 void PetRefreshController::retryOrFinishCurrent(const QString& reason, DetailFailure failure) {
   if (currentDetailId_ <= 0) return;
   if (failure != DetailFailure::ResponseTimeout) currentDetailFailuresOnlyTimeouts_ = false;
-  if (currentDetailRetries_ < timings_.detailMaxRetries) {
+  if (!oneShotDetailIds_.contains(currentDetailId_) && currentDetailRetries_ < timings_.detailMaxRetries) {
     ++currentDetailRetries_;
     emit statusChanged(QStringLiteral("实例 %1 详情失败：%2；正在重试 %3/%4。")
                            .arg(currentDetailId_).arg(reason)
@@ -230,6 +241,7 @@ void PetRefreshController::emitDetailProgress() {
 }
 
 bool PetRefreshController::removeQueuedDetail(qint64 instanceId) {
+  oneShotDetailIds_.remove(instanceId);
   priorityQueue_.removeAll(instanceId);
   batchQueue_.removeAll(instanceId);
   queuedIds_.remove(instanceId);
@@ -243,6 +255,7 @@ void PetRefreshController::clearDetailState() {
   priorityQueue_.clear();
   batchQueue_.clear();
   queuedIds_.clear();
+  oneShotDetailIds_.clear();
   batchIds_.clear();
   batchRunning_ = false;
   batchPaused_ = false;

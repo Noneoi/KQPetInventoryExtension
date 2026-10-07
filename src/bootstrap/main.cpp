@@ -1,4 +1,6 @@
 #include "bootstrap.h"
+#include "loader/client_target.h"
+#include "loader/client_picker.h"
 #include <shellapi.h>
 
 int WINAPI wWinMain(HINSTANCE instance, HINSTANCE, PWSTR, int) {
@@ -8,9 +10,15 @@ int WINAPI wWinMain(HINSTANCE instance, HINSTANCE, PWSTR, int) {
   int argc = 0; LPWSTR* argv = CommandLineToArgvW(GetCommandLineW(), &argc);
   if (!argv) return 64;
   std::vector<std::wstring> arguments;
-  for (int index = 1; index < argc; ++index) arguments.emplace_back(argv[index]);
+  bool choose = false;
+  for (int index = 1; index < argc; ++index) {
+    if (index == 1 && std::wstring(argv[index]) == L"--select-client") choose = true;
+    else arguments.emplace_back(argv[index]);
+  }
   LocalFree(argv);
   const auto clientRoot = std::filesystem::path(std::wstring(path.data(), length)).parent_path();
+  if ((choose || kqpet::launcher::findClientExecutable(clientRoot).empty()) &&
+      !kqpet::launcher::chooseClientExecutable(clientRoot)) return 0;
   const auto result = kqpet::bootstrap::launch(clientRoot, arguments);
   if (!result.started) {
     MessageBoxW(nullptr, L"扩展启动入口和原版启动均未完成。请使用本机部署诊断检查安装目录。",

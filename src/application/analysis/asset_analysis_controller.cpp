@@ -2,6 +2,7 @@
 
 #include "domain/asset_snapshot_comparator.h"
 #include "application/pet/pet_repository.h"
+#include "application/pet/pet_refresh_controller.h"
 #include "application/catalog/pet_detail_catalog.h"
 #include "application/catalog/routine_overview_catalog.h"
 #include <QPointer>
@@ -40,6 +41,8 @@ AssetAnalysisController::AssetAnalysisController(
   connect(repository_, &PetRepository::sessionTrustChanged, this,
           [this](SessionConnectionState, const QString&) {
     ++trustRevision_;
+    if (!repository_->isAuthenticated() && detailReadPending_)
+      missingDetailFinished(detailReadPending_, false, QStringLiteral("连接已断开"));
     AccountAnalysisState& current = currentState();
     if (current.hasAnalysis) { current.inventoryStale = true; current.shopStale = true; }
     emit shopAnalysisInvalidated();
@@ -157,6 +160,8 @@ void AssetAnalysisController::setDerivationCache(PetDerivationCache* cache) {
       ++preparationReadAdmissionRetries_;
       queueDerivation(id); return;
     }
+    if (!loaded) localReadChecked_.insert(id);
+    if (!loaded && readMissingDetail(id)) return;
     if (!loaded && version.complete && !repository_->rawRecordResident(id) && !derivations_->lookup(derivationKey(id))) {
       if (preparingFacts_ && preparationIds_.contains(id))
         failPreparation(QStringLiteral("实例 %1 的本地原文不可用：%2；请刷新详情后重试，已保留上次分析").arg(id).arg(error));
@@ -231,6 +236,11 @@ void AssetAnalysisController::acceptDerivedFacts(const PetDerivationKey& key, co
       key.record.epoch != repository_->sessionGeneration() || !(key == derivationKey(key.record.instanceId))) return;
   repository_->markRecordDerived(key.record);
   if (preparingFacts_ && preparationIds_.contains(key.record.instanceId)) {
+    if (!facts->facts.asset.detailAvailable && detailRefresh_ && repository_->isAuthenticated() &&
+        (!detailReadAttempted_.contains(key.record.instanceId) || detailReadPending_ == key.record.instanceId)) {
+      queueDerivation(key.record.instanceId);
+      return;
+    }
     // A background summary-only calculation can finish while the manual job
     // is still checking the original file. It must not satisfy that pending
     // read or make the manual capture publish Unknown prematurely.
@@ -243,6 +253,45 @@ void AssetAnalysisController::acceptDerivedFacts(const PetDerivationKey& key, co
   emit derivedFactsChanged(key.record.instanceId, facts);
   if (!alive) return;
   if (preparingFacts_ && !derivationPump_->isActive()) derivationPump_->start(0);
+}
+
+void AssetAnalysisController::setDetailRefreshController(PetRefreshController* refresh) {
+  if (detailRefresh_ == refresh) return;
+  if (detailRefresh_) disconnect(detailRefresh_, nullptr, this, nullptr);
+  detailRefresh_ = refresh;
+  if (refresh) connect(refresh, &PetRefreshController::detailRequestFinished,
+      this, &AssetAnalysisController::missingDetailFinished);
+}
+
+bool AssetAnalysisController::readMissingDetail(qint64 id) {
+  if (!preparingFacts_ || !preparationIds_.contains(id) || !detailRefresh_ ||
+      !repository_->isAuthenticated()) return false;
+  if (detailReadPending_ == id) return true;
+  if (detailReadAttempted_.contains(id)) return false;
+  if (detailReadPending_) { queueDerivation(id); return true; }
+  detailReadAttempted_.insert(id);
+  if (detailRefresh_->moveRunning()) {
+    emit statusChanged(QStringLiteral("实例 %1 缺少详情，精灵移动正在进行，本轮暂未补读").arg(id));
+    return false;
+  }
+  detailReadPending_ = id;
+  detailReadDeadline_ = transportMonotonicMs() + 60000;
+  emit statusChanged(QStringLiteral("实例 %1 的本地详情缺失，正在自动补读一次（本轮第 %2 只）……")
+      .arg(id).arg(detailReadAttempted_.size()));
+  if (!detailRefresh_->requestMissingDetailOnce(id))
+    missingDetailFinished(id, false, QStringLiteral("当前实例或会话不可读取"));
+  if (derivationPump_ && !derivationPump_->isActive()) derivationPump_->start(20);
+  return true;
+}
+
+void AssetAnalysisController::missingDetailFinished(qint64 id, bool succeeded, const QString& reason) {
+  if (!analysisQueued_ || !preparingFacts_ || detailReadPending_ != id) return;
+  detailReadPending_ = 0;
+  preparationStartedAt_ = transportMonotonicMs();
+  localReadChecked_.insert(id);
+  emit statusChanged(succeeded ? QStringLiteral("实例 %1 详情已补读，继续计算养成分析……").arg(id)
+      : QStringLiteral("实例 %1 补读未完成：%2；本轮不再重复读取，缺失数据保持未知").arg(id).arg(reason));
+  queueDerivation(id);
 }
 
 void AssetAnalysisController::failPreparation(const QString& reason) {
@@ -281,7 +330,9 @@ void AssetAnalysisController::pumpDerivations() {
     preparationStarted_ = true; preparationStartedAt_ = transportMonotonicMs();
     refreshPreparationMembers();
   }
-  if (preparingFacts_ && transportMonotonicMs() - preparationStartedAt_ > 120000) {
+  if (detailReadPending_ && transportMonotonicMs() >= detailReadDeadline_)
+    missingDetailFinished(detailReadPending_, false, QStringLiteral("等待详情超时"));
+  if (preparingFacts_ && !detailReadPending_ && transportMonotonicMs() - preparationStartedAt_ > 120000) {
     failPreparation(QStringLiteral("本地详情准备超时，已保留上次分析；请检查缓存读取与后台任务状态"));
     return;
   }
@@ -296,6 +347,8 @@ void AssetAnalysisController::pumpDerivations() {
     const auto version = repository_->recordVersion(id);
     if (!version.valid() || version.key.account != account_ || version.key.epoch != repository_->sessionGeneration()) continue;
     const bool needed = preparingFacts_ && preparationIds_.contains(id);
+    if (needed && detailReadPending_ == id) continue;
+    if (needed && localReadChecked_.contains(id) && !repository_->rawRecordResident(id) && readMissingDetail(id)) continue;
     if (needed && !version.complete && !localReadChecked_.contains(id)) {
       if (!localReadPending_.contains(id)) {
         localReadPending_.insert(id, version.key);
@@ -312,6 +365,7 @@ void AssetAnalysisController::pumpDerivations() {
       }
       continue;
     }
+    if (needed && !version.complete && readMissingDetail(id)) continue;
     const auto key = derivationKey(id);
     const auto raw = repository_->rawRecordHandle(id);
     if (!raw) {
@@ -342,7 +396,7 @@ void AssetAnalysisController::pumpDerivations() {
     request.seed = AssetAnalyzer::summarySeed(brief, raw->complete, raw->sourceKnown, PetMetadataView(metadata));
     const PetMetadataView view(metadata);
     request.metadata = {view.stargodDefinitions(), view.astrolabeDefinitions(), view.petDefinitions(),
-        view.sacredStarPlans(), view.sacredStagePlans(), view.badgeDefinitions()};
+        view.sacredStarPlans(), view.sacredStagePlans(), view.badgeDefinitions(), view.itemDefinitions(), view.sacredEquipmentDefinitions()};
     request.metadataRevision = metadata->revision; request.metadataDigest = metadata->contentDigest;
     request.storageContext = repository_->storageContext();
     // Route resident hits through request too: an IO Saved completion may have
@@ -510,7 +564,7 @@ std::shared_ptr<const AnalysisWorkInput> AssetAnalysisController::capture(const 
   input->shopPacket = shopController_ ? shopController_->packet() : QJsonObject{};
   const PetMetadataView metadata(petMetadata);
   input->metadata = {metadata.stargodDefinitions(), metadata.astrolabeDefinitions(), metadata.petDefinitions(),
-      metadata.sacredStarPlans(), metadata.sacredStagePlans(), metadata.badgeDefinitions()};
+      metadata.sacredStarPlans(), metadata.sacredStagePlans(), metadata.badgeDefinitions(), metadata.itemDefinitions(), metadata.sacredEquipmentDefinitions()};
   // A GUI catalog update can occur during capture; never label mixed input as
   // the previous version. Only the descriptor is retried, not a calculation.
   if (!(key.versions == versions())) return {};
@@ -588,6 +642,7 @@ void AssetAnalysisController::requestAnalysis() {
     superseded.phase = preparingFacts_ ? AnalysisJobPhase::Preparation : AnalysisJobPhase::Queued;
   }
   currentJob_ = nextJobKey(); analysisQueued_ = true;
+  detailReadAttempted_.clear(); detailReadPending_ = 0;
   if (derivations_) {
     worker_.cancel();
     preparingFacts_ = true; preparationStarted_ = false;
@@ -606,6 +661,7 @@ void AssetAnalysisController::cancelAnalysis() {
   finished.phase = preparingFacts_ ? AnalysisJobPhase::Preparation : AnalysisJobPhase::Queued;
   const bool noComputeForThisRequest = preparingFacts_ || !worker_.busy();
   analysisQueued_ = false; ++nextJobId_; currentJob_ = {};
+  detailReadPending_ = 0; detailReadAttempted_.clear();
   preparingFacts_ = false; preparationStarted_ = false;
   preparationIds_.clear(); awaitingFacts_.clear(); preparedHandles_.clear();
   worker_.cancel();

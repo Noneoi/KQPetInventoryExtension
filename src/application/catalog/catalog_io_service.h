@@ -3,6 +3,7 @@
 #include "storage/storage_service.h"
 #include <QObject>
 #include <QString>
+#include <QStringList>
 #include <memory>
 
 enum class CatalogKind { Shop, Routine, PetDetail, PetSkill };
@@ -35,6 +36,10 @@ public:
   ~CatalogIoService() override;
   quint64 requestReload(CatalogKind kind);
   quint64 requestOfficialUpdate(CatalogKind kind);
+  void loadShopSelection();
+  void saveShopSelection(const QStringList& selected, const QStringList& excludedAutomatic = {});
+  bool shopSelectionEditable() const;
+  QString shopSelectionMessage() const;
   CatalogIoStats stats() const;
   void close();
 
@@ -42,6 +47,7 @@ signals:
   void catalogUpdated(CatalogKind kind, quint64 revision);
   void finished(quint64 jobId, CatalogKind kind, StorageStatus status, const QString& error);
   void stateChanged();
+  void shopSelectionChanged();
 
 private:
   friend struct CatalogIoInternal::State;
@@ -50,6 +56,7 @@ private:
   void receive(std::shared_ptr<CatalogIoInternal::Candidate> candidate);
   void publish(const std::shared_ptr<CatalogIoInternal::Candidate>& candidate);
   void complete(StorageStatus status, const QString& error);
+  void publishShopSelection();
   struct Impl;
   std::unique_ptr<Impl> impl_;
 };

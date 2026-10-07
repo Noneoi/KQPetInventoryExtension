@@ -233,7 +233,7 @@ std::optional<PetAnalysisFacts> readIndex(const QByteArray& bytes, const PetDeri
   facts->asset.name = seed.name; facts->asset.location = seed.location;
   for (const QString& field : {QStringLiteral("r"), QStringLiteral("ri"), QStringLiteral("n"), QStringLiteral("customName"), QStringLiteral("_location"),
        QStringLiteral("_warehouseGroup"), QStringLiteral("_position"), QStringLiteral("_metaOriginalName"),
-       QStringLiteral("_metaAttributes"), QStringLiteral("_metaJobs"), QStringLiteral("_metaEra")}) {
+       QStringLiteral("_metaAttributes"), QStringLiteral("_metaJobs"), QStringLiteral("_metaEra"), QStringLiteral("_metaRating")}) {
     if (seed.pet.contains(field)) facts->asset.pet.insert(field, seed.pet.value(field));
     else facts->asset.pet.remove(field);
   }
@@ -437,7 +437,9 @@ PetDerivationSubmission PetDerivationCache::request(const PetDerivationRequest& 
       impl_->metadata->value.astrolabe != request.metadata.astrolabe || impl_->metadata->value.pets != request.metadata.pets ||
       impl_->metadata->value.sacredStarPlans != request.metadata.sacredStarPlans ||
       impl_->metadata->value.sacredStagePlans != request.metadata.sacredStagePlans ||
-      impl_->metadata->value.badges != request.metadata.badges))
+      impl_->metadata->value.badges != request.metadata.badges ||
+      impl_->metadata->value.items != request.metadata.items ||
+      impl_->metadata->value.sacredEquipment != request.metadata.sacredEquipment))
     return reject(PetDerivationStatus::InvalidRequest, QStringLiteral("one metadata key cannot describe different content"));
   auto existing = impl_->entries.find(key);
   if (existing != impl_->entries.end()) {
@@ -481,6 +483,8 @@ PetDerivationSubmission PetDerivationCache::request(const PetDerivationRequest& 
         !valueBytes(request.metadata.sacredStarPlans, &bytes, impl_->limits.metadataBytes) ||
         !valueBytes(request.metadata.sacredStagePlans, &bytes, impl_->limits.metadataBytes) ||
         !valueBytes(request.metadata.badges, &bytes, impl_->limits.metadataBytes) ||
+        !valueBytes(request.metadata.items, &bytes, impl_->limits.metadataBytes) ||
+        !valueBytes(request.metadata.sacredEquipment, &bytes, impl_->limits.metadataBytes) ||
         impl_->state->metadataBytes.load() > impl_->limits.metadataBytes - bytes)
       return reject(PetDerivationStatus::BudgetExceeded, QStringLiteral("frozen derivation metadata exceeds its budget"));
     auto metadata = std::make_shared<Metadata>(); metadata->state = impl_->state;

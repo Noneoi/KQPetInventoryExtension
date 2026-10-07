@@ -21,6 +21,38 @@ int main(int argc, char* argv[]) {
   const PetDetailCatalog& catalog = PetDetailCatalog::instance();
   bool ok = true;
   ok &= require(catalog.isLoaded(), "embedded catalog did not load");
+  const PetMetadataView metadata(catalog.snapshot());
+  ok &= require(metadata.resolvedRating({{"r",7531}}) == QStringLiteral("SP") &&
+      metadata.resolvedRating({{"r",7543}}) == QStringLiteral("SSS") &&
+      metadata.resolvedRating({{"r",7551}}) == QStringLiteral("S"),
+      "skin quality or similarly named skin was used instead of the original pet rating");
+  auto ratingFixture = std::make_shared<PetDetailCatalogSnapshot>();
+  ratingFixture->root = {{"pets",QJsonObject{
+      {"1",QJsonObject{{"name","original"},{"quality","SS"},{"groupRaceId",0}}},
+      {"2",QJsonObject{{"name","skin"},{"quality","SP"},{"groupRaceId",1}}},
+      {"3",QJsonObject{{"name","chain skin"},{"quality","A"},{"groupRaceId",2}}},
+      {"4",QJsonObject{{"quality","SP"},{"groupRaceId",404}}},
+      {"5",QJsonObject{{"quality","SP"},{"groupRaceId",6}}},
+      {"6",QJsonObject{{"quality","SP"},{"groupRaceId",5}}},
+      {"7",QJsonObject{{"quality",QStringLiteral("典藏")}}}}}};
+  const PetMetadataView ratingView(ratingFixture);
+  ok &= require(ratingView.resolvedRating({{"r",3}}) == QStringLiteral("SS") &&
+      ratingView.resolvedRating({{"r",999},{"_metaRaceId",1},{"_metaOriginalName","original"},{"_metaRating","SP"}}) == QStringLiteral("SS") &&
+      ratingView.resolvedRating({{"r",4}}).isEmpty() && ratingView.resolvedRating({{"r",5}}).isEmpty() &&
+      ratingView.resolvedRating({{"r",7}}).isEmpty() &&
+      ratingView.resolvedRating({{"r",999},{"_metaRating","SP"}}).isEmpty(),
+      "rating must follow the complete official prototype chain and reject unresolved, cyclic or skin-only quality");
+  ok &= require(catalog.pet(7529).value(QStringLiteral("quality")).isString() &&
+      !catalog.pet(7529).value(QStringLiteral("quality")).toString().isEmpty(),
+      "bundled pet quality is unavailable to the rating filter");
+  const QJsonObject ratingOverlay{{"pets",QJsonObject{{"7529",QJsonObject{{"name","fixture"},{"quality","SP"}}}}}};
+  const auto rated = PetDetailCatalog::prepareOverlay(catalog.snapshot(),ratingOverlay,QStringLiteral("rating fixture"),{});
+  ok &= require(rated && rated->root.value("pets").toObject().value("7529").toObject().value("quality") == "SP",
+      "official string pet quality was rejected as a numeric stargod quality");
+  const auto legacy = PetDetailCatalog::prepareOverlay(catalog.snapshot(),
+      {{"pets",QJsonObject{{"7529",QJsonObject{{"name","legacy"}}}}}},QStringLiteral("legacy fixture"),{});
+  ok &= require(legacy && legacy->root.value("pets").toObject().value("7529").toObject().value("quality") == catalog.pet(7529).value("quality"),
+      "legacy public data lost the bundled official rating");
   const QJsonObject fateWheel{{QStringLiteral("r"),7529},
       {QStringLiteral("n"),QStringLiteral("[灵初]轮转·命运之轮")},{QStringLiteral("rt"),26},
       {QStringLiteral("_metaAttributes"),QStringLiteral("24")},{QStringLiteral("_metaJobs"),QStringLiteral("26")}};
