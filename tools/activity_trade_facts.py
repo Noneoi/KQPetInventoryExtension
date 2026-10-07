@@ -267,4 +267,3 @@ def enrich_reward_facts(item, row, table, contracts, profile):
             item['costDescription'] = '；'.join(details) + '；达成后领取，当前进度与领取状态以活动内为准'
     if evidence:
         item['source']['tradeFacts'] = evidence
-
