@@ -1,4 +1,4 @@
-﻿param(
+param(
     [Parameter(Mandatory = $true)][string]$PackageDirectory,
     [string]$OutputRoot = ''
 )
@@ -63,7 +63,7 @@ $instructions = @'
 以后发布 GitHub 正式版后，可在“设置 → 软件更新”中手动检查、阅读更新说明并确认安装。
 已经下载并验证的新版会在关闭氪奇后的下次启动中完成切换。
 原客户端、现有账号缓存和数据目录配置会保留。
-首次使用可在“设置 → 数据更新”中点击“全部检查更新”。
+首次使用可在“设置 → 数据更新”中点击“检查并更新”。
 '@
 [IO.File]::WriteAllText((Join-Path $root '精灵工作台-使用说明.txt'),$instructions,(New-Object Text.UTF8Encoding($true)))
 # Archive the contents, so extraction exposes the entry directly.

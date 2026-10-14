@@ -154,13 +154,26 @@ public:
         .arg(facts.pendingTasks).arg(facts.activeTasks).arg(facts.computations).arg(facts.rejected)
         .arg(detail.activeTasks).arg(inventory.detailPreparationError(1));
   }
+  bool showsPreparedBody(QTextBrowser* browser,const PreparedPetDetailHandle& value,qint64 id) const {
+    if (!browser || !value || !value->detailKnown || value->identity.instanceId!=id ||
+        value->version.facts.record.instanceId!=id || value->version.facts.record!=inventory.recordVersion(id).key)
+      return false;
+    // Instance identity belongs to the prepared/selected record contract. The
+    // user-facing page deliberately shows the original name, not raw IDs.
+    // Still require actual prepared content: a waiting/error/name-only page
+    // cannot pass even when the correct prepared DTO exists in the projection.
+    const auto text=browser->toPlainText();
+    const auto original=value->identity.originalName.isEmpty() ? QStringLiteral("原名待核实") : value->identity.originalName;
+    const auto& power=value->battlePower;
+    const auto current=power.hasServerCurrent ? QString::number(power.serverCurrent) : QStringLiteral("—");
+    const auto maximum=power.hasExtreme ? QString::number(power.extreme) : QStringLiteral("—");
+    return text.contains(original) && (value->identity.name.isEmpty() || text.contains(value->identity.name)) &&
+        !text.contains(QStringLiteral("正在准备本地详情")) && text.contains(QStringLiteral("战斗力")) &&
+        text.contains(QStringLiteral("官方当前 / 官方极限")) && text.contains(current+QStringLiteral(" / ")+maximum) &&
+        text.contains(QStringLiteral("培养状态")) && browser->toHtml().contains(QStringLiteral("kqdetail://page/0/0"));
+  }
   bool preparedVisible(QTextBrowser* browser,int consumer,qint64 id) {
-    return browser && until([&] {
-      const auto value = inventory.preparedDetail(consumer,id);
-      return value && value->detailKnown && browser->toPlainText().contains(value->identity.name) &&
-          browser->toPlainText().contains(QStringLiteral("实例 %1").arg(id)) &&
-          browser->toHtml().contains(QStringLiteral("kqdetail://page/0/0"));
-    });
+    return browser && until([&] { return showsPreparedBody(browser,inventory.preparedDetail(consumer,id),id); });
   }
   bool followPage(QTextBrowser* browser,int consumer,qint64 id,DetailSection section,int pageIndex) {
     if (!browser) return false;
@@ -170,7 +183,7 @@ public:
     if (!QMetaObject::invokeMethod(browser,"anchorClicked",Qt::DirectConnection,Q_ARG(QUrl,link))) return false;
     return until([&] {
       const auto value = inventory.preparedDetail(consumer,id);
-      if (!value || pageRequests!=before+1 || !browser->toPlainText().contains(value->identity.name)) return false;
+      if (pageRequests!=before+1 || !showsPreparedBody(browser,value,id)) return false;
       if (section==DetailSection::Overview) {
         if (value->pages.size()!=6 || !browser->toHtml().contains(QStringLiteral("kqdetail://page/4/1"))) return false;
         for (const auto& page : value->pages) if (page.pageIndex!=0) return false;

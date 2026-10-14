@@ -200,10 +200,32 @@ QDate AssetAnalysisController::businessDate() const {
   return environment_.businessDate ? environment_.businessDate() : currentCatalogBusinessDate();
 }
 std::shared_ptr<const PetDetailCatalogSnapshot> AssetAnalysisController::petMetadataSnapshot() const {
+  if (publicDataset_) return publicDataset_->detail;
   return environment_.petMetadataSnapshot ? environment_.petMetadataSnapshot() : PetDetailCatalog::instance().snapshot();
 }
 std::shared_ptr<const ShopCatalogSnapshot> AssetAnalysisController::shopCatalogSnapshot() const {
+  if (publicDataset_) return publicDataset_->shop;
   return environment_.shopCatalogSnapshot ? environment_.shopCatalogSnapshot() : ShopExchangeCatalog::instance().snapshot();
+}
+std::shared_ptr<const RoutineCatalogSnapshot> AssetAnalysisController::routineCatalogSnapshot() const {
+  return publicDataset_ ? publicDataset_->routine : RoutineOverviewCatalog::instance().snapshot();
+}
+
+void AssetAnalysisController::setPublicDataset(PublicDatasetSnapshotHandle dataset) {
+  if (closing_ || !dataset || !dataset->detail || !dataset->shop || !dataset->routine || dataset == publicDataset_) return;
+  const auto oldMetadata = petMetadataSnapshot();
+  const auto oldShop = shopCatalogSnapshot();
+  const auto oldRoutine = routineCatalogSnapshot();
+  publicDataset_ = std::move(dataset);
+  const bool metadataChanged = oldMetadata != publicDataset_->detail;
+  const bool shopChanged = oldShop != publicDataset_->shop;
+  const bool routineChanged = oldRoutine != publicDataset_->routine;
+  if (metadataChanged) this->metadataChanged();
+  if (shopChanged) handleShopAnalysisInvalidated();
+  if (routineChanged) handleRoutineSummaryChanged();
+  // Supersede an in-flight calculation before its old result can be relabelled
+  // as current. Pure image/skill/replay changes keep the usable computation.
+  if (analysisQueued_ && (metadataChanged || shopChanged || routineChanged)) requestAnalysis();
 }
 std::shared_ptr<const AnalysisWorkResult> AssetAnalysisController::retainedAnalysisResult() const {
   const auto* state = currentStateIfPresent();
@@ -463,13 +485,20 @@ AnalysisVersionStamp AssetAnalysisController::versions() const {
   stamp.catalog = catalog ? catalog->revision : 0;
   stamp.resources = shopRevision_; stamp.limits = shopRevision_;
   stamp.routines = routineRevision_;
-  stamp.routineCatalog = RoutineOverviewCatalog::instance().snapshot()->revision;
+  const auto routines = routineCatalogSnapshot();
+  stamp.routineCatalog = routines ? routines->revision : 0;
   stamp.catalogDay = static_cast<quint64>(businessDate().toJulianDay());
   stamp.trust = trustRevision_;
   stamp.metadata = metadata ? metadata->revision : 0;
   stamp.quotaFreshness = shopController_ ? shopController_->freshnessRevision() : 0;
   stamp.routineFreshness = routineController_ ? routineController_->freshnessRevision() : 0;
   stamp.build = buildIdentity_; stamp.profile = profileIdentity_;
+  if (publicDataset_) {
+    stamp.publicDatasetRevision = publicDataset_->revision;
+    stamp.publicInputs = publicDataset_->components.value(QStringLiteral("pets")).sha256 + QLatin1Char('|') +
+        publicDataset_->components.value(QStringLiteral("shop")).sha256 + QLatin1Char('|') +
+        publicDataset_->components.value(QStringLiteral("routines")).sha256;
+  }
   return stamp;
 }
 
@@ -515,7 +544,7 @@ std::shared_ptr<const AnalysisWorkInput> AssetAnalysisController::capture(const 
   input->key = key; input->deriveOverview = !derivations_;
   if (derivations_) {
     input->usePreparedFacts = true;
-    input->overview = analyzer_.routineSummary();
+    input->overview = analyzer_.routineSummary(routineCatalogSnapshot());
     input->overview.account = account_;
     input->overview.inputSessionEpoch = repository_->sessionGeneration();
     input->overview.inventoryRevision = repository_->inventoryRevision();
@@ -541,7 +570,7 @@ std::shared_ptr<const AnalysisWorkInput> AssetAnalysisController::capture(const 
       input->overview.sourceVerified &= facts.asset.observationVerified;
       input->preparedFacts.append(std::move(facts));
     }
-  } else input->overview = analyzer_.captureInput(petMetadata);
+  } else input->overview = analyzer_.captureInput(petMetadata, routineCatalogSnapshot());
   input->overview.sourceVerified = input->overview.sourceVerified && compatibilityVerified_;
   input->catalogSnapshot = catalog;
   input->catalogDate = date;
@@ -687,7 +716,7 @@ AccountAssetOverview AssetAnalysisController::overview() const {
 }
 
 AccountAssetOverview AssetAnalysisController::routineSummary() const {
-  return analyzer_.routineSummary();
+  return analyzer_.routineSummary(routineCatalogSnapshot());
 }
 
 QList<ActionRecommendation> AssetAnalysisController::recommendations() const {
@@ -837,7 +866,7 @@ void AssetAnalysisController::handleRoutineSummaryChanged() {
   ++routineRevision_;
   AccountAnalysisState& state = currentState();
   if (state.hasAnalysis)
-    analyzer_.updateRoutineSummary(&state.lastValidOverview);
+    analyzer_.updateRoutineSummary(&state.lastValidOverview, routineCatalogSnapshot());
   emit routineSummaryChanged();
 }
 

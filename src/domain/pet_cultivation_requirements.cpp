@@ -1,4 +1,5 @@
 #include "pet_cultivation_requirements.h"
+#include "pet_astrolabe_record.h"
 #include "pet_era.h"
 
 #include <QJsonArray>
@@ -203,16 +204,15 @@ struct Builder {
     PetCultivationRequirement lighting{QStringLiteral("astrolabe_light"),QStringLiteral("astrolabe"),QStringLiteral("星轮点亮"),{}, {},true};
     int unlit = 0,selected = 0,senior = 0,nodeCount = 0; bool costsKnown = true;
     for (const auto& chain : raw.toString().split(QLatin1Char('|'))) for (const auto& token : chain.split(QLatin1Char('#'))) {
-      const auto fields = token.split(QLatin1Char(':')); int id = 0,lit = 0,equipped = 0;
-      if (++nodeCount > 128 || fields.size() < 2 || fields.size() > 3 || !integer(fields[0],&id) ||
-          !integer(fields[1],&lit,0,1) || (fields.size() == 3 && !integer(fields[2],&equipped,0,1)) || (equipped && !lit)) {
+      const auto record = readPetAstrolabeRecord(token);
+      if (++nodeCount > 128 || !record.usableForAnalysis()) {
         lighting.known = false; continue;
       }
-      const auto node = nodes.value(QString::number(id)).toObject();
+      const auto node = nodes.value(QString::number(record.id)).toObject();
       if (node.value(QStringLiteral("isTBD")).isBool() && node.value(QStringLiteral("isTBD")).toBool()) continue;
       if (node.value(QStringLiteral("locatedType")).toInt(-1) == 2) ++senior;
-      if (lit && equipped) ++selected;
-      if (lit) continue;
+      if (record.lighted && record.selected) ++selected;
+      if (record.lighted) continue;
       ++unlit;
       costsKnown = filteredCost(lightCost(node),QStringLiteral("精华"),lighting.materials) && costsKnown;
     }

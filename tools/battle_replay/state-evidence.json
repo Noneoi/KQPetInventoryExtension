@@ -1,0 +1,1413 @@
+{
+  "format": 1,
+  "checkedOn": "2026-10-08",
+  "packages": [
+    {
+      "resource": "library/interfaces",
+      "version": "20260930468207480",
+      "url": "http://aoqi.100bt.com/play/library/interfaces~20260930468207480.swf",
+      "file": "library_interfaces.swf",
+      "bytes": 621582,
+      "sha256": "2a7b34e20b998b40e38fea17050fde581c10ae22b6f1750632709a1dc8ad6872"
+    },
+    {
+      "resource": "battle/battle",
+      "version": "260930623185041",
+      "url": "http://aoqi.100bt.com/play/battle/battle~260930623185041.swf",
+      "file": "battle_battle.swf",
+      "bytes": 138593,
+      "sha256": "e429b57fae82a8af9dd92f0d6ec7f6ff1612f743a790f9036987cd1c4ea73a75"
+    },
+    {
+      "resource": "battleconfig/battleconfig",
+      "version": "260930372598462",
+      "url": "http://aoqi.100bt.com/play/battleconfig/battleconfig~260930372598462.swf",
+      "file": "battleconfig_battleconfig.swf",
+      "bytes": 734720,
+      "sha256": "8e912e2bb1a92ba89c5c2ee9a6abc0c0543a8092d2da84618e4800c9a086a16c"
+    }
+  ],
+  "rules": [
+    {
+      "topic": "护盾",
+      "rule": "curSp 从初始 shp 开始，按实际执行的 bb_shps/att_shps/sb_shps/ab_shps 累加；setter 不截断为零或生命上限；AfterAttackCommand 只最终写入 ahp/avg，不写入 ashp。"
+    },
+    {
+      "topic": "Buff 成员",
+      "rule": "初始 bfs（队伍 ppbf.pbid + pcbfs）保留重复；bd_bfs/ad_bfs 元组 1 增加、0 删除第一个匹配项。隐藏 Buff 不剔除。次数是成员记录数，不能无依据解释成层数。旧 ba/bc/aa/ac_bfs 没有当前命令调用，不重复应用。"
+    },
+    {
+      "topic": "分组",
+      "rule": "普通模式：每个对象自行排序 changeset，以各自数组索引并行推进；绝不全局合并组号。playOrderType=1 才 fillWithMaxChangeSetId，技能前补 0..max（含末位），技能后补到 max(beforeMax,afterMax) 之前。"
+    },
+    {
+      "topic": "组内",
+      "rule": "任一对象本组出现 buffWaitType>0 的新增 Buff 时，整组先处理显示 Buff，再处理生命/护盾、气势；否则先处理生命/护盾，再处理气势与 Buff。缺少等待配置时仅展示组末状态。"
+    },
+    {
+      "topic": "最终校准与特殊记录",
+      "rule": "技能后每组先 AfterAttackCommand，再 AfterAttackResultObjectCommand；达到该对象最后后置组时先校准 trl 的 ahp/avg，再校准 cn，然后才处理本组 rl。t=2 的生命及上限重设可覆盖本组的 ahp。prl 不参加最终 ahp/avg 校准。"
+    },
+    {
+      "topic": "技能数值",
+      "rule": "PlayEffectCommand 仅处理 isse=true 的 trl；有生效目标才处理施放者 cn 的 att 数值。isse=false 不取消前后置 Buff/数值。目标 att 数组由 EffectSplitData 求和再分配动画，文字版展示同阶段总额，不伪造随机气泡帧。"
+    },
+    {
+      "topic": "反击",
+      "rule": "近身命令 CounterCommand 在技能结算后、技能后分组前；仅一个生效 trl 且 issb=true 时执行，交换施放/目标，消费对应 sb 数组。"
+    },
+    {
+      "topic": "同一身份",
+      "rule": "Before/AfterAttackCommand 的目标 HP/SP 若目标就是施放者则跳过；气势与 Buff 仍沿各记录消费。"
+    },
+    {
+      "topic": "组合技能",
+      "rule": "按 ComboBuffsConfigXML，倒序查找 buffs 中当前成员记录包含的 ID，以对应 targetSkillIds 获取播放配置。"
+    },
+    {
+      "topic": "队伍行动",
+      "rule": "BattleRepresenter 不使用普通技能的 fillWithMaxChangeSetId；BufferExecuteDefine 的 actionResId>0 才播放队伍技能特效，否则采用仅前后置阶段的 RepresenterSimpleAttackCommand。"
+    }
+  ],
+  "limits": [
+    "依据是下载时的官方客户端，不宣称已取得每份历史日志对应的历史配置。",
+    "重建的是客户端数据状态和命令边界；动画并行帧、随机气泡分配、形态换位画面仍不补造。",
+    "未识别字段完整保留，格式或配置不足时显示待核实。"
+  ],
+  "sources": [
+    {
+      "path": "interfaces/scripts/mmo/interfaces/battle/data/SkillNumResult.as",
+      "sha256": "5fc66eceb5686237dab233f7a1fb595445b460285057b2fc231910a1149353cf",
+      "methods": [
+        {
+          "line": 96,
+          "signature": "public function SkillNumResult()"
+        },
+        {
+          "line": 101,
+          "signature": "public static function get emptySkillNumResult() : SkillNumResult"
+        },
+        {
+          "line": 129,
+          "signature": "public static function parseServerResponce(param1:Object) : SkillNumResult"
+        },
+        {
+          "line": 217,
+          "signature": "private static function calcChangeSetIds(param1:Array, param2:Array, param3:Array, param4:Array, param5:Array) : Array"
+        },
+        {
+          "line": 263,
+          "signature": "private static function getObjectWithKeys(param1:Array) : Object"
+        },
+        {
+          "line": 277,
+          "signature": "private static function domakeAllInSameChangeSetId(param1:HashMap, param2:Object) : void"
+        },
+        {
+          "line": 310,
+          "signature": "private static function getMaxValueInArr(param1:Array) : int"
+        },
+        {
+          "line": 325,
+          "signature": "private static function filterSameChangeSetResult(param1:Array, param2:int) : Array"
+        },
+        {
+          "line": 348,
+          "signature": "private static function parseBufferEffect(param1:String, param2:String) : Array"
+        },
+        {
+          "line": 367,
+          "signature": "private static function mySpilt(param1:String, param2:String) : Array"
+        },
+        {
+          "line": 384,
+          "signature": "private static function split2strArr(param1:String, param2:String) : Array"
+        },
+        {
+          "line": 401,
+          "signature": "public function get changeSetId2AfterDataMap() : HashMap"
+        },
+        {
+          "line": 406,
+          "signature": "public function get changeSetId2BeforeDataMap() : HashMap"
+        },
+        {
+          "line": 411,
+          "signature": "public function fillWithMaxChangeSetId() : void"
+        },
+        {
+          "line": 456,
+          "signature": "public function makeAllInSameChangeSetId() : void"
+        },
+        {
+          "line": 468,
+          "signature": "public function reverseToCounterNumResult() : SkillNumResult"
+        },
+        {
+          "line": 501,
+          "signature": "public function get beforeHps() : Array"
+        },
+        {
+          "line": 506,
+          "signature": "public function get beforeSps() : Array"
+        },
+        {
+          "line": 511,
+          "signature": "public function get attackHps() : Array"
+        },
+        {
+          "line": 516,
+          "signature": "public function get attackSps() : Array"
+        },
+        {
+          "line": 521,
+          "signature": "public function get counterHps() : Array"
+        },
+        {
+          "line": 526,
+          "signature": "public function get counterSps() : Array"
+        },
+        {
+          "line": 531,
+          "signature": "public function get afterHps() : Array"
+        },
+        {
+          "line": 536,
+          "signature": "public function get afterSps() : Array"
+        },
+        {
+          "line": 541,
+          "signature": "public function get beforePowers() : Array"
+        },
+        {
+          "line": 546,
+          "signature": "public function get attackPowers() : Array"
+        },
+        {
+          "line": 551,
+          "signature": "public function get counterPowers() : Array"
+        },
+        {
+          "line": 556,
+          "signature": "public function get afterPowers() : Array"
+        },
+        {
+          "line": 561,
+          "signature": "public function get afterDisplayBuff() : Array"
+        },
+        {
+          "line": 566,
+          "signature": "public function get beforeDisplayBuff() : Array"
+        },
+        {
+          "line": 571,
+          "signature": "public function get arrBeforeDisplayBuff() : Array"
+        },
+        {
+          "line": 576,
+          "signature": "public function get arrAfterDisplayBuff() : Array"
+        },
+        {
+          "line": 581,
+          "signature": "public function getIsEmpty(param1:Boolean = true) : Boolean"
+        },
+        {
+          "line": 598,
+          "signature": "public function get beforeBuffNew() : Array"
+        },
+        {
+          "line": 603,
+          "signature": "public function get afterBuffNew() : Array"
+        },
+        {
+          "line": 608,
+          "signature": "public function get beforeBuffDelete() : Array"
+        },
+        {
+          "line": 613,
+          "signature": "public function get afterBuffDelete() : Array"
+        },
+        {
+          "line": 618,
+          "signature": "public function get finalHp() : Number"
+        },
+        {
+          "line": 623,
+          "signature": "public function get finalPower() : int"
+        },
+        {
+          "line": 628,
+          "signature": "public function get beforeNumUnit() : Array"
+        },
+        {
+          "line": 633,
+          "signature": "public function get afterNumUnit() : Array"
+        },
+        {
+          "line": 638,
+          "signature": "public function get allBeforeNumUnit() : Array"
+        },
+        {
+          "line": 643,
+          "signature": "public function get allAfterNumUnit() : Array"
+        },
+        {
+          "line": 648,
+          "signature": "public function get curChangeSetIdx() : int"
+        },
+        {
+          "line": 653,
+          "signature": "public function set curChangeSetIdx(param1:int) : void"
+        },
+        {
+          "line": 658,
+          "signature": "public function getAllChangeSetIdArrValueByProName(param1:String) : Array"
+        },
+        {
+          "line": 696,
+          "signature": "private function getArrByProName(param1:String) : Array"
+        }
+      ]
+    },
+    {
+      "path": "interfaces/scripts/mmo/interfaces/battle/data/BufferNumResult.as",
+      "sha256": "4e92b3983685de9ddb7f90fec8087bb8c14772447f24abb67d8416be5b4b547d",
+      "methods": [
+        {
+          "line": 12,
+          "signature": "public function BufferNumResult()"
+        },
+        {
+          "line": 17,
+          "signature": "public static function parseServerResponce(param1:String) : BufferNumResult"
+        },
+        {
+          "line": 27,
+          "signature": "public function get changeSetId() : int"
+        },
+        {
+          "line": 32,
+          "signature": "public function get bufferId() : int"
+        },
+        {
+          "line": 37,
+          "signature": "public function get effect() : int"
+        }
+      ]
+    },
+    {
+      "path": "interfaces/scripts/mmo/interfaces/battle/data/RoundResult.as",
+      "sha256": "2fee81a4f2f3cd54748c25a47c3f73ba00b5a52854be7261041e9f90d35a710b",
+      "methods": [
+        {
+          "line": 46,
+          "signature": "public function RoundResult()"
+        },
+        {
+          "line": 52,
+          "signature": "public static function parseServerResponce(param1:Object, param2:BattleUnit, param3:Boolean) : RoundResult"
+        },
+        {
+          "line": 61,
+          "signature": "public static function parseRepresenterServerResponce(param1:Object, param2:BattleUnit, param3:Boolean) : RoundResult"
+        },
+        {
+          "line": 93,
+          "signature": "private static function parseNormalRoundResult(param1:Object, param2:BattleUnit, param3:Boolean) : RoundResult"
+        },
+        {
+          "line": 127,
+          "signature": "public function reverseToCounterResult(param1:int) : RoundResult"
+        },
+        {
+          "line": 147,
+          "signature": "private function get counterAttackTargetSkillResult() : SkillResult"
+        },
+        {
+          "line": 160,
+          "signature": "public function get sourceTeamId() : int"
+        },
+        {
+          "line": 165,
+          "signature": "public function get sourcePlayerName() : String"
+        },
+        {
+          "line": 170,
+          "signature": "public function get sourceCharacterId() : int"
+        },
+        {
+          "line": 175,
+          "signature": "public function get skillId() : int"
+        },
+        {
+          "line": 189,
+          "signature": "public function get skillExecuteCode() : int"
+        },
+        {
+          "line": 194,
+          "signature": "public function get isOverRoundLimit() : Boolean"
+        },
+        {
+          "line": 199,
+          "signature": "public function get sourceSkillNumResult() : SkillNumResult"
+        },
+        {
+          "line": 204,
+          "signature": "public function get targetSkillResults() : Array"
+        },
+        {
+          "line": 209,
+          "signature": "public function get roundNum() : int"
+        },
+        {
+          "line": 214,
+          "signature": "public function get playerRoundNum() : int"
+        },
+        {
+          "line": 219,
+          "signature": "public function get isLastRound() : Boolean"
+        },
+        {
+          "line": 224,
+          "signature": "public function set isLastRound(param1:Boolean) : void"
+        },
+        {
+          "line": 229,
+          "signature": "public function set skillId(param1:int) : void"
+        },
+        {
+          "line": 234,
+          "signature": "public function get targetRepresenterResults() : Array"
+        },
+        {
+          "line": 239,
+          "signature": "public function get executeBufferId() : int"
+        },
+        {
+          "line": 244,
+          "signature": "public function get executePetDragonIds() : Array"
+        },
+        {
+          "line": 249,
+          "signature": "public function fillWithMaxChangeSetId() : void"
+        },
+        {
+          "line": 265,
+          "signature": "public function get isFillWithMaxChangeSetId() : Boolean"
+        },
+        {
+          "line": 270,
+          "signature": "public function makeAllInSameChangeSetId() : void"
+        },
+        {
+          "line": 285,
+          "signature": "public function get queue() : RoundQueue"
+        },
+        {
+          "line": 290,
+          "signature": "public function assignQueue(param1:RoundQueue) : void"
+        },
+        {
+          "line": 295,
+          "signature": "public function get isFromNormalQueue() : Boolean"
+        }
+      ]
+    },
+    {
+      "path": "interfaces/scripts/mmo/interfaces/battle/data/SkillNumUnitFactory.as",
+      "sha256": "e7d404e65c5557691ed7ede554f1703234d78c3d6aa7079926bca34cd280c089",
+      "methods": [
+        {
+          "line": 8,
+          "signature": "public function SkillNumUnitFactory()"
+        },
+        {
+          "line": 13,
+          "signature": "public static function getSkillNumUnitTiming(param1:Object) : SkillNumUnitTiming"
+        }
+      ]
+    },
+    {
+      "path": "battle/scripts/mmo/battle/fighter/BattleFighter.as",
+      "sha256": "c7d1e79413d927409c4aa5e87e6b5240b280f06a39ba99513ebbcab9e3758b1b",
+      "methods": [
+        {
+          "line": 82,
+          "signature": "public function BattleFighter(param1:FighterInfo, param2:Object, param3:Boolean = false)"
+        },
+        {
+          "line": 95,
+          "signature": "private function isUseSimpleResBySkillId(param1:int) : Boolean"
+        },
+        {
+          "line": 105,
+          "signature": "public function attack(param1:RoundResult, param2:Function) : void"
+        },
+        {
+          "line": 190,
+          "signature": "protected function setupNumUI(param1:RoundResult) : void"
+        },
+        {
+          "line": 225,
+          "signature": "private function setNumUI(param1:String) : void"
+        },
+        {
+          "line": 234,
+          "signature": "protected function setBattleRoundUI(param1:RoundResult, param2:Boolean = false) : void"
+        },
+        {
+          "line": 243,
+          "signature": "public function counterAttack(param1:RoundResult, param2:Function) : void"
+        },
+        {
+          "line": 254,
+          "signature": "protected function getCloneContent(param1:Object) : Object"
+        },
+        {
+          "line": 269,
+          "signature": "protected function setupOtherParam(param1:Object, param2:SkillDefine, param3:MovieClip, param4:RoundResult) : void"
+        },
+        {
+          "line": 278,
+          "signature": "protected function executeCommand(param1:Class, param2:Object, param3:Function, param4:Boolean = true) : void"
+        },
+        {
+          "line": 316,
+          "signature": "private function getCmdInstanceAndSetupEmbedCmd(param1:Class, param2:Boolean) : IBattleCommand"
+        },
+        {
+          "line": 334,
+          "signature": "public function get avatar() : IBattleAvatar"
+        },
+        {
+          "line": 339,
+          "signature": "public function get x() : Number"
+        },
+        {
+          "line": 344,
+          "signature": "public function get y() : Number"
+        },
+        {
+          "line": 349,
+          "signature": "public function get info() : FighterInfo"
+        },
+        {
+          "line": 354,
+          "signature": "public function get needFlip() : Boolean"
+        },
+        {
+          "line": 359,
+          "signature": "public function addToStage(param1:DisplayObjectContainer, param2:Number, param3:Number, param4:int = -1) : void"
+        },
+        {
+          "line": 373,
+          "signature": "public function get curHp() : Number"
+        },
+        {
+          "line": 378,
+          "signature": "public function set curHp(param1:Number) : void"
+        },
+        {
+          "line": 394,
+          "signature": "public function get curSp() : Number"
+        },
+        {
+          "line": 399,
+          "signature": "public function set curSp(param1:Number) : void"
+        },
+        {
+          "line": 413,
+          "signature": "public function fadeOut(param1:Function) : void"
+        },
+        {
+          "line": 418,
+          "signature": "public function showUp() : void"
+        },
+        {
+          "line": 423,
+          "signature": "public function updateCurHp() : void"
+        },
+        {
+          "line": 428,
+          "signature": "public function get maxHp() : Number"
+        },
+        {
+          "line": 433,
+          "signature": "public function set maxHp(param1:Number) : void"
+        },
+        {
+          "line": 442,
+          "signature": "public function get curPower() : int"
+        },
+        {
+          "line": 447,
+          "signature": "public function set curPower(param1:int) : void"
+        },
+        {
+          "line": 470,
+          "signature": "public function addBuff(param1:int, param2:Boolean = true, param3:Function = null) : void"
+        },
+        {
+          "line": 482,
+          "signature": "private function checkNeed2HidePlayerUi() : void"
+        },
+        {
+          "line": 504,
+          "signature": "public function removeBuff(param1:int) : void"
+        },
+        {
+          "line": 515,
+          "signature": "public function doAction(param1:int) : MovieClip"
+        },
+        {
+          "line": 520,
+          "signature": "public function getTargetAction_BackGround(param1:int) : MovieClip"
+        },
+        {
+          "line": 525,
+          "signature": "public function getAction_FullScreen_BackGround(param1:int) : MovieClip"
+        },
+        {
+          "line": 530,
+          "signature": "public function getAction_FullScreen_ForeGround(param1:int) : MovieClip"
+        },
+        {
+          "line": 535,
+          "signature": "public function get curActionTimeline() : MovieClip"
+        },
+        {
+          "line": 540,
+          "signature": "public function get curActionId() : int"
+        },
+        {
+          "line": 545,
+          "signature": "public function showEffect(param1:int, param2:Function, param3:Boolean = false) : void"
+        },
+        {
+          "line": 550,
+          "signature": "public function showEffectMovie(param1:MovieClip, param2:int, param3:Function, param4:Boolean = false) : void"
+        },
+        {
+          "line": 555,
+          "signature": "public function showMovie(param1:MovieClip, param2:Function) : void"
+        },
+        {
+          "line": 560,
+          "signature": "public function showSkillEffect(param1:int, param2:Boolean, param3:Function, param4:Boolean) : MovieClip"
+        },
+        {
+          "line": 575,
+          "signature": "public function showSummonEffect(param1:int, param2:Function) : MovieClip"
+        },
+        {
+          "line": 588,
+          "signature": "public function showTips(param1:Sprite) : void"
+        },
+        {
+          "line": 594,
+          "signature": "public function jumpTo(param1:Number, param2:Number, param3:Function) : void"
+        },
+        {
+          "line": 604,
+          "signature": "public function slideBackward(param1:Function) : void"
+        },
+        {
+          "line": 609,
+          "signature": "public function showBubble(param1:FighterInfo, param2:Number, param3:Number, param4:Function, param5:int = 0, param6:int = 0) : void"
+        },
+        {
+          "line": 633,
+          "signature": "public function showPowerBubble(param1:FighterInfo, param2:Number, param3:Number, param4:Function, param5:int = 0, param6:int = 0) : void"
+        },
+        {
+          "line": 657,
+          "signature": "public function set scale(param1:Number) : void"
+        },
+        {
+          "line": 663,
+          "signature": "public function embedCommand(param1:ISceneCommand, param2:*) : void"
+        },
+        {
+          "line": 669,
+          "signature": "public function resetAvatar(param1:Function) : void"
+        },
+        {
+          "line": 690,
+          "signature": "private function onAdded(param1:Event) : void"
+        },
+        {
+          "line": 697,
+          "signature": "protected function setupAvatar() : void"
+        },
+        {
+          "line": 741,
+          "signature": "protected function recoverBuffers() : void"
+        }
+      ]
+    },
+    {
+      "path": "battle/scripts/mmo/battle/fighter/BattleRepresenter.as",
+      "sha256": "452c0f0d56c4437f4f0a32d7b8be270e76e61ca74bffe8a8e121b5451c324bbf",
+      "methods": [
+        {
+          "line": 37,
+          "signature": "public function BattleRepresenter(param1:FighterInfo, param2:Object, param3:Boolean = false)"
+        },
+        {
+          "line": 43,
+          "signature": "override public function attack(param1:RoundResult, param2:Function) : void"
+        },
+        {
+          "line": 89,
+          "signature": "private function changeBattleRepresenterInfo(param1:RoundResult, param2:BufferExecuteDefine) : void"
+        },
+        {
+          "line": 99,
+          "signature": "private function resetRepresenterAvatar(param1:int) : void"
+        },
+        {
+          "line": 117,
+          "signature": "private function getPlayerBuffType(param1:BufferExecuteDefine) : int"
+        },
+        {
+          "line": 130,
+          "signature": "private function getChangedSkillId(param1:RoundResult, param2:BufferExecuteDefine) : int"
+        },
+        {
+          "line": 165,
+          "signature": "private function getFightPetDragonInfoById(param1:int, param2:Array) : FightPetDragonInfo"
+        },
+        {
+          "line": 184,
+          "signature": "override public function resetAvatar(param1:Function) : void"
+        },
+        {
+          "line": 202,
+          "signature": "override protected function recoverBuffers() : void"
+        },
+        {
+          "line": 207,
+          "signature": "override protected function setupAvatar() : void"
+        },
+        {
+          "line": 227,
+          "signature": "override public function addBuff(param1:int, param2:Boolean = true, param3:Function = null) : void"
+        },
+        {
+          "line": 233,
+          "signature": "private function initBuffWithState(param1:int) : void"
+        },
+        {
+          "line": 259,
+          "signature": "private function onRemoveFromStage(param1:Event) : void"
+        },
+        {
+          "line": 273,
+          "signature": "override public function removeBuff(param1:int) : void"
+        }
+      ]
+    },
+    {
+      "path": "battle/scripts/mmo/battle/command/playbattle/SetupFighterCommand.as",
+      "sha256": "c0fa311d97f018b57a2593ac8d1dc9100c85a0f338067a98b5234615a3e8b940",
+      "methods": [
+        {
+          "line": 47,
+          "signature": "public function SetupFighterCommand()"
+        },
+        {
+          "line": 52,
+          "signature": "override public function execute(param1:Object) : void"
+        },
+        {
+          "line": 72,
+          "signature": "private function setupTeam(param1:TeamInfo, param2:Sprite, param3:Boolean) : void"
+        },
+        {
+          "line": 149,
+          "signature": "private function getFighterPos(param1:FighterInfo, param2:Sprite) : Point"
+        },
+        {
+          "line": 184,
+          "signature": "private function setupRepresenter(param1:int, param2:Sprite, param3:IBattlePlayer, param4:Boolean) : void"
+        }
+      ]
+    },
+    {
+      "path": "battle/scripts/mmo/battle/command/attack/common/BeforeSequentialAttackCommand.as",
+      "sha256": "a53d80c36c3ec2ddf7276ed583a3bf8477b6177f39cc8e2a5ff68bd45c1b23b6",
+      "methods": [
+        {
+          "line": 36,
+          "signature": "public function BeforeSequentialAttackCommand()"
+        },
+        {
+          "line": 41,
+          "signature": "override public function execute(param1:Object) : void"
+        },
+        {
+          "line": 51,
+          "signature": "private function setupSourceFighter() : void"
+        },
+        {
+          "line": 59,
+          "signature": "private function initSubCommands() : void"
+        },
+        {
+          "line": 64,
+          "signature": "private function calcGroupCommandNum() : void"
+        },
+        {
+          "line": 85,
+          "signature": "private function executeSubCommands() : void"
+        },
+        {
+          "line": 98,
+          "signature": "private function bacmdsuccFunc(param1:SceneCommandEvent) : void"
+        },
+        {
+          "line": 109,
+          "signature": "private function bacmdfailFunc(param1:SceneCommandEvent) : void"
+        },
+        {
+          "line": 116,
+          "signature": "private function barocmdfailFunc(param1:SceneCommandEvent) : void"
+        },
+        {
+          "line": 123,
+          "signature": "private function barocmdsuccFunc(param1:SceneCommandEvent) : void"
+        },
+        {
+          "line": 133,
+          "signature": "private function seqenceExcuteSubCommands() : void"
+        },
+        {
+          "line": 150,
+          "signature": "private function isSkillNumResultEmpty() : Boolean"
+        },
+        {
+          "line": 161,
+          "signature": "private function updateSkillNumResultData() : void"
+        },
+        {
+          "line": 176,
+          "signature": "private function resetSkillNumResultData() : void"
+        }
+      ]
+    },
+    {
+      "path": "battle/scripts/mmo/battle/command/attack/common/AfterSequentialAttackCommand.as",
+      "sha256": "aae5eeb7b3a310649bfab4e5391210b2864bbbf6029626a75f0c10419ec97fbd",
+      "methods": [
+        {
+          "line": 28,
+          "signature": "public function AfterSequentialAttackCommand()"
+        },
+        {
+          "line": 33,
+          "signature": "override public function execute(param1:Object) : void"
+        },
+        {
+          "line": 42,
+          "signature": "private function initSubCommands() : void"
+        },
+        {
+          "line": 47,
+          "signature": "private function calcGroupCommandNum() : void"
+        },
+        {
+          "line": 68,
+          "signature": "private function executeSubCommands() : void"
+        },
+        {
+          "line": 81,
+          "signature": "private function aacmdsuccFunc(param1:SceneCommandEvent) : void"
+        },
+        {
+          "line": 92,
+          "signature": "private function aacmdfailFunc(param1:SceneCommandEvent) : void"
+        },
+        {
+          "line": 99,
+          "signature": "private function aarocmdfailFunc(param1:SceneCommandEvent) : void"
+        },
+        {
+          "line": 106,
+          "signature": "private function aarocmdsuccFunc(param1:SceneCommandEvent) : void"
+        },
+        {
+          "line": 116,
+          "signature": "private function seqenceExcuteSubCommands() : void"
+        },
+        {
+          "line": 133,
+          "signature": "private function isSkillNumResultEmpty() : Boolean"
+        },
+        {
+          "line": 144,
+          "signature": "private function updateSkillNumResultData() : void"
+        },
+        {
+          "line": 159,
+          "signature": "private function resetSkillNumResultData() : void"
+        }
+      ]
+    },
+    {
+      "path": "battle/scripts/mmo/battle/command/attack/common/BeforeAttackCommand.as",
+      "sha256": "f80ac818e7bb92b7dc1d883b1a83adbadd974ab719fd0b19d2542fd3602b66f3",
+      "methods": [
+        {
+          "line": 39,
+          "signature": "public function BeforeAttackCommand()"
+        },
+        {
+          "line": 44,
+          "signature": "override public function execute(param1:Object) : void"
+        },
+        {
+          "line": 54,
+          "signature": "private function setupSourceFighter() : void"
+        },
+        {
+          "line": 62,
+          "signature": "private function onSourceSkillBeHitActionEnd() : void"
+        },
+        {
+          "line": 84,
+          "signature": "private function checkHasWaitTypeBuffInTargetSkillResults(param1:Array) : Boolean"
+        },
+        {
+          "line": 100,
+          "signature": "private function calculateAllSkillResultNum(param1:Array) : int"
+        },
+        {
+          "line": 122,
+          "signature": "private function handleSourceFighterChanges() : void"
+        },
+        {
+          "line": 129,
+          "signature": "private function handleSkillTargetHpChanges(param1:Array, param2:Function) : void"
+        },
+        {
+          "line": 156,
+          "signature": "private function onWaitBuffEnd() : void"
+        },
+        {
+          "line": 162,
+          "signature": "private function onBeHitActionEnd() : void"
+        },
+        {
+          "line": 168,
+          "signature": "private function checkTargetHpSemaphore() : void"
+        },
+        {
+          "line": 184,
+          "signature": "private function checkTargetBuffSemaphore() : void"
+        },
+        {
+          "line": 194,
+          "signature": "private function onAfterBuffAndHpActionEnd() : void"
+        },
+        {
+          "line": 200,
+          "signature": "private function checkAfterBuffAndHpSemaphore() : void"
+        },
+        {
+          "line": 213,
+          "signature": "private function handlePowerChanges(param1:Array) : void"
+        },
+        {
+          "line": 229,
+          "signature": "private function handleBuffChanges(param1:Array, param2:Function = null) : void"
+        },
+        {
+          "line": 261,
+          "signature": "private function handleSkillExecuteCode() : void"
+        },
+        {
+          "line": 278,
+          "signature": "private function onBeforAttackEnd() : void"
+        }
+      ]
+    },
+    {
+      "path": "battle/scripts/mmo/battle/command/attack/common/AfterAttackCommand.as",
+      "sha256": "474fe84044bb6fcf6f792c935bb57d00876bb0ace06e9145bb8ed98fa71edee4",
+      "methods": [
+        {
+          "line": 39,
+          "signature": "public function AfterAttackCommand()"
+        },
+        {
+          "line": 44,
+          "signature": "override public function execute(param1:Object) : void"
+        },
+        {
+          "line": 54,
+          "signature": "private function handleMyHpChanges() : void"
+        },
+        {
+          "line": 66,
+          "signature": "private function onSourceSkillBeHitActionEnd() : void"
+        },
+        {
+          "line": 89,
+          "signature": "private function checkHasWaitTypeBuffInTargetSkillResults(param1:Array) : Boolean"
+        },
+        {
+          "line": 105,
+          "signature": "private function calculateAllSkillResultNum(param1:Array, param2:Boolean) : int"
+        },
+        {
+          "line": 130,
+          "signature": "private function handleSourceFighterChanges() : void"
+        },
+        {
+          "line": 137,
+          "signature": "private function handleSkillTargetHpChanges(param1:Array, param2:Function) : void"
+        },
+        {
+          "line": 173,
+          "signature": "private function onWaitBuffEnd() : void"
+        },
+        {
+          "line": 179,
+          "signature": "private function onBeHitActionEnd() : void"
+        },
+        {
+          "line": 185,
+          "signature": "private function checkTargetHpSemaphore() : void"
+        },
+        {
+          "line": 210,
+          "signature": "private function checkTargetBuffSemaphore() : void"
+        },
+        {
+          "line": 220,
+          "signature": "private function onAfterBuffAndHpActionEnd() : void"
+        },
+        {
+          "line": 226,
+          "signature": "private function checkAfterBuffAndHpSemaphore() : void"
+        },
+        {
+          "line": 239,
+          "signature": "private function handlePowerChanges(param1:Array) : void"
+        },
+        {
+          "line": 257,
+          "signature": "private function handleBuffChanges(param1:Array, param2:Function = null) : void"
+        },
+        {
+          "line": 282,
+          "signature": "private function onAfterAttackEnd() : void"
+        },
+        {
+          "line": 319,
+          "signature": "private function checkReachFinalChangeSetIdx(param1:SkillNumResult) : Boolean"
+        },
+        {
+          "line": 328,
+          "signature": "private function finalHpAndPowerHelper(param1:IBattlePlayer, param2:IBattleFighter, param3:Number, param4:int) : void"
+        }
+      ]
+    },
+    {
+      "path": "battle/scripts/mmo/battle/command/attack/common/BeforeAttackResultObjectCommand.as",
+      "sha256": "1b035af9630186a905922f592e5dad8c45ba37cea21c8da7adbecc509e5d3dab",
+      "methods": [
+        {
+          "line": 26,
+          "signature": "public function BeforeAttackResultObjectCommand()"
+        },
+        {
+          "line": 31,
+          "signature": "override public function execute(param1:Object) : void"
+        },
+        {
+          "line": 39,
+          "signature": "private function handleSkillNumUnit() : void"
+        },
+        {
+          "line": 74,
+          "signature": "private function onFinish() : void"
+        }
+      ]
+    },
+    {
+      "path": "battle/scripts/mmo/battle/command/attack/common/AfterAttackResultObjectCommand.as",
+      "sha256": "612f74ab0c83ec74c0f8d4eb96c26090b3d8c4b4ee146a4c00588094576afcbf",
+      "methods": [
+        {
+          "line": 28,
+          "signature": "public function AfterAttackResultObjectCommand()"
+        },
+        {
+          "line": 33,
+          "signature": "override public function execute(param1:Object) : void"
+        },
+        {
+          "line": 42,
+          "signature": "private function handleSkillNumUnit() : void"
+        },
+        {
+          "line": 77,
+          "signature": "private function onFinish() : void"
+        }
+      ]
+    },
+    {
+      "path": "battle/scripts/mmo/battle/command/attack/common/PlayEffectCommand.as",
+      "sha256": "ccfb103c5a69d327249c5a9721381de6d2ed3a791f75a02b6e1a3511be9fad67",
+      "methods": [
+        {
+          "line": 74,
+          "signature": "public function PlayEffectCommand()"
+        },
+        {
+          "line": 79,
+          "signature": "override public function execute(param1:Object) : void"
+        },
+        {
+          "line": 129,
+          "signature": "private function onEffectFrame() : void"
+        },
+        {
+          "line": 221,
+          "signature": "private function onEffectEnd(param1:IBattleFighter) : void"
+        },
+        {
+          "line": 253,
+          "signature": "private function onBubbleFrame(param1:IBattlePlayer, param2:IBattleFighter, param3:SkillResult, param4:Number, param5:int, param6:BattleMultiHitEffectUI, param7:int, param8:Array, param9:Number) : Function"
+        },
+        {
+          "line": 331,
+          "signature": "private function setRedScreen() : void"
+        },
+        {
+          "line": 347,
+          "signature": "private function handleHpAndPowerChanges(param1:SkillResult, param2:IBattlePlayer, param3:IBattleFighter, param4:Number, param5:int, param6:Number) : void"
+        },
+        {
+          "line": 422,
+          "signature": "private function isIgnoreAttRestraint(param1:SkillResult) : Boolean"
+        },
+        {
+          "line": 442,
+          "signature": "private function playSourceSkillNumResult() : void"
+        }
+      ]
+    },
+    {
+      "path": "battle/scripts/mmo/battle/command/attack/close/CounterCommand.as",
+      "sha256": "dc4597f704954ec26fb69c1c49f753ecdfc1d9b9274d55018083c70379354eff",
+      "methods": [
+        {
+          "line": 25,
+          "signature": "public function CounterCommand()"
+        },
+        {
+          "line": 30,
+          "signature": "override public function execute(param1:Object) : void"
+        },
+        {
+          "line": 63,
+          "signature": "private function getEffectSkillResult(param1:Array) : SkillResult"
+        },
+        {
+          "line": 77,
+          "signature": "private function getEffectSkillResultNum(param1:Array) : int"
+        },
+        {
+          "line": 92,
+          "signature": "private function onCounterCallback() : void"
+        }
+      ]
+    },
+    {
+      "path": "battle/scripts/mmo/battle/command/attack/consts/EffectSplitData.as",
+      "sha256": "05023575b8dbd3c483a3b07586e5a614eb4eaa16758c9db7c955224b380743ac",
+      "methods": [
+        {
+          "line": 21,
+          "signature": "public function EffectSplitData()"
+        },
+        {
+          "line": 26,
+          "signature": "public static function valueFrom(param1:SkillResult, param2:int) : EffectSplitData"
+        },
+        {
+          "line": 75,
+          "signature": "public function get hpChangeArr() : Array"
+        },
+        {
+          "line": 80,
+          "signature": "public function get spChangeArr() : Array"
+        },
+        {
+          "line": 85,
+          "signature": "public function get powerChangeArr() : Array"
+        }
+      ]
+    },
+    {
+      "path": "battle/scripts/mmo/battle/command/CloseAttackCommand.as",
+      "sha256": "84067b166bb405f38ed6809b69309d359c25f7edc799dbfba3f482937e31f866",
+      "methods": [
+        {
+          "line": 19,
+          "signature": "public function CloseAttackCommand()"
+        },
+        {
+          "line": 24,
+          "signature": "override protected function initializeMacroCommand() : void"
+        }
+      ]
+    },
+    {
+      "path": "battle/scripts/mmo/battle/command/RemoteAttackCommand.as",
+      "sha256": "53e0c0180efc3b17423fbe60eaf8a615e29b4d7ecbaca4175e2e044aa031cb80",
+      "methods": [
+        {
+          "line": 16,
+          "signature": "public function RemoteAttackCommand()"
+        },
+        {
+          "line": 21,
+          "signature": "override protected function initializeMacroCommand() : void"
+        }
+      ]
+    },
+    {
+      "path": "battle/scripts/mmo/battle/util/BattleUtil.as",
+      "sha256": "c4ce0432239b6336619825ff9bd23e4fde285e7e8f076d78b3839e1b7c68ed83",
+      "methods": [
+        {
+          "line": 34,
+          "signature": "public function BattleUtil()"
+        },
+        {
+          "line": 39,
+          "signature": "public static function isCurUserInTeam(param1:BattleInfo, param2:int, param3:String) : Boolean"
+        },
+        {
+          "line": 57,
+          "signature": "public static function mergeArray(param1:Array, param2:Array) : Array"
+        },
+        {
+          "line": 71,
+          "signature": "public static function splitNumIntoNumArray(param1:Number, param2:int, param3:Number) : Array"
+        },
+        {
+          "line": 91,
+          "signature": "public static function handleHpChangesSingle(param1:Array, param2:Array, param3:IBattleFighter, param4:int, param5:Function = null) : void"
+        },
+        {
+          "line": 172,
+          "signature": "public static function handlePowerChangesSingle(param1:Array, param2:IBattleFighter) : void"
+        },
+        {
+          "line": 189,
+          "signature": "public static function handleBuffChangesSingle(param1:Array, param2:Array, param3:IBattleFighter) : void"
+        },
+        {
+          "line": 203,
+          "signature": "public static function handleDisplayBuffChangesSingle(param1:Array, param2:IBattleFighter, param3:Function = null) : void"
+        },
+        {
+          "line": 220,
+          "signature": "private static function handleOneBuff(param1:Array, param2:IBattleFighter, param3:Function = null) : void"
+        },
+        {
+          "line": 278,
+          "signature": "private static function addBuffWithOutWait(param1:int, param2:Array, param3:IBattleFighter, param4:Function = null) : void"
+        },
+        {
+          "line": 291,
+          "signature": "private static function removeBuffWithOutWait(param1:int, param2:Array, param3:IBattleFighter, param4:Function = null) : void"
+        },
+        {
+          "line": 304,
+          "signature": "private static function addWaitBuffOneByOne(param1:int, param2:Array, param3:IBattleFighter, param4:Function = null) : void"
+        },
+        {
+          "line": 327,
+          "signature": "private static function addWaitBuffAllAtOnce(param1:int, param2:Array, param3:IBattleFighter, param4:Function = null) : void"
+        },
+        {
+          "line": 351,
+          "signature": "public static function calcWaitTypeBuffNum(param1:Array) : int"
+        },
+        {
+          "line": 374,
+          "signature": "public static function checkHasWaitTypeBuff(param1:Array) : Boolean"
+        },
+        {
+          "line": 383,
+          "signature": "public static function getRestraintCoefficient(param1:IBattleFighter, param2:IBattleFighter, param3:IBattleConfig) : Number"
+        },
+        {
+          "line": 392,
+          "signature": "public static function getOneRaceTypeByPriority(param1:Array, param2:IBattleConfig) : int"
+        },
+        {
+          "line": 410,
+          "signature": "public static function applyTweenGray(param1:DisplayObject, param2:uint) : void"
+        },
+        {
+          "line": 422,
+          "signature": "public static function clearTweenGray(param1:DisplayObject) : void"
+        },
+        {
+          "line": 428,
+          "signature": "public static function getTargetFighter(param1:IBattle, param2:SkillResult) : IBattleFighter"
+        },
+        {
+          "line": 434,
+          "signature": "public static function getFighterByNameAndId(param1:IBattle, param2:String, param3:int) : IBattleFighter"
+        },
+        {
+          "line": 440,
+          "signature": "public static function getDropCoolPetStoneMCD(param1:Array, param2:IBattleConfig) : MaterialCommonData"
+        },
+        {
+          "line": 459,
+          "signature": "public static function getEffectSkillResultNum(param1:Array) : int"
+        }
+      ]
+    },
+    {
+      "path": "battle/scripts/mmo/battle/util/BattleNumUnitUtil.as",
+      "sha256": "b11ac2a651f025d1d5d25e7d08d1e2b59004e7d3a8990eac47af11caf3fc127e",
+      "methods": [
+        {
+          "line": 65,
+          "signature": "public function BattleNumUnitUtil(param1:Object)"
+        },
+        {
+          "line": 75,
+          "signature": "public function addFighterUnitPair(param1:IBattlePlayer, param2:IBattleFighter, param3:SkillNumUnit) : void"
+        },
+        {
+          "line": 81,
+          "signature": "public function handleNumUnitList(param1:Function) : void"
+        },
+        {
+          "line": 95,
+          "signature": "private function addAndcheckUnitFinish() : void"
+        },
+        {
+          "line": 104,
+          "signature": "private function handleUnit() : void"
+        },
+        {
+          "line": 172,
+          "signature": "private function handleReplicationChanged(param1:PlayerAndFighterAndUnit) : void"
+        },
+        {
+          "line": 183,
+          "signature": "private function handleBuffChangedState(param1:PlayerAndFighterAndUnit) : void"
+        },
+        {
+          "line": 224,
+          "signature": "private function handleTransformAttr(param1:PlayerAndFighterAndUnit) : void"
+        },
+        {
+          "line": 233,
+          "signature": "private function afterPlayBufferStateChangedMovie(param1:PlayerAndFighterAndUnit) : void"
+        },
+        {
+          "line": 249,
+          "signature": "private function handleSummonPet(param1:SkillNumUnitSummon) : void"
+        },
+        {
+          "line": 267,
+          "signature": "private function handleChangeAvatar(param1:PlayerAndFighterAndUnit) : void"
+        },
+        {
+          "line": 275,
+          "signature": "private function onChangeAvatarMovieEnd(param1:PlayerAndFighterAndUnit) : void"
+        },
+        {
+          "line": 295,
+          "signature": "private function tryApplyBlackScreen() : void"
+        },
+        {
+          "line": 313,
+          "signature": "private function removeBlackScreen() : void"
+        },
+        {
+          "line": 322,
+          "signature": "private function hideFigherEffectLayer(param1:PlayerAndFighterAndUnit) : void"
+        },
+        {
+          "line": 327,
+          "signature": "private function showFigherEffectLayer(param1:PlayerAndFighterAndUnit) : void"
+        },
+        {
+          "line": 332,
+          "signature": "private function resetAvatar(param1:PlayerAndFighterAndUnit) : void"
+        },
+        {
+          "line": 341,
+          "signature": "private function handleSummon(param1:PlayerAndFighterAndUnit) : void"
+        },
+        {
+          "line": 349,
+          "signature": "private function playMovie(param1:String, param2:Boolean, param3:Sprite, param4:Function = null, param5:String = \"\", param6:PlayerAndFighterAndUnit = null, param7:Point = null) : void"
+        },
+        {
+          "line": 397,
+          "signature": "private function onMoveEnd(param1:MovieClip, param2:Function, param3:* = null) : Function"
+        },
+        {
+          "line": 413,
+          "signature": "private function finish() : void"
+        },
+        {
+          "line": 436,
+          "signature": "public function PlayerAndFighterAndUnit(param1:IBattlePlayer, param2:IBattleFighter, param3:SkillNumUnit)"
+        },
+        {
+          "line": 444,
+          "signature": "public function get player() : IBattlePlayer"
+        },
+        {
+          "line": 449,
+          "signature": "public function get fighter() : IBattleFighter"
+        },
+        {
+          "line": 454,
+          "signature": "public function get unit() : SkillNumUnit"
+        }
+      ]
+    },
+    {
+      "path": "battleconfig/scripts/mmo/battleconfig/data/ComboBuffsConfigXML.as",
+      "sha256": "2aaddbaec15049a561f3756a80a770b402699e0bea9ff76a1f3a56712936da16",
+      "methods": [
+        {
+          "line": 14,
+          "signature": "public function ComboBuffsConfigXML()"
+        },
+        {
+          "line": 20,
+          "signature": "public static function get instance() : ComboBuffsConfigXML"
+        },
+        {
+          "line": 29,
+          "signature": "public function getTargetSkillIds(param1:int, param2:Array) : int"
+        },
+        {
+          "line": 51,
+          "signature": "public function parseConfig() : void"
+        },
+        {
+          "line": 75,
+          "signature": "public function ComboBuffsDefine(param1:int, param2:String, param3:String)"
+        }
+      ]
+    }
+  ]
+}

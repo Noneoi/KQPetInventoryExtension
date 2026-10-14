@@ -5,6 +5,7 @@
 #include "support/protocol_test_support.h"
 #include "storage/storage_service.h"
 #include "support/catalog_test_support.h"
+#include "support/routine_rules_test_support.h"
 
 #include <QCoreApplication>
 #include <QJsonArray>
@@ -73,12 +74,41 @@ int main(int argc, char* argv[]) {
                 "daily/weekly task catalog is empty");
   ok &= require(!RoutineOverviewCatalog::instance().activities().isEmpty(),
                 "activity catalog is empty");
+  const QJsonObject legacyRoot = RoutineOverviewCatalog::instance().snapshot()->root;
+  const QJsonObject publicRoot = withOfficialRoutineRuleFixture(legacyRoot);
+  ok &= require(bool(RoutineOverviewCatalog::prepare(legacyRoot, QStringLiteral("legacy fixture"), {})),
+                "legacy offline catalog no longer loads");
+  ok &= require(bool(RoutineOverviewCatalog::prepare(publicRoot, QStringLiteral("official rules fixture"), {})),
+                "official rules fixture failed source/value binding");
+  const auto opportunityRules = RoutineOpportunityRules::read(publicRoot);
+  ok &= require(RoutineOpportunityRules::remaining(opportunityRules.competitionDaily, 0, 41) == 0,
+                "remaining amount did not follow the official Math.max zero clamp");
+  const auto invited = RoutineOpportunityRules::farmBonus(opportunityRules,
+      {{QStringLiteral("in"), QStringLiteral("1|test-a:86400#2|test-b:0#3|test-c:1#4|test-d:1")}});
+  ok &= require(invited.value(QStringLiteral("refreshMax")).toInt() == 20 &&
+                  invited.value(QStringLiteral("dailyRefresh")).toInt() == 5 &&
+                  RoutineOpportunityRules::farmBonus(opportunityRules, {}).isEmpty(),
+                "farm invite tiers were guessed or storage was confused with daily replenishment");
+  auto malformedRoot = publicRoot;
+  auto malformedRules = malformedRoot.value(QStringLiteral("opportunityRules")).toObject();
+  auto malformedGroup = malformedRules.value(QStringLiteral("nationalCompetition")).toObject();
+  malformedGroup.insert(QStringLiteral("dailyBase"), 999);
+  malformedRules.insert(QStringLiteral("nationalCompetition"), malformedGroup);
+  malformedRoot.insert(QStringLiteral("opportunityRules"), malformedRules);
+  ok &= require(!RoutineOverviewCatalog::prepare(malformedRoot, {}, {}),
+                "edited rule value bypassed its source binding");
+  ok &= require(writeCatalogFixture(QDir(root.path()).filePath(QStringLiteral("catalog/routine-overview.json")),
+      QJsonDocument(publicRoot).toJson(QJsonDocument::Compact)) &&
+      runCatalogRequest(&catalogIo, CatalogKind::Routine, CatalogRequestMode::Reload, &catalogError),
+      "source-bound public routine catalog could not reload");
 
   PetRepository repository;
   deliver(&repository, {{QStringLiteral("_cmd"), QStringLiteral("21_1")},
                         {QStringLiteral("info"),
                          QJsonObject{{QStringLiteral("n"), QStringLiteral("routine-a")}}}});
   RoutineOverviewController controller(&repository);
+  controller.setCatalogIoService(&catalogIo);
+  const auto originalCatalogRevision = RoutineOverviewCatalog::instance().snapshot()->revision;
   QObject::connect(&repository, &PetRepository::packetObserved, &controller,
       [&controller](const QJsonObject& packet, const InboundEnvelope& envelope) {
         controller.handleDecodedEnvelope(envelope, packet);
@@ -94,6 +124,9 @@ int main(int argc, char* argv[]) {
     return true;
   });
   ok &= require(controller.requestRefresh(), "manual refresh did not start");
+  ok &= require(catalogIo.stats().pendingRequests == 0 && catalogIo.stats().pendingWrites == 0 &&
+                    RoutineOverviewCatalog::instance().snapshot()->revision == originalCatalogRevision,
+                "account refresh started an old public AS import");
   ok &= require(sent.size() == 7, "manual refresh must send exactly seven read-only requests");
   ok &= require(sent.value(0).command == QStringLiteral("1008_20170623_dt_0"),
                 "daily/weekly command mismatch");
@@ -297,8 +330,9 @@ int main(int argc, char* argv[]) {
   ok &= require(controller.opportunityPackets().contains(QStringLiteral("1008_20220603_swa_0_0")) &&
                     controller.opportunityPackets().value(QStringLiteral("1008_20220603_swa_0_0"))
                         .toObject().value(QStringLiteral("ti")).toInt(-1) == 0 &&
-                    !controller.opportunityPackets().contains(QStringLiteral("110_123_0")),
-                "zero counter was lost or overflowing derived opportunity count was accepted");
+                    controller.opportunityPackets().value(QStringLiteral("110_123_0")).toObject()
+                        .value(QStringLiteral("rdb")).toInt() == std::numeric_limits<int>::max(),
+                "raw counters were discarded because an independently derived allowance would overflow");
 
   sendObject({{QStringLiteral("_cmd"), QStringLiteral("16_24_A")},
               {QStringLiteral("zao1"), QJsonObject{{QStringLiteral("ct"), 0}, {QStringLiteral("bct"), 0}}},
@@ -556,6 +590,28 @@ int main(int argc, char* argv[]) {
         completeSummary.weekOpportunities.total == 2 + 4;
     if (!completeReported) reportSummary("complete", completeSummary.todayOpportunities);
     ok &= require(completeReported, "fully confirmed sources were not reported as a complete total");
+    const auto publishRuleFixture = [&](const QJsonObject& value) {
+      return writeCatalogFixture(QDir(root.path()).filePath(QStringLiteral("catalog/routine-overview.json")),
+          QJsonDocument(value).toJson(QJsonDocument::Compact)) &&
+          runCatalogRequest(&catalogIo, CatalogKind::Routine, CatalogRequestMode::Reload);
+    };
+    const auto changedRules = withSyntheticRoutineRuleValue(
+        withSyntheticRoutineRuleValue(publicRoot, QStringLiteral("nationalCompetition"), QStringLiteral("dailyBase"), 43),
+        QStringLiteral("starAdventure"), QStringLiteral("weeklyLimit"), 9);
+    ok &= require(publishRuleFixture(changedRules), "changed public allowance fixture did not reload");
+    const auto changedSummary = analyzer.routineSummary();
+    ok &= require(changedSummary.todayOpportunities.total == completeSummary.todayOpportunities.total + 3 &&
+                  changedSummary.weekOpportunities.total == completeSummary.weekOpportunities.total + 3,
+                  "asset analysis ignored the current shared opportunity rules");
+    ok &= require(publishRuleFixture(legacyRoot), "legacy public fixture did not reload");
+    const auto legacySummary = analyzer.routineSummary();
+    ok &= require(legacySummary.todayOpportunities.total == 2 + 1 + 2 + 3 &&
+                  legacySummary.todayOpportunities.confirmedSources == 4 &&
+                  legacySummary.weekOpportunities.total == 4 &&
+                  legacySummary.weekOpportunities.confirmedSources == 1 &&
+                  !legacySummary.todayOpportunityKnown && !legacySummary.weekOpportunityKnown,
+                  "missing public rules erased direct account counts or invented derived amounts");
+    ok &= require(publishRuleFixture(publicRoot), "original source-bound public rules were not restored");
     // Arena counters are the split sources: each returned field is its own
     // contribution, and a field the game never returned stays pending.
     deliver(&summaryRepository, {{QStringLiteral("_cmd"), QStringLiteral("16_24_A")},

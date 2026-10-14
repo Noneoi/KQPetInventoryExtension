@@ -6,6 +6,7 @@
 #include "domain/shop_pet_eligibility.h"
 #include "domain/shop_actionability.h"
 #include "domain/activity_shop_observation.h"
+#include "contracts/public_data_detail.h"
 
 #include <QDialog>
 #include <QHash>
@@ -40,6 +41,7 @@ public:
   void setMaterialCounts(const QHash<QString, qint64>& counts, bool valid);
   void setReadOnlyObservations(const QJsonObject& packets);
   void setCatalogSnapshot(std::shared_ptr<const ShopCatalogSnapshot> catalog, QDate businessDate);
+  void setPublicDataset(PublicDatasetSnapshotHandle dataset);
   void setQuotaValidity(quint64 revision, const QHash<QString, ShopCondition>& validity);
   void setStatus(const QString& status, const QString& details = {});
   void setRefreshRunning(bool running);
@@ -71,6 +73,7 @@ private:
     ShopExchangeGood good;
     int tableRow = 0;
     QString stableKey;
+    PublicDatasetSnapshotHandle dataset;
   };
   struct CachedPetRow {
     QJsonObject brief;
@@ -137,6 +140,9 @@ private:
   QPushButton* refresh_ = nullptr;
   QPushButton* refreshCatalog_ = nullptr;
   QPushButton* openShop_ = nullptr;
+  QPushButton* goodDetails_ = nullptr;
+  PublicDatasetSnapshotHandle publicDataset_, catalogDataset_, currentGoodDataset_;
+  PublicDataDetailContext renderedPetData_;
   QComboBox* sourceFilter_ = nullptr;
   QLineEdit* goodSearch_ = nullptr;
   QTimer* goodSearchDebounce_ = nullptr;

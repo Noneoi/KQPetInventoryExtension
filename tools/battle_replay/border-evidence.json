@@ -1,0 +1,1239 @@
+{
+  "format": 1,
+  "checkedOn": "2026-10-08",
+  "scope": "Summoned (green) and selected Yuan-neng target (pink) borders. Colors are the user requirement, not decoded protocol fields.",
+  "packages": [
+    {
+      "resource": "library/interfaces",
+      "version": "20260930468207480",
+      "url": "http://aoqi.100bt.com/play/library/interfaces~20260930468207480.swf",
+      "file": "library_interfaces.swf",
+      "bytes": 621582,
+      "sha256": "2a7b34e20b998b40e38fea17050fde581c10ae22b6f1750632709a1dc8ad6872"
+    },
+    {
+      "resource": "battle/battle",
+      "version": "260930623185041",
+      "url": "http://aoqi.100bt.com/play/battle/battle~260930623185041.swf",
+      "file": "battle_battle.swf",
+      "bytes": 138593,
+      "sha256": "e429b57fae82a8af9dd92f0d6ec7f6ff1612f743a790f9036987cd1c4ea73a75"
+    },
+    {
+      "resource": "js/core.js",
+      "version": "2026073132857772",
+      "url": "https://aoqi.100bt.com/h5/js/core~2026073132857772.js",
+      "file": "build-battle-reference\\border-official\\js\\core.js",
+      "bytes": 3513231,
+      "sha256": "6199a97da70e258ccf9ec7797f750bf237f0abf28741f4a25cc9da6bb7efbf77"
+    },
+    {
+      "resource": "js/services/battleservice.js",
+      "version": "2026082769761852",
+      "url": "https://aoqi.100bt.com/h5/js/services/battleservice~2026082769761852.js",
+      "file": "build-battle-reference\\border-official\\js\\services\\battleservice.js",
+      "bytes": 296278,
+      "sha256": "72ae95cd7ce17f204503193a1503c758640e36483c8a269ab9b15f5e607b07c0"
+    },
+    {
+      "resource": "js/services/formationservice.js",
+      "version": "2026073132857772",
+      "url": "https://aoqi.100bt.com/h5/js/services/formationservice~2026073132857772.js",
+      "file": "build-battle-reference\\border-official\\js\\services\\formationservice.js",
+      "bytes": 152886,
+      "sha256": "08f9fe8111a727fbaa6d23921b3f63921276ef5f2a2cbf62c89515bf907697ab"
+    },
+    {
+      "resource": "js/services/formationpanelservicev3.js",
+      "version": "2026080630264420",
+      "url": "https://aoqi.100bt.com/h5/js/services/formationpanelservicev3~2026080630264420.js",
+      "file": "build-battle-reference\\border-official\\js\\services\\formationpanelservicev3.js",
+      "bytes": 228643,
+      "sha256": "f0ce0965e7e2281fe2bb271caf6a9a293617bb3d2ea4459196e97393fec251a2"
+    },
+    {
+      "resource": "config/formation/transformskillconfig.json",
+      "version": "2026091077394418",
+      "url": "https://aoqi.100bt.com/h5/config/formation/transformskillconfig~2026091077394418.json",
+      "file": "build-battle-reference\\border-official\\config\\formation\\transformskillconfig.json",
+      "bytes": 23058,
+      "sha256": "aaad2e68f2e66efae6ad60e4d8d6343dbd9572c64b8aff1c14fc13bea60819aa"
+    },
+    {
+      "resource": "js/aqlib.js",
+      "version": "2026093092452521",
+      "url": "https://aoqi.100bt.com/h5/js/aqlib~2026093092452521.js",
+      "file": "build-battle-reference\\border-official\\js\\aqlib.js",
+      "bytes": 2014184,
+      "sha256": "b8d10e7b4841fad5729174d46c4ebfd11ae16c46baeba2cf5589c8941232ed2c"
+    },
+    {
+      "resource": "formation/formationservice",
+      "version": "20260930468207480",
+      "url": "https://aoqi.100bt.com/play/formation/formationservice~20260930468207480.swf",
+      "file": "build-battle-reference\\border-official\\formation_formationservice.swf",
+      "bytes": 173486,
+      "sha256": "5ac5a46cee06f6d41928ae492f020a9f5f5b71065a5795b3dc3d38942bbd47f5"
+    },
+    {
+      "resource": "formationpanelv3/formationpanelservicev3",
+      "version": "20260930468207480",
+      "url": "https://aoqi.100bt.com/play/formationpanelv3/formationpanelservicev3~20260930468207480.swf",
+      "file": "build-battle-reference\\border-official\\formationpanelv3_formationpanelservicev3.swf",
+      "bytes": 140060,
+      "sha256": "5f98d54bae92b07ce97186771960dacc572bb13c8aa2d0511b95afe178329188"
+    }
+  ],
+  "confirmedRules": [
+    {
+      "topic": "green summon border",
+      "rule": "cts[].ics maps directly to FighterInfo.isSummoned. Use Fighter.summoned. is is initial summon-called-out, not the classification itself. Pending summoned units remain classified as summoned while presence is shown separately."
+    },
+    {
+      "topic": "clone separation",
+      "rule": "ias and ibs mean isSelfReplication and isSelfReplicationCalledOut. Clone alone does not establish summon or Yuan-neng status."
+    },
+    {
+      "topic": "chaser separation",
+      "rule": "icr means isChaser. SetupFighterCommand pairs a chaser with a non-chaser at the same x/y for its origin avatar. Chaser alone gives no Yuan-neng evidence."
+    },
+    {
+      "topic": "Yuan-neng definition",
+      "rule": "Official FormationPanelV3 labels the non-self transform selector 元能技. ELEMENT_SKILL=元素技(type0,attribute) and ENERGIZE_SKILL=赋能技(type1,buff). SELF_ELEMENT_SKILL=幻元技(type2,self) is separate."
+    },
+    {
+      "topic": "pink target when formation is available",
+      "rule": "Use a battle-corresponding formation tsd transform section whose official config skillType is 0 or 1, then its target ID/effect-index map (petHasTransformEffect). Match team+player+id. Preserve both green and pink indicators if both hold."
+    }
+  ],
+  "unverified": [
+    {
+      "field": "cts[].ibat",
+      "status": "unverified meaning",
+      "finding": "No reader or direct field name found in the checked Flash and H5 client packages. Attribute-change correlation below is observation, not semantic proof. Do not label this flag 元能 until independent evidence confirms it."
+    },
+    {
+      "topic": "standalone replay pink target",
+      "status": "missing authoritative target link",
+      "finding": "All 500 logs omit formation tsd/transformSkillInfo, so direct target selection is unavailable. Conservative element-target recognition can separately be labelled 官方配置与日志唯一匹配 when the current official provider/effect and all initial observations match uniquely. Pure energize, self transforms and ambiguous cases remain unassigned."
+    }
+  ],
+  "ibatSearch": [
+    {
+      "file": "library_interfaces.swf",
+      "format": "decompressed-swf",
+      "ibatOccurrences": 0
+    },
+    {
+      "file": "battle_battle.swf",
+      "format": "decompressed-swf",
+      "ibatOccurrences": 0
+    },
+    {
+      "file": "border-official/formation_formationservice.swf",
+      "format": "decompressed-swf",
+      "ibatOccurrences": 0
+    },
+    {
+      "file": "border-official/formationpanelv3_formationpanelservicev3.swf",
+      "format": "decompressed-swf",
+      "ibatOccurrences": 0
+    },
+    {
+      "file": "border-official/js/aqlib.js",
+      "format": "javascript",
+      "ibatOccurrences": 0
+    },
+    {
+      "file": "border-official/js/core.js",
+      "format": "javascript",
+      "ibatOccurrences": 0
+    },
+    {
+      "file": "border-official/js/services/battleservice.js",
+      "format": "javascript",
+      "ibatOccurrences": 0
+    },
+    {
+      "file": "border-official/js/services/formationpanelservicev3.js",
+      "format": "javascript",
+      "ibatOccurrences": 0
+    },
+    {
+      "file": "border-official/js/services/formationservice.js",
+      "format": "javascript",
+      "ibatOccurrences": 0
+    }
+  ],
+  "officialSourceLocations": [
+    {
+      "file": "interfaces/scripts/mmo/interfaces/battle/data/FighterInfo.as",
+      "sha256": "86d6375c169fb1e2467ef0574e39c991e18197c828af294170eddb4543b00642",
+      "locations": [
+        {
+          "line": 120,
+          "code": "_loc2_._bSummoned = param1.ics;"
+        },
+        {
+          "line": 121,
+          "code": "_loc2_._bSummonedCallOut = param1.hasOwnProperty(\"is\") ? Boolean(param1[\"is\"]) : false;"
+        },
+        {
+          "line": 122,
+          "code": "_loc2_._bSelfReplication = param1.ias;"
+        },
+        {
+          "line": 123,
+          "code": "_loc2_._bSelfReplicationCalledOut = param1.ibs;"
+        },
+        {
+          "line": 138,
+          "code": "_loc2_._isChaser = param1[\"icr\"];"
+        }
+      ]
+    },
+    {
+      "file": "battle/scripts/mmo/battle/command/playbattle/SetupFighterCommand.as",
+      "sha256": "c0fa311d97f018b57a2593ac8d1dc9100c85a0f338067a98b5234615a3e8b940",
+      "locations": [
+        {
+          "line": 106,
+          "code": "if(!_loc4_.isChaser && _loc4_.initPosX == param1 && _loc4_.initPosY == param2)"
+        },
+        {
+          "line": 119,
+          "code": "if(fighterInfo.isChaser)"
+        }
+      ]
+    },
+    {
+      "file": "border-official/interfaces/scripts/mmo/interfaces/formation/TransformSkillType.as",
+      "sha256": "43d373ff52e8e3d6ad85e198424148ba184ee4d1a2b946b392c3239c326d4c66",
+      "locations": [
+        {
+          "line": 8,
+          "code": "public static const ELEMENT_SKILL:TransformSkillType = _enum(\"元素技\",[\"attribute\"],false);"
+        },
+        {
+          "line": 12,
+          "code": "public static const SELF_ELEMENT_SKILL:TransformSkillType = _enum(\"幻元技\",[\"attribute\"],true);"
+        },
+        {
+          "line": 10,
+          "code": "public static const ENERGIZE_SKILL:TransformSkillType = _enum(\"赋能技\",[\"buff\"],false);"
+        },
+        {
+          "line": 12,
+          "code": "public static const SELF_ELEMENT_SKILL:TransformSkillType = _enum(\"幻元技\",[\"attribute\"],true);"
+        }
+      ]
+    },
+    {
+      "file": "border-official/interfaces/scripts/mmo/interfaces/formation/TransformSkillInfo.as",
+      "sha256": "9f07c5d9531096c38be6347f89020356af8218671d70ed15ca8064b60817df2f",
+      "locations": [
+        {
+          "line": 26,
+          "code": "public static function parse(param1:Object, param2:FormationBase) : TransformSkillInfo"
+        },
+        {
+          "line": 55,
+          "code": "arr = str.split(\"&\");"
+        },
+        {
+          "line": 77,
+          "code": "petEffectArr = arr[1].split(\"#\");"
+        },
+        {
+          "line": 100,
+          "code": "internal static function parseStr(param1:String, param2:FormationBase, param3:Array) : TransformSkillInfo"
+        },
+        {
+          "line": 189,
+          "code": "public function petHasTransformEffect(param1:int) : Boolean"
+        }
+      ]
+    },
+    {
+      "file": "border-official/interfaces/scripts/mmo/interfaces/formation/FormationBase.as",
+      "sha256": "cdc688076f7a937dfadc7b888258596139a7226e278f0e6183ea9f8bd1bea2e8",
+      "locations": [
+        {
+          "line": 74,
+          "code": "_loc3_ = getValue([\"transformSkill\",\"tsd\"],param1);"
+        }
+      ]
+    },
+    {
+      "file": "border-official/formation/scripts/mmo/formation/transformskill/effect/TransformEnergizeEffect.as",
+      "sha256": "4551398e7d59027e6e90981ded5514168e26cb0b9a06f2e6daf3401f1100d983",
+      "locations": [
+        {
+          "line": 14,
+          "code": "public function effect(param1:TransformSkillDefine, param2:FormationBase, param3:int, param4:int) : void"
+        }
+      ]
+    }
+  ],
+  "officialJsFragments": [
+    {
+      "file": "border-official/js/services/formationpanelservicev3.js",
+      "sha256": "f0ce0965e7e2281fe2bb271caf6a9a293617bb3d2ea4459196e97393fec251a2",
+      "unicodeCharacterOffset": 97838,
+      "snippet": "getBaseSurroundingEffect(){if(null==this._petInfo)return n.default.NONE;if(this._model.data.formation.canTransformSkillEffect){let t=this._model.data.formation.transformSkillInfo;if(t.petHasTransformEffect(this._petInfo.id)){switch(this._formationService.getTransformSkillDefineById(t.transformSkill).skillType){case o.default.ELEMENT_SKILL:return n.default.TRANS_ATTR;case o.default.ENERGIZE_SKILL:return n.default.TRANS_SKILL}}}return super.getBaseSurroundingEffect()}resetCarrierIcon(){let t=this._petInfo."
+    },
+    {
+      "file": "border-official/js/services/formationpanelservicev3.js",
+      "sha256": "f0ce0965e7e2281fe2bb271caf6a9a293617bb3d2ea4459196e97393fec251a2",
+      "unicodeCharacterOffset": 224444,
+      "snippet": "class l extends r.default{constructor(t){super(t,\"\",\"元能技\"),this._infos=[],this._formationSvc=n.default(o.default.FormationService)}addListeners(){super.addListeners(),this._model.addEventListener(s.default.SELECT_TRANSFORM_TARGET,this.onTransformerOn,this)}removeListeners(){super.removeListeners(),this._model.removeEventListener(s.default.SELECT_TRANSFORM_TARGET,this.onTransformerOn,this)}updateData(){let t=this._model.data.formation,e=t.transformSkillInfo;this._infos=[];let i=this._model.getPetInfoOnFormation();for(let t=0;t<i.length;t++){let s=i[t];if(s&&s.transformSkill>0){this._formationSvc.getTransformSkillDefineById(s.transformSkill).skillType.selfEffective||(e&&e.transformer==s.id?this._infos.unshift(s):this._infos.push(s))}}this._transformEffective=t.canTransformSkillEffect,this.tryChangeSkill(e?e.transformSkill:0)}refreshContent(){super.refreshContent(),this.transformEffective&&this._infos.length>0?this.setItemDisplayPet(this.usingPet.faceId):this.setItemDisplay()}get tipsSkill(){return this._model.data.formation.transformSkill}isMultiOn(){return this._infos.length>1}isBlocked(){return this._infos.length<=0}getBlockedTips(){return\"未上阵元素师/赋能师\"}get usingPet(){return this.transformEffective&&this._infos.length>0?this._infos[0]:null}get transformEffective(){return this._model.data.formation.canTransformSkillEffect}doAction(){this._infos.length<1||new a.default(this._infos,this._model).show2(4,this._model.domain)}onTransformerOn(t){let e=t.params.id;for(let t=0;t<this._infos.length;t++){let "
+    },
+    {
+      "file": "border-official/js/aqlib.js",
+      "sha256": "b8d10e7b4841fad5729174d46c4ebfd11ae16c46baeba2cf5589c8941232ed2c",
+      "unicodeCharacterOffset": 1035741,
+      "snippet": "static parseServerResponce(e){var t=new l;t._id=e.id,t._sName=e.name,t._sCustomName=n.default.isNullOrEmpty(e.customName)?null:e.customName,t._nRaceId=e.raceId,t._nFaceId=e.faceId,t._oRaceId=e.hasOwnProperty(\"oRaceId\")?e.oRaceId:t._nRaceId,t._oFaceId=e.hasOwnProperty(\"oFaceId\")?e.oFaceId:t._nFaceId,t._nLevel=e.lvl,t._nCurHp=e.hp,t._nMaxHp=e.maxHp,t._nCurSp=e.shp,t._nCurPower=e.vigour,t._bSummoned=e.ics,t._bSelfReplication=e.ias,t._bSelfReplicationCalledOut=e.ibs,t._nNormalSkill=e.nskill,t._nUniqueSkill=e.uskills,t._nSuperUniqueSkill=e.suskill,t._arrRaceTypeIds=n.default.split2IntegerArray(e.attr),t._nInitPosX=e.x,t._nInitPosY=e.y,t._arrInitBuffIds=[],e.hasOwnProperty(\"bfs\")&&\"\"!=e.bfs&&(t._arrInitBuffIds=n.default.split2IntegerArray(e.bfs));var i=l.petDictService.getDataItemByRaceId(t._nRaceId);return e.hasOwnProperty(\"icr\")&&(t._isChaser=e.icr),t._nJobId=i.job,t._nMaxPower=i.maxPower,t}static get petDictService(){return a.default.getService(s.default.PetDictionaryDataService)}}i.default=l},{\"../../../util/StringUtil\":1121,\"../../ServiceConfig\":371,\"../../ServiceContainer\":372,\"./Rep"
+    }
+  ],
+  "sampleAudit": {
+    "folder": "C:\\keqi\\config64\\brush",
+    "counts": {
+      "files": 500,
+      "players": 1000,
+      "fighters": 8049
+    },
+    "initialFlagCombinations": {
+      "none": 5746,
+      "ics": 935,
+      "ibat": 754,
+      "ias,ibs": 5,
+      "icr": 358,
+      "ias": 192,
+      "ics,ibat": 59
+    },
+    "playerFieldOccurrences": {
+      "x": 1000,
+      "items": 1000,
+      "type": 1000,
+      "y": 1000,
+      "ppbf": 1000,
+      "id": 1000,
+      "name": 1000,
+      "nn": 1000,
+      "cts": 1000,
+      "ea": 1000,
+      "pcbfs": 1000,
+      "hs": 1000,
+      "sp": 1000,
+      "drs": 1000,
+      "fm": 1000,
+      "fp": 1000,
+      "fl": 1000
+    },
+    "fighterFieldOccurrences": {
+      "raceId": 8049,
+      "faceId": 8049,
+      "id": 8049,
+      "ias": 8049,
+      "ibat": 8049,
+      "customName": 8049,
+      "oRaceId": 8049,
+      "ibs": 8049,
+      "icr": 8049,
+      "is": 8049,
+      "attr": 8049,
+      "name": 8049,
+      "y": 8049,
+      "nskill": 8049,
+      "oFaceId": 8049,
+      "shp": 8049,
+      "bfs": 8049,
+      "uskills": 8049,
+      "lvl": 8049,
+      "hp": 8049,
+      "suskill": 8049,
+      "vigour": 8049,
+      "ics": 8049,
+      "x": 8049,
+      "maxHp": 8049,
+      "title": 261
+    },
+    "ibatOriginalAttributeComparisons": {
+      "25 -> 27": 16,
+      "25 -> 26": 98,
+      "23 -> 26": 6,
+      "25 -> 24": 25,
+      "23 -> 27": 242,
+      "23 -> 22": 192,
+      "26 -> 21": 81,
+      "26 -> 23": 56,
+      "27 -> 23": 11,
+      "25 -> 21": 86
+    },
+    "ibatMissingOriginalRaceAttributes": 0,
+    "ibatUnchangedOriginalAttributes": 0,
+    "comparisonCaution": "The comparison uses current official Flash dictionary base+update, parameter 9 from PetDictionaryDataItem.create; it is descriptive and must not be used as a Yuan-neng classification rule."
+  },
+  "examples": {
+    "ics": {
+      "file": "20260904220042-1-fail.txt",
+      "sha256": "86d3a187e8c25fac3569927de04dd6adae6a7adfba97f420ec9dd2223ea80c85",
+      "path": "br.or.team[0].players[0].cts[2]",
+      "team": 0,
+      "player": "side0-player0",
+      "fighter": {
+        "id": 1208,
+        "name": "[灵初]继承嫡光·以世",
+        "raceId": 6996,
+        "oRaceId": 6996,
+        "x": 2,
+        "y": 0,
+        "attr": "26",
+        "ics": true,
+        "is": false,
+        "ias": false,
+        "ibs": false,
+        "icr": false,
+        "ibat": false,
+        "bfs": "400028,400026,400025,30311,500073"
+      },
+      "officialOriginalRaceAttributes": "26"
+    },
+    "ibat": {
+      "file": "20260904220042-1-fail.txt",
+      "sha256": "86d3a187e8c25fac3569927de04dd6adae6a7adfba97f420ec9dd2223ea80c85",
+      "path": "br.or.team[1].players[0].cts[5]",
+      "team": 1,
+      "player": "side1-player0",
+      "fighter": {
+        "id": 6,
+        "name": "[灵初]擎穹凰临·诺亚",
+        "raceId": 7517,
+        "oRaceId": 7517,
+        "x": 0,
+        "y": 2,
+        "attr": "27",
+        "ics": false,
+        "is": false,
+        "ias": false,
+        "ibs": false,
+        "icr": false,
+        "ibat": true,
+        "bfs": "31133,500073"
+      },
+      "officialOriginalRaceAttributes": "25"
+    },
+    "ias,ibs": {
+      "file": "20260918114218-1-fail.txt",
+      "sha256": "cb065fee28e81ceda15ff86c30487db31781925b496ce2b85cb813bf8919ce82",
+      "path": "br.or.team[1].players[0].cts[2]",
+      "team": 1,
+      "player": "side1-player0",
+      "fighter": {
+        "id": 9,
+        "name": "猩红王储·以撒",
+        "raceId": 7002,
+        "oRaceId": 7551,
+        "x": 2,
+        "y": 0,
+        "attr": "26",
+        "ics": false,
+        "is": false,
+        "ias": true,
+        "ibs": true,
+        "icr": false,
+        "ibat": false,
+        "bfs": "500074"
+      },
+      "officialOriginalRaceAttributes": "26"
+    },
+    "icr": {
+      "file": "20260918115727-1-fail.txt",
+      "sha256": "d50fec6406e940fadacaba3effcde6b685ae7531521d6c4e5152ddeddc27469a",
+      "path": "br.or.team[1].players[0].cts[4]",
+      "team": 1,
+      "player": "side1-player0",
+      "fighter": {
+        "id": 9,
+        "name": "蓝庭清影·秩序",
+        "raceId": 7388,
+        "oRaceId": 7388,
+        "x": 1,
+        "y": 1,
+        "attr": "22",
+        "ics": false,
+        "is": false,
+        "ias": false,
+        "ibs": false,
+        "icr": true,
+        "ibat": false,
+        "bfs": "500073"
+      },
+      "officialOriginalRaceAttributes": "22"
+    },
+    "ias": {
+      "file": "20260924183137-1-fail.txt",
+      "sha256": "eea45f4a6c30123c5d870a8f5afcbf8a9b93a798d5cc6268e64d38cc6931c46b",
+      "path": "br.or.team[1].players[0].cts[8]",
+      "team": 1,
+      "player": "side1-player0",
+      "fighter": {
+        "id": 1000005,
+        "name": "厨魂激燃·诺亚",
+        "raceId": 6877,
+        "oRaceId": 6877,
+        "x": 2,
+        "y": 2,
+        "attr": "23",
+        "ics": false,
+        "is": false,
+        "ias": true,
+        "ibs": false,
+        "icr": false,
+        "ibat": false,
+        "bfs": "30153,18327,18328,500073"
+      },
+      "officialOriginalRaceAttributes": "23"
+    },
+    "ics,ibat": {
+      "file": "20260924185350-1-fail.txt",
+      "sha256": "b3fdc56270e18306ab67799aa1bfedcc065bfd0b123b03c9310df791e30ba4a4",
+      "path": "br.or.team[0].players[0].cts[1]",
+      "team": 0,
+      "player": "side0-player0",
+      "fighter": {
+        "id": 1080,
+        "name": "槛外长江空自流·龙炎",
+        "raceId": 6574,
+        "oRaceId": 6574,
+        "x": 1,
+        "y": 0,
+        "attr": "27",
+        "ics": true,
+        "is": false,
+        "ias": false,
+        "ibs": false,
+        "icr": false,
+        "ibat": true,
+        "bfs": "400028,400026,400025,500074"
+      },
+      "officialOriginalRaceAttributes": "23"
+    }
+  },
+  "derivedRecognitionRule": {
+    "status": "configuration/log cross-check, not direct protocol semantics",
+    "label": "官方配置与日志唯一匹配",
+    "implementation": "audit_empowerment.py and src/domain/battle_replay_empowerment.cpp",
+    "requirements": [
+      "Same team and player; exactly one non-self type0/type1 transform provider in initial records.",
+      "Every current race must have official nativeAttributes and transformSkillNo; missing config means unknown.",
+      "Provider must be type0 with one ARR_RACE_TYPE:<attribute>:ALL: effect.",
+      "A changed unit may be excluded as independent self transformation only if its own type2 SELF_RACE_TYPE:<attribute>:SELF: effect exactly matches its initial attributes, those attributes differ from the element result, and its identity is not clone/chaser/initially transformed.",
+      "After this separation exactly one changed unit remains, and its initial attributes match the element effect. Same-attribute self and element effects stay ambiguous.",
+      "Target differs from source, has no own type2 skill, no clone/chaser marker, and unchanged initial raceId/oRaceId.",
+      "Target raw ibat is true as additional corroboration only; the field is not assigned the 元能 meaning."
+    ],
+    "limitations": [
+      "The download-time official configuration may differ from the historical battle version.",
+      "No inference for pure type1 energize without direct selection evidence.",
+      "Shared Buffs on all same-attribute units do not identify the one selected transform target."
+    ],
+    "version": 2
+  },
+  "newOfficialProvenance": {
+    "pets": {
+      "retrievedUtc": "2026-10-08T13:05:20.292433+00:00",
+      "manifestSha256": "5797a33bccd4d04f82edf6f043ae9cfc8dbde8beb306aa63bd8cba8673d2dddb",
+      "packages": [
+        {
+          "resource": "pet/petdictionarydata",
+          "version": "20260930468207480",
+          "url": "https://aoqi.100bt.com/play/pet/petdictionarydata~20260930468207480.swf",
+          "sha256": "fc86e5396a3269ffccd93721ba770fb4d3a1e4c51803d7388da3114d3e56f666",
+          "entries": 9459,
+          "decompiledFile": "petdictionarydata/scripts/mmo/pet/petdictionarydata/PetDictionaryDataContents.as",
+          "decompiledSha256": "f2a32d1823a07c7faad9cb6686a0e985f219b8b21ab28e33fbfe258395e446d4"
+        },
+        {
+          "resource": "pet/petdictionarydataupdate",
+          "version": "20260930468207480",
+          "url": "https://aoqi.100bt.com/play/pet/petdictionarydataupdate~20260930468207480.swf",
+          "sha256": "23c9fb3435271cfa81e5c785588be152d1d9fcb9d66179ee6939990d73664b5c",
+          "entries": 330,
+          "decompiledFile": "petdictionarydataupdate/scripts/mmo/pet/petdictionarydata/PetDictionaryDataContentsUpdate.as",
+          "decompiledSha256": "54af4cbe28446aec9019db951446a224f35cc08327b2384f47b4b4cec2d68de4"
+        }
+      ]
+    },
+    "formation": {
+      "manifestSha256": "5797a33bccd4d04f82edf6f043ae9cfc8dbde8beb306aa63bd8cba8673d2dddb",
+      "resource": "formation/formationservice",
+      "version": "20260930468207480",
+      "url": "https://aoqi.100bt.com/play/formation/formationservice~20260930468207480.swf",
+      "sha256": "5ac5a46cee06f6d41928ae492f020a9f5f5b71065a5795b3dc3d38942bbd47f5",
+      "entries": 145,
+      "decompiledFile": "formation/scripts/mmo/formation/transformskill/TransformSkillConfig.as",
+      "decompiledSha256": "f8b1864955479182fa9b228001ddef82bc67262538a366f6116f3662d6bf86c5"
+    }
+  },
+  "userSpecifiedSample": {
+    "file": "20260924194155-3-win.txt",
+    "userSpecifiedSource": "永夜君王·极",
+    "result": [
+      {
+        "file": "20260924194155-3-win.txt",
+        "sha256": "f0b07ab384c6d5524c83954f385ae0e383ea0da8fa02e6891dbc09aafd823f07",
+        "team": 0,
+        "player": "side0-player0",
+        "status": "matched",
+        "reason": "official_configuration_and_log_unique_match",
+        "providers": [
+          {
+            "id": 1685,
+            "name": "永夜君王·极",
+            "skillId": "507396",
+            "transformType": 0
+          }
+        ],
+        "attributeChanges": [
+          {
+            "id": 1169,
+            "name": "决战终局·光明王",
+            "native": [
+              "25"
+            ],
+            "initial": [
+              "27"
+            ],
+            "rawIbat": true
+          }
+        ],
+        "sourceId": 1685,
+        "sourceName": "永夜君王·极",
+        "targetId": 1169,
+        "targetName": "决战终局·光明王",
+        "targetSlot": 7,
+        "targetSummoned": false,
+        "independentSelfTransforms": [],
+        "skillId": "507396",
+        "basis": "官方配置与日志唯一匹配"
+      },
+      {
+        "file": "20260924194155-3-win.txt",
+        "sha256": "f0b07ab384c6d5524c83954f385ae0e383ea0da8fa02e6891dbc09aafd823f07",
+        "team": 1,
+        "player": "side1-player0",
+        "status": "matched",
+        "reason": "official_configuration_and_log_unique_match",
+        "providers": [
+          {
+            "id": 1000008,
+            "name": "[灵初]至元御寰·极",
+            "skillId": "507396",
+            "transformType": 0
+          }
+        ],
+        "attributeChanges": [
+          {
+            "id": 1000002,
+            "name": "厨魂激燃·诺亚",
+            "native": [
+              "23"
+            ],
+            "initial": [
+              "27"
+            ],
+            "rawIbat": true
+          }
+        ],
+        "sourceId": 1000008,
+        "sourceName": "[灵初]至元御寰·极",
+        "targetId": 1000002,
+        "targetName": "厨魂激燃·诺亚",
+        "targetSlot": 2,
+        "targetSummoned": true,
+        "independentSelfTransforms": [],
+        "skillId": "507396",
+        "basis": "官方配置与日志唯一匹配"
+      }
+    ],
+    "skillDefinition": {
+      "name": "灵初元素极转化技",
+      "description": "将一只精灵变为神无极",
+      "autoEffectDescription": "增强全阵神无极精灵",
+      "effectArr": [
+        "ARR_RACE_TYPE:27:ALL:"
+      ],
+      "autoEffectArr": [
+        "27::RaceTypeEffected:27@10027"
+      ],
+      "type": 0,
+      "transformType": 0,
+      "source": "formation/formationservice"
+    },
+    "dictionaryEntries": {
+      "7412": {
+        "name": "永夜君王·极",
+        "maxPower": 100,
+        "ultSuperSkillNo": 0,
+        "nativeAttributes": [
+          "27"
+        ],
+        "transformSkillNo": 507396,
+        "source": "pet/petdictionarydataupdate"
+      },
+      "6834": {
+        "name": "决战终局·光明王",
+        "maxPower": 100,
+        "ultSuperSkillNo": 0,
+        "nativeAttributes": [
+          "25"
+        ],
+        "transformSkillNo": 0,
+        "source": "pet/petdictionarydata"
+      },
+      "7396": {
+        "name": "[灵初]至元御寰·极",
+        "maxPower": 100,
+        "ultSuperSkillNo": 0,
+        "nativeAttributes": [
+          "27"
+        ],
+        "transformSkillNo": 507396,
+        "source": "pet/petdictionarydata"
+      },
+      "6877": {
+        "name": "厨魂激燃·诺亚",
+        "maxPower": 100,
+        "ultSuperSkillNo": 0,
+        "nativeAttributes": [
+          "23"
+        ],
+        "transformSkillNo": 0,
+        "source": "pet/petdictionarydata"
+      }
+    },
+    "notes": [
+      "The friendly target is 决战终局·光明王, id1169, slot7: native25 → initial27.",
+      "The enemy target is 厨魂激燃·诺亚, id1000002, slot2: native23 → initial27; ics=true also confirms a summon border.",
+      "Friendly clone id1689 has oRace6779 but current race6574: compare current-race native23 to initial23, so it is not the target."
+    ]
+  },
+  "conservativeRuleScan": {
+    "format": 1,
+    "ruleVersion": 2,
+    "catalogSha256": "f672618b0b58412293a8a4225fa012e8b47551bd98c8ed7519ba078889a998de",
+    "basis": "官方配置与日志唯一匹配（非ibat字段释义）",
+    "limitations": [
+      "Uses downloaded official configuration; historical package identity is not known.",
+      "Ambiguous providers/targets, self transforms and pure energize targets are not inferred."
+    ],
+    "files": 500,
+    "filesWithMatch": 317,
+    "playerOutcomes": {
+      "no_evidence": 516,
+      "ambiguous": 91,
+      "matched": 393
+    },
+    "reasons": {
+      "no_initial_attribute_difference": 11,
+      "multiple_nonself_transform_providers": 91,
+      "initial_raw_marker_not_confirmed": 2,
+      "official_configuration_and_log_unique_match": 393,
+      "no_nonself_transform_provider": 283,
+      "energize_target_not_in_log": 220
+    },
+    "cppComparison": {
+      "report": "build-battle-reference/empowerment-native-audit.json",
+      "independentVerification": "build-battle-reference/empowerment-verification.json",
+      "filesCompared": 500,
+      "mismatchCount": 0,
+      "checks": "Original input SHA-256 and unordered source/target/skillId tuples, including multiplicity."
+    },
+    "examples": {
+      "no_initial_attribute_difference": [
+        {
+          "file": "20260904220042-1-fail.txt",
+          "sha256": "86d3a187e8c25fac3569927de04dd6adae6a7adfba97f420ec9dd2223ea80c85",
+          "team": 0,
+          "player": "side0-player0",
+          "status": "no_evidence",
+          "reason": "no_initial_attribute_difference",
+          "providers": [
+            {
+              "id": 1195,
+              "name": "[灵初]造赋王者·以撒",
+              "skillId": "507006",
+              "transformType": 0
+            }
+          ],
+          "attributeChanges": []
+        },
+        {
+          "file": "20260904220053-2-fail.txt",
+          "sha256": "5f60fdc207357214aa414373909df78cced7510004979a22f82192986e4a0796",
+          "team": 0,
+          "player": "side0-player0",
+          "status": "no_evidence",
+          "reason": "no_initial_attribute_difference",
+          "providers": [
+            {
+              "id": 1195,
+              "name": "[灵初]造赋王者·以撒",
+              "skillId": "507006",
+              "transformType": 0
+            }
+          ],
+          "attributeChanges": []
+        }
+      ],
+      "multiple_nonself_transform_providers": [
+        {
+          "file": "20260904220042-1-fail.txt",
+          "sha256": "86d3a187e8c25fac3569927de04dd6adae6a7adfba97f420ec9dd2223ea80c85",
+          "team": 1,
+          "player": "side1-player0",
+          "status": "ambiguous",
+          "reason": "multiple_nonself_transform_providers",
+          "providers": [
+            {
+              "id": 4,
+              "name": "[灵初]至元御寰·极",
+              "skillId": "507396",
+              "transformType": 0
+            },
+            {
+              "id": 2,
+              "name": "暮色归家·启",
+              "skillId": "507495",
+              "transformType": 0
+            },
+            {
+              "id": 6,
+              "name": "[灵初]擎穹凰临·诺亚",
+              "skillId": "507517",
+              "transformType": 0
+            }
+          ],
+          "attributeChanges": [
+            {
+              "id": 6,
+              "name": "[灵初]擎穹凰临·诺亚",
+              "native": [
+                "25"
+              ],
+              "initial": [
+                "27"
+              ],
+              "rawIbat": true
+            }
+          ]
+        },
+        {
+          "file": "20260904220053-2-fail.txt",
+          "sha256": "5f60fdc207357214aa414373909df78cced7510004979a22f82192986e4a0796",
+          "team": 1,
+          "player": "side1-player0",
+          "status": "ambiguous",
+          "reason": "multiple_nonself_transform_providers",
+          "providers": [
+            {
+              "id": 4,
+              "name": "[灵初]至元御寰·极",
+              "skillId": "507396",
+              "transformType": 0
+            },
+            {
+              "id": 2,
+              "name": "暮色归家·启",
+              "skillId": "507495",
+              "transformType": 0
+            },
+            {
+              "id": 6,
+              "name": "[灵初]擎穹凰临·诺亚",
+              "skillId": "507517",
+              "transformType": 0
+            }
+          ],
+          "attributeChanges": [
+            {
+              "id": 6,
+              "name": "[灵初]擎穹凰临·诺亚",
+              "native": [
+                "25"
+              ],
+              "initial": [
+                "27"
+              ],
+              "rawIbat": true
+            }
+          ]
+        }
+      ],
+      "initial_raw_marker_not_confirmed": [
+        {
+          "file": "20260918114218-1-fail.txt",
+          "sha256": "cb065fee28e81ceda15ff86c30487db31781925b496ce2b85cb813bf8919ce82",
+          "team": 1,
+          "player": "side1-player0",
+          "status": "no_evidence",
+          "reason": "initial_raw_marker_not_confirmed",
+          "providers": [
+            {
+              "id": 7,
+              "name": "[灵初]擎穹凰临·诺亚",
+              "skillId": "507517",
+              "transformType": 0
+            }
+          ],
+          "attributeChanges": [
+            {
+              "id": 5,
+              "name": "逆时空·神源神女",
+              "native": [
+                "27"
+              ],
+              "initial": [
+                "25"
+              ],
+              "rawIbat": false
+            }
+          ]
+        },
+        {
+          "file": "20260918114229-2-win.txt",
+          "sha256": "79f58bfbba4a8285540cdef7df61a16d2461db1739959a555cc343e2dd08eb7c",
+          "team": 1,
+          "player": "side1-player0",
+          "status": "no_evidence",
+          "reason": "initial_raw_marker_not_confirmed",
+          "providers": [
+            {
+              "id": 7,
+              "name": "[灵初]擎穹凰临·诺亚",
+              "skillId": "507517",
+              "transformType": 0
+            }
+          ],
+          "attributeChanges": [
+            {
+              "id": 5,
+              "name": "逆时空·神源神女",
+              "native": [
+                "27"
+              ],
+              "initial": [
+                "25"
+              ],
+              "rawIbat": false
+            }
+          ]
+        }
+      ],
+      "official_configuration_and_log_unique_match": [
+        {
+          "file": "20260918114403-1-fail.txt",
+          "sha256": "d27adc56475caa8ac23f321a4fdc2075acfee69e083569d0771eb36c83367fec",
+          "team": 0,
+          "player": "side0-player0",
+          "status": "matched",
+          "reason": "official_configuration_and_log_unique_match",
+          "providers": [
+            {
+              "id": 1195,
+              "name": "[灵初]造赋王者·以撒",
+              "skillId": "507006",
+              "transformType": 0
+            }
+          ],
+          "attributeChanges": [
+            {
+              "id": 1173,
+              "name": "桃蕊拂剑·火次元",
+              "native": [
+                "23"
+              ],
+              "initial": [
+                "26"
+              ],
+              "rawIbat": true
+            }
+          ],
+          "sourceId": 1195,
+          "sourceName": "[灵初]造赋王者·以撒",
+          "targetId": 1173,
+          "targetName": "桃蕊拂剑·火次元",
+          "targetSlot": 7,
+          "targetSummoned": false,
+          "independentSelfTransforms": [],
+          "skillId": "507006",
+          "basis": "官方配置与日志唯一匹配"
+        },
+        {
+          "file": "20260918114413-2-fail.txt",
+          "sha256": "04d83cf3e7969fce17520f02d1f2c9f115d31affeaec4f8cb58d6ad2031b1fdb",
+          "team": 0,
+          "player": "side0-player0",
+          "status": "matched",
+          "reason": "official_configuration_and_log_unique_match",
+          "providers": [
+            {
+              "id": 1195,
+              "name": "[灵初]造赋王者·以撒",
+              "skillId": "507006",
+              "transformType": 0
+            }
+          ],
+          "attributeChanges": [
+            {
+              "id": 1173,
+              "name": "桃蕊拂剑·火次元",
+              "native": [
+                "23"
+              ],
+              "initial": [
+                "26"
+              ],
+              "rawIbat": true
+            }
+          ],
+          "sourceId": 1195,
+          "sourceName": "[灵初]造赋王者·以撒",
+          "targetId": 1173,
+          "targetName": "桃蕊拂剑·火次元",
+          "targetSlot": 7,
+          "targetSummoned": false,
+          "independentSelfTransforms": [],
+          "skillId": "507006",
+          "basis": "官方配置与日志唯一匹配"
+        }
+      ],
+      "no_nonself_transform_provider": [
+        {
+          "file": "20260918114403-1-fail.txt",
+          "sha256": "d27adc56475caa8ac23f321a4fdc2075acfee69e083569d0771eb36c83367fec",
+          "team": 1,
+          "player": "side1-player0",
+          "status": "no_evidence",
+          "reason": "no_nonself_transform_provider",
+          "providers": [],
+          "attributeChanges": []
+        },
+        {
+          "file": "20260918114413-2-fail.txt",
+          "sha256": "04d83cf3e7969fce17520f02d1f2c9f115d31affeaec4f8cb58d6ad2031b1fdb",
+          "team": 1,
+          "player": "side1-player0",
+          "status": "no_evidence",
+          "reason": "no_nonself_transform_provider",
+          "providers": [],
+          "attributeChanges": []
+        }
+      ],
+      "energize_target_not_in_log": [
+        {
+          "file": "20260918122000-1-fail.txt",
+          "sha256": "be110d20a416b22a4c190ee61a8e9ae8976456017f2c84672e1d810f6880fff8",
+          "team": 0,
+          "player": "side0-player0",
+          "status": "no_evidence",
+          "reason": "energize_target_not_in_log",
+          "providers": [
+            {
+              "id": 1060,
+              "name": "枪与花·王者",
+              "skillId": "506496",
+              "transformType": 1
+            }
+          ],
+          "attributeChanges": []
+        },
+        {
+          "file": "20260918122007-2-fail.txt",
+          "sha256": "8f5402ead704dd602edb84e3353f65119e6dafe34994b4eac2556450e2eb175e",
+          "team": 0,
+          "player": "side0-player0",
+          "status": "no_evidence",
+          "reason": "energize_target_not_in_log",
+          "providers": [
+            {
+              "id": 1060,
+              "name": "枪与花·王者",
+              "skillId": "506496",
+              "transformType": 1
+            }
+          ],
+          "attributeChanges": []
+        }
+      ]
+    }
+  },
+  "ibatIsNotSufficientExample": {
+    "file": "20260924183137-1-fail.txt",
+    "fighter": {
+      "maxHp": 4075031,
+      "ibat": true,
+      "id": 1732,
+      "shp": 0,
+      "attr": "22",
+      "faceId": 7560,
+      "ics": false,
+      "bfs": "400028,400026,400025,500073",
+      "suskill": 0,
+      "x": 2,
+      "raceId": 7560,
+      "ias": false,
+      "name": "[灵初]创始开初·昆吾",
+      "y": 1,
+      "vigour": 130,
+      "oRaceId": 7560,
+      "ibs": false,
+      "hp": 4075031,
+      "is": false,
+      "oFaceId": 7560,
+      "nskill": 107560,
+      "customName": "",
+      "uskills": "207560",
+      "icr": false,
+      "lvl": 120
+    },
+    "dictionary": {
+      "name": "[灵初]创始开初·昆吾",
+      "maxPower": 100,
+      "ultSuperSkillNo": 0,
+      "nativeAttributes": [
+        "23"
+      ],
+      "transformSkillNo": 507560,
+      "source": "pet/petdictionarydataupdate"
+    },
+    "skill": {
+      "name": "灵初黑金昆吾幻元技",
+      "description": "将自身变换属性",
+      "autoEffectDescription": "",
+      "effectArr": [
+        "SELF_RACE_TYPE:21:SELF:",
+        "SELF_RACE_TYPE:22:SELF:"
+      ],
+      "autoEffectArr": [],
+      "type": 2,
+      "transformType": 2,
+      "source": "formation/formationservice"
+    },
+    "finding": "The unit has raw ibat=true but its official skill is type2 SELF_RACE_TYPE. Never classify every ibat=true unit as a recipient of another unit's Yuan-neng skill."
+  },
+  "independentSelfTransformCoexistence": {
+    "terminology": "The user clarified 换元 refers to the documented 幻元, separate from 元能.",
+    "documentation": [
+      {
+        "file": "C:/Users/25982/Desktop/11/22/奥奇传说_布阵阵容与技能切换.md",
+        "lines": [
+          414,
+          433,
+          435,
+          439,
+          441,
+          443
+        ]
+      }
+    ],
+    "officialRule": "TransformSkillConfig.effect applies selfTransformSkillInfo first, then transformSkillInfo. An official matching self result different from the element result does not identify a second element target.",
+    "officialSources": [
+      {
+        "file": "formation/scripts/mmo/formation/transformskill/TransformSkillConfig.as",
+        "lines": [
+          203,
+          205,
+          207,
+          209
+        ],
+        "sha256": "f8b1864955479182fa9b228001ddef82bc67262538a366f6116f3662d6bf86c5"
+      },
+      {
+        "file": "border-official/interfaces/scripts/mmo/interfaces/formation/TransformSkillType.as",
+        "lines": [
+          8,
+          10,
+          12
+        ]
+      },
+      {
+        "file": "border-official/interfaces/scripts/mmo/interfaces/formation/FormationBase.as",
+        "lines": [
+          77,
+          78
+        ]
+      }
+    ],
+    "sample": {
+      "file": "20260924185350-1-fail.txt",
+      "sha256": "b3fdc56270e18306ab67799aa1bfedcc065bfd0b123b03c9310df791e30ba4a4",
+      "team": 0,
+      "player": "side0-player0",
+      "status": "matched",
+      "reason": "official_configuration_and_log_unique_match",
+      "providers": [
+        {
+          "id": 1685,
+          "name": "永夜君王·极",
+          "skillId": "507396",
+          "transformType": 0
+        }
+      ],
+      "attributeChanges": [
+        {
+          "id": 1080,
+          "name": "槛外长江空自流·龙炎",
+          "native": [
+            "23"
+          ],
+          "initial": [
+            "27"
+          ],
+          "rawIbat": true
+        },
+        {
+          "id": 1684,
+          "name": "糖梦如愿·小亚咪",
+          "native": [
+            "26"
+          ],
+          "initial": [
+            "23"
+          ],
+          "rawIbat": true
+        }
+      ],
+      "sourceId": 1685,
+      "sourceName": "永夜君王·极",
+      "targetId": 1080,
+      "targetName": "槛外长江空自流·龙炎",
+      "targetSlot": 2,
+      "targetSummoned": true,
+      "independentSelfTransforms": [
+        {
+          "id": 1684,
+          "name": "糖梦如愿·小亚咪",
+          "initial": [
+            "23"
+          ],
+          "skillId": "507390",
+          "effect": "SELF_RACE_TYPE:23:SELF:"
+        }
+      ],
+      "skillId": "507396",
+      "basis": "官方配置与日志唯一匹配"
+    },
+    "newlyRecognizedPlayers": 142,
+    "sameResultGuard": "If the self-transform result equals the element result, it is not excluded from ambiguity."
+  },
+  "privacy": {
+    "schema": 1,
+    "playerAlias": "side{teamId}-player{zeroBasedPlayerIndex}",
+    "scope": "Player identifiers in the included battle excerpts are pseudonymized. The original battle reports are not modified.",
+    "evidence": "Sample filenames, JSON pointers, battle values, official rules and original source hashes are retained. Source hashes refer to the original reports, not the pseudonymized excerpts.",
+    "names": "Official species and skill names are preserved. Private custom nicknames are omitted or cleared.",
+    "mapping": "No reverse identity mapping is included."
+  }
+}

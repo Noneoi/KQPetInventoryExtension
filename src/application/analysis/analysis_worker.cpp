@@ -20,7 +20,8 @@ bool AnalysisVersionStamp::operator==(const AnalysisVersionStamp& other) const {
       limits == other.limits && analysis == other.analysis && routines == other.routines &&
       routineCatalog == other.routineCatalog && catalogDay == other.catalogDay &&
       trust == other.trust && metadata == other.metadata && quotaFreshness == other.quotaFreshness &&
-      routineFreshness == other.routineFreshness && build == other.build && profile == other.profile;
+      routineFreshness == other.routineFreshness && build == other.build && profile == other.profile &&
+      publicInputs == other.publicInputs;
 }
 
 bool AnalysisJobKey::operator==(const AnalysisJobKey& other) const {

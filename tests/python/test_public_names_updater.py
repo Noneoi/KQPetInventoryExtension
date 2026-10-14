@@ -1,8 +1,10 @@
+import hashlib
 import json
 from pathlib import Path
 import sys
 import tempfile
 import unittest
+from unittest import mock
 
 sys.dont_write_bytecode = True
 sys.path.insert(0, str(Path(__file__).resolve().parents[2] / "tools"))
@@ -17,6 +19,11 @@ public static const FUSION_JOBS:Array = [{"jobs":[[1],[88]],"name":"新组合"}]
 
 
 class NamesTests(unittest.TestCase):
+    def setUp(self):
+        blocked = mock.patch("urllib.request.urlopen", side_effect=AssertionError("No real network"))
+        blocked.start()
+        self.addCleanup(blocked.stop)
+
     def test_new_non_contiguous_ids_and_official_short_names(self):
         self.assertEqual(enum_names(ATTR, "PetAttr"), {"1":"普","99":"新属性"})
         jobs = enum_names(JOBS, "PetJob")
@@ -68,6 +75,59 @@ class NamesTests(unittest.TestCase):
             self.assertFalse(needs_names_update(current,versions))
             self.assertFalse(update_names(updater,current,versions,resources))
             self.assertEqual(updater.calls,[])
+
+    def test_same_version_changed_package_hash_rebuilds_only_affected_name_sheets(self):
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            class Versions(dict):
+                pass
+            class Fake:
+                scratch = root
+                def __init__(self):
+                    self.calls = []
+                    self.texts = {"PetAttr": ATTR, "PetJob": JOBS,
+                                  "MoneyData": '"1":new Money(1,"金币",1),"777":new Money(777,"基础货币",1)',
+                                  "MoneyData_Update": '"888":new Money(888,"增量货币",1)'}
+                    self.sheets = {NAME_RESOURCES[0][1]: ("PetAttr", "PetJob"),
+                                   NAME_RESOURCES[1][1]: ("MoneyData",), NAME_RESOURCES[2][1]: ("MoneyData_Update",)}
+                def payload(self, key):
+                    return b"FWS" + '\n'.join(name + '\n' + self.texts[name] for name in self.sheets[key]).encode()
+                def resource(self, key, versions):
+                    self.calls.append(key)
+                    path = root / (key.replace('/', '_') + '.swf')
+                    path.write_bytes(self.payload(key))
+                    return path, {"version": versions[key], "sha256": hashlib.sha256(path.read_bytes()).hexdigest()}
+                def export(self, swf, target, selected):
+                    target.mkdir(parents=True, exist_ok=True)
+                    name = selected.rsplit('.', 1)[-1]
+                    path = target / (name + '.as')
+                    path.write_text(self.texts[name], encoding='utf-8')
+                    return path
+            updater = Fake()
+            versions = Versions({key: "2026091012345678" for _, key in NAME_RESOURCES})
+            versions.source_hashes = {key: hashlib.sha256(updater.payload(key)).hexdigest() for key in versions}
+            current = {"source": {"resources": {}}, "attributes": {}, "jobs": {}, "money": {}}
+            resources = {}
+            self.assertTrue(update_names(updater, current, versions, resources))
+            current["source"]["resources"] = resources
+            self.assertFalse(needs_names_update(current, versions))
+            cases = [("PetAttr", "新属性", "修订属性", NAME_RESOURCES[0][1], "attributes", "99", [NAME_RESOURCES[0][1]]),
+                     ("MoneyData", "基础货币", "修订基础货币", NAME_RESOURCES[1][1], "money", "777", [key for _, key in NAME_RESOURCES[1:]]),
+                     ("MoneyData_Update", "增量货币", "修订增量货币", NAME_RESOURCES[2][1], "money", "888", [key for _, key in NAME_RESOURCES[1:]])]
+            for sheet, old, new, key, table, identifier, expected_calls in cases:
+                with self.subTest(sheet=sheet):
+                    updater.calls.clear()
+                    updater.texts[sheet] = updater.texts[sheet].replace(old, new)
+                    versions.source_hashes[key] = hashlib.sha256(updater.payload(key)).hexdigest()
+                    self.assertTrue(needs_names_update(current, versions))
+                    self.assertTrue(update_names(updater, current, versions, resources))
+                    self.assertEqual(updater.calls, expected_calls)
+                    value = current[table][identifier]
+                    self.assertEqual(value if isinstance(value, str) else value["name"], new)
+                    self.assertFalse(needs_names_update(current, versions))
+                    updater.calls.clear()
+                    self.assertFalse(update_names(updater, current, versions, resources))
+                    self.assertEqual(updater.calls, [])
 
 
 if __name__ == "__main__":

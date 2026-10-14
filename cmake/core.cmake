@@ -5,17 +5,32 @@
 
 # --- Domain: pure QtCore values and rules (see src/domain/README.md) ---------
 add_library(KQPetDomain STATIC
+  src/domain/battle_replay.cpp src/domain/battle_replay.h
+  src/domain/battle_replay_state.cpp src/domain/battle_replay_state.h
+  src/domain/battle_replay_flow.cpp src/domain/battle_replay_flow.h
+  src/domain/battle_replay_empowerment.cpp src/domain/battle_replay_empowerment.h
+  src/domain/battle_replay_presentation.cpp src/domain/battle_replay_presentation.h
+  src/domain/battle_replay_dragon.cpp src/domain/battle_replay_dragon.h
   src/domain/account_resource_view.cpp
   src/domain/activity_shop_observation.cpp
   src/domain/asset_derivation.cpp
   src/domain/asset_snapshot_comparator.cpp
   src/domain/catalog_types.cpp
   src/domain/checked_json_numbers.cpp
+  src/domain/public_data_view.cpp src/domain/public_data_view.h
+  src/domain/public_skill_view.cpp src/domain/public_skill_view.h
+  src/domain/public_data_detail_query.cpp src/domain/public_data_detail_query.h
+  src/contracts/public_data_detail.h
+  src/contracts/public_data_contract.h
+  src/contracts/public_dataset.h
+  src/domain/pet_astrolabe_record.cpp src/domain/pet_astrolabe_record.h
+  src/domain/routine_opportunity_rules.h
   src/domain/compiled_shop_catalog.cpp
   src/domain/local_stargod_count.cpp src/domain/local_stargod_count.h
   src/domain/pet_analysis_facts.cpp
   src/domain/pet_cultivation_requirements.cpp src/domain/pet_cultivation_requirements.h
   src/domain/pet_detail_preparation.cpp
+  src/domain/pet_relation_rules.cpp src/domain/pet_relation_rules.h
   src/domain/pet_era.cpp
   src/domain/pet_identity.cpp
   src/domain/pet_metadata_view.cpp
@@ -87,8 +102,16 @@ target_compile_options(KQPetReadViews PRIVATE $<$<CXX_COMPILER_ID:MSVC>:/utf-8>)
 
 # --- Application core: repository, catalogs, controllers, caches ------------
 add_library(KQPetApplicationCore STATIC
+  src/application/catalog/battle_replay_catalog_pack.cpp
+  src/application/catalog/battle_replay_catalog_pack.h
+  src/application/catalog/battle_replay_catalog_validation.cpp
+  src/application/catalog/battle_replay_catalog_validation.h
   src/application/catalog/catalog_io_service.cpp
   src/application/catalog/catalog_io_service.h
+  src/application/catalog/public_dataset_store.cpp
+  src/application/catalog/public_dataset_store.h
+  src/application/catalog/catalog_legacy_compatibility.cpp
+  src/application/catalog/catalog_legacy_compatibility.h
   src/application/catalog/pet_detail_catalog.cpp
   src/application/catalog/pet_detail_catalog.h
   src/application/catalog/pet_skill_catalog.cpp
@@ -140,6 +163,9 @@ add_library(KQPetApplicationCore STATIC
 target_compile_definitions(KQPetApplicationCore PRIVATE UNICODE _UNICODE NOMINMAX WIN32_LEAN_AND_MEAN)
 target_compile_options(KQPetApplicationCore PRIVATE $<$<CXX_COMPILER_ID:MSVC>:/utf-8 /wd4828>)
 target_link_libraries(KQPetApplicationCore PUBLIC KQPetDomain KQPetDiagnostics KQPetProtocol KQPetStorage KQPetReadViews KQPetTransport Qt6::Core)
+# Use the zlib already exported by the pinned Qt Core runtime. Its incremental
+# API enforces a hard decompression budget without another DLL dependency.
+target_link_libraries(KQPetApplicationCore PRIVATE Qt6::ZlibPrivate)
 # Existing build/test names remain an aggregate application alias; the actual
 # Domain target above has no dependency on this implementation boundary.
 add_library(KQPetCore INTERFACE)
@@ -162,6 +188,8 @@ add_library(KQPetApplication STATIC
   src/application/runtime/application_runtime.cpp src/application/runtime/application_runtime.h
   src/application/runtime/runtime_types.h
   src/application/runtime/data_update_service.cpp src/application/runtime/data_update_service.h
+  src/application/runtime/public_update_service.cpp src/application/runtime/public_update_service.h
+  src/contracts/public_update_state.h
   src/application/runtime/cache_management_service.cpp src/application/runtime/cache_management_service.h
   src/application/views/inventory_publisher.cpp src/application/views/inventory_publisher.h
   src/application/views/analysis_publisher.cpp src/application/views/analysis_publisher.h

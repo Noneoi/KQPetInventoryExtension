@@ -8,5 +8,5 @@
 class PetSkillRenderer final {
 public:
   static QString render(const std::shared_ptr<const PetSkillCatalogSnapshot>& catalog,
-                        int raceId, const QString& fallbackName = {});
+                        int raceId, const QString& fallbackName = {}, const QString& originalName = {});
 };

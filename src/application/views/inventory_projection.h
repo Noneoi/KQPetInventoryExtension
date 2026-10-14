@@ -13,6 +13,7 @@ struct InventoryViewSnapshot {
   quint64 inventoryRevision = 0;
   std::shared_ptr<const PetDetailCatalogSnapshot> metadata;
   std::shared_ptr<const PetSkillCatalogSnapshot> skills;
+  PublicDatasetSnapshotHandle publicDataset;
   QString account;
   QString cachePath;
   QString dataRoot;
@@ -69,6 +70,9 @@ public:
   }
   std::shared_ptr<const PetSkillCatalogSnapshot> skillSnapshot() const override {
     return snapshot_ ? snapshot_->skills : nullptr;
+  }
+  PublicDatasetSnapshotHandle publicDatasetSnapshot() const override {
+    return snapshot_ ? snapshot_->publicDataset : nullptr;
   }
 
 signals:

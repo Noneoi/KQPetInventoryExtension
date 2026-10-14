@@ -12,6 +12,12 @@ sys.path.insert(0, str(Path(__file__).resolve().parents[2] / "tools"))
 import public_activity_exchange_updater as activity
 
 
+class ObservedVersions(dict):
+    def __init__(self, values, hashes):
+        super().__init__(values)
+        self.source_hashes = dict(hashes)
+
+
 def uint(value):
     data = bytearray()
     while value >= 128:
@@ -151,6 +157,77 @@ class Contracts(unittest.TestCase):
             self.assertEqual(len(calls),2)
             versions["library/materialdataupdate"] = "2026100700000001"
             self.assertEqual(activity.load_selectable_packages(updater,versions)["packages"],{})
+
+    def test_same_version_package_hash_change_reparses_actual_definitions(self):
+        with tempfile.TemporaryDirectory() as temporary:
+            updater = FakeUpdater(Path(temporary))
+            versions = ObservedVersions({key: '2026100700000000' for key, _ in activity.PACKAGE_RESOURCES},
+                                       {key: 'a' * 64 for key, _ in activity.PACKAGE_RESOURCES})
+            calls = []
+            def resource(key, current_versions):
+                calls.append(key)
+                content = '24:51:1#24:54:1'
+                if key.endswith('update') and current_versions.source_hashes[key] == 'b' * 64:
+                    content = '24:51:1%1#24:54:1%1'
+                path = updater.scratch / (key.rsplit('/', 1)[-1] + '.as')
+                path.write_text('static const data:Object={"11":new OpenablePackage(11,"box","' +
+                                content + '",999,"")};', encoding='utf-8')
+                return path, {'version': current_versions[key], 'sha256': current_versions.source_hashes[key]}
+            updater.resource = resource
+            updater.export = lambda path, *args: path
+            first = activity.load_selectable_packages(updater, versions)
+            path = updater.root / 'catalog' / activity.FILENAME
+            activity._atomic_json(path, {'source': {'selectablePackages': first}})
+            calls.clear()
+            self.assertEqual(activity.load_selectable_packages(updater, versions), first)
+            self.assertEqual(calls, [])
+            unchanged_versions = dict(versions)
+            versions.source_hashes['library/materialdataupdate'] = 'b' * 64
+            second = activity.load_selectable_packages(updater, versions)
+            self.assertEqual(second['packages'], {})
+            self.assertEqual(dict(versions), unchanged_versions)
+            self.assertEqual(second['dependencyHashes'], versions.source_hashes)
+            self.assertEqual(calls, [key for key, _ in activity.PACKAGE_RESOURCES])
+
+    def test_same_version_reward_support_hash_change_reparses_shared_rules(self):
+        with tempfile.TemporaryDirectory() as temporary:
+            updater = FakeUpdater(Path(temporary))
+            updater.activity_exchange_failures = []
+            dependencies = ('library/interfaces', 'strengthencombo/strengthencomboservice')
+            versions = ObservedVersions({key: '2026100700000000' for key in dependencies},
+                                       {key: 'a' * 64 for key in dependencies})
+            calls = []
+            def resource(key, current_versions):
+                calls.append(key)
+                return updater.scratch / 'unused.swf', {'version': current_versions[key], 'sha256': current_versions.source_hashes[key]}
+            def export(_swf, target, cls):
+                name = cls.rsplit('.', 1)[-1]
+                label = 'old' if versions.source_hashes['library/interfaces'] == 'a' * 64 else 'new'
+                sources = {
+                    'StrengthenComboBasicType': 'const TYPE:StrengthenComboBasicType=create(35,"' + label + '",0);',
+                    'StrengthenComboDisplayType': 'const TESTING_HIDDEN:StrengthenComboDisplayType=create(99,0);',
+                    'StrengthenComboContents': 'class StrengthenComboContents {'
+                        'static const PRICE_CONTENTS:Object={"1":{"value":5}};'
+                        'static const PET_CONTENTS:Array=[{"race":8101}];}',
+                    'StrengthenComboDescUtil': ''}
+                target.mkdir(exist_ok=True)
+                path = target / (name + '.as')
+                path.write_text(sources[name], encoding='utf-8')
+                return path
+            updater.resource, updater.export = resource, export
+            first = activity.load_reward_support(updater, versions)
+            self.assertNotIn('error', first)
+            self.assertEqual(first['descriptions']['35'], 'old')
+            activity._atomic_json(updater.root / 'catalog' / activity.FILENAME, {'source': {'rewardSupport': first}})
+            calls.clear()
+            self.assertEqual(activity.load_reward_support(updater, versions), first)
+            self.assertEqual(calls, [])
+            versions.source_hashes['library/interfaces'] = 'b' * 64
+            second = activity.load_reward_support(updater, versions)
+            self.assertNotIn('error', second)
+            self.assertEqual(second['descriptions']['35'], 'new')
+            self.assertEqual(second['dependencyHashes'], versions.source_hashes)
+            self.assertEqual(len(calls), 4)
 
     def test_future_pass_reward_lanes_keep_only_choices_and_no_shared_counter(self):
         rows = [{"index":1,"idN":1,"prizeNormal":"Material,4:55:10,1","idE":10,
@@ -678,10 +755,17 @@ class RewardStructures(unittest.TestCase):
             {**cultivation, 'rewardRaw':cultivation['rewardRaw'].replace('92,8101','92,8101:true')},
             {**fixed,'rewardRaw':'SelectPrizes,whatever'},
             {**fixed,'rewardRaw':'Material,139:11:1,1','selectablePackageIds':[11]},
-            {**fixed,'description':'任选3颗红星'},
             {**fixed,'rewardOptions':[{'id':1},{'id':2}]}]
         shops = activity.relevant_shops([{'sourceKey':'future/module#rewards','goods':[fixed,cultivation,*alternatives]}])
         self.assertEqual(shops[0]['goods'],[fixed,{**cultivation,'manualSelectionRequired':True}])
+
+    def test_reward_selection_uses_structure_not_description(self):
+        fixed = {'itemServerId':1,'description':'任选3颗红星','enhanceType':'92','raceIds':[8101],
+                 'rewardRaw':'CommonEnhancePrize,-1,1,92,8101'}
+        choice = {**fixed, 'description':'指定精灵提升', 'rewardRaw':'SelectPrizes,actual-choice'}
+        unknown = {**fixed, 'rewardRaw':'FutureReward,unrecognized'}
+        shops = activity.relevant_shops([{'sourceKey':'future/module#rewards','goods':[fixed,choice,unknown]}])
+        self.assertEqual(shops[0]['goods'], [fixed, {**unknown,'manualSelectionRequired':True}])
 
     def test_generic_and_bundle_titles_show_each_real_effect_without_changing_ids(self):
         support = {'descriptions':{'11':'满级','62':'完美天赋','86':'满星迹','89':'星迹突破','94':'源兽神觉升至满阶'}}
@@ -909,6 +993,59 @@ class RewardStructures(unittest.TestCase):
                 before = len(updater.calls)
                 self.assertFalse(activity.update_activity_exchanges(updater,versions))
                 self.assertEqual(len(updater.calls),before)
+
+    @patch('activity_evolution_selector.dependency_revision', return_value='fixture')
+    @patch('public_activity_exchange_updater.load_reward_support', return_value={})
+    def test_same_version_fixed_hash_refreshes_discovery_modules_and_retries_failed_parse(self, _support, _revision):
+        with tempfile.TemporaryDirectory() as temporary:
+            updater = FakeUpdater(Path(temporary))
+            versions = ObservedVersions({activity.CONFIG_RESOURCE: '2026100700000000',
+                                        updater.module: '2026100700000000', updater.empty: '2026100700000000',
+                                        'library/interfaces': '2026100700000000'},
+                                       {activity.CONFIG_RESOURCE: 'a' * 64, 'library/interfaces': 'a' * 64})
+            original_versions = dict(versions)
+            activity.update_activity_exchanges(updater, versions)
+            path = updater.root / 'catalog' / activity.FILENAME
+            updater.calls.clear()
+            self.assertFalse(activity.update_activity_exchanges(updater, versions))
+            self.assertEqual(updater.calls, [])
+            versions.source_hashes[activity.CONFIG_RESOURCE] = 'b' * 64
+            updater.registry = updater.registry.replace('desc="未来活动"', 'desc="入口修订"')
+            self.assertTrue(activity.update_activity_exchanges(updater, versions))
+            self.assertIn(activity.CONFIG_RESOURCE, updater.calls)
+            current = json.loads(path.read_text(encoding='utf-8'))
+            self.assertEqual(current['source']['discovery']['entries']['futureexchange']['desc'], '入口修订')
+            self.assertFalse(any('/futureexchange/' in call for call in updater.calls),
+                             'A registry-only edit need not reparse an unchanged versioned module')
+
+            updater.calls.clear()
+            versions.source_hashes['library/interfaces'] = 'b' * 64
+            updater.rows[0]['cost'] = '4:3266:600'
+            self.assertTrue(activity.update_activity_exchanges(updater, versions))
+            current = json.loads(path.read_text(encoding='utf-8'))
+            self.assertTrue(any('/futureexchange/' in call for call in updater.calls))
+            self.assertEqual(current['shops'][0]['goods'][0]['cost'], '4:3266:600')
+            self.assertEqual(current['source']['dependencyHashes'], versions.source_hashes)
+            self.assertNotIn(updater.module, current['source']['dependencyHashes'],
+                             'Unfetched dynamic modules are not presented as fresh hash observations')
+            self.assertEqual(current['modules'][updater.module]['dependencyHashes'], {'library/interfaces': 'b' * 64})
+
+            versions.source_hashes['library/interfaces'] = 'c' * 64
+            updater.fail = True
+            activity.update_activity_exchanges(updater, versions)
+            failed = json.loads(path.read_text(encoding='utf-8'))
+            self.assertEqual(failed['modules'][updater.module]['status'], 'failed')
+            self.assertEqual(failed['modules'][updater.module]['dependencyHashes'], {'library/interfaces': 'b' * 64})
+            self.assertEqual(failed['shops'][0]['goods'][0]['cost'], '4:3266:600')
+            updater.fail = False
+            updater.rows[0]['cost'] = '4:3266:700'
+            updater.calls.clear()
+            activity.update_activity_exchanges(updater, versions)
+            final = json.loads(path.read_text(encoding='utf-8'))
+            self.assertEqual(final['shops'][0]['goods'][0]['cost'], '4:3266:700')
+            self.assertEqual(final['modules'][updater.module]['dependencyHashes'], {'library/interfaces': 'c' * 64})
+            self.assertTrue(any('/futureexchange/' in call for call in updater.calls))
+            self.assertEqual(dict(versions), original_versions, 'No official version may be rewritten to a fake cache token')
 
     @patch('activity_evolution_selector.dependency_revision', return_value='fixture')
     def test_discovery_follows_deep_links_and_terminates_cycles(self, _revision):

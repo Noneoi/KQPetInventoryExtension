@@ -1,14 +1,14 @@
 #!/usr/bin/env python3
 """Explicit, one-shot public-data update. Never contacts account/game APIs.
 
-The extension exports this file and its two parsers from its resources. All
-paths derive from --data-root / this script, including the pinned tools. The
-updater keeps current files only, commits each valid component independently,
-and removes extraction/download scratch on both success and failure.
+All formal updates prepare an isolated complete candidate, then use the shared
+native publisher. The low-level builders only write their candidate workspace;
+they never replace active public catalog files.
 """
 from __future__ import annotations
 
 import argparse
+import copy
 import contextlib
 import hashlib
 import json
@@ -26,14 +26,17 @@ import zipfile
 
 sys.dont_write_bytecode = True
 sys.path.insert(0, str(Path(__file__).resolve().parent))
-from generate_pet_detail_data import (merge_pet_sources, parse_astrolabe_catalog, parse_stargod_catalog,
+from generate_pet_detail_data import (PET_DICTIONARY_SCHEMA, merge_pet_sources, parse_astrolabe_catalog, parse_stargod_catalog,
                                      parse_badges, parse_sacred, parse_sacred_plans, parse_items, swf_text)
 from generate_shop_exchange_data import CONFIG_CLASS, RESOURCE, parse_config
 from generate_stargod_icons import symbol_character_id, png_details
 from public_names_updater import (NAME_RULE_VERSION, NAME_RESOURCES, SACRED_SOURCE_RESOURCE,
                                   needs_names_update, update_names, equipment_source_names)
+from public_resource_session import PublicResourceSession, VERSION_RULE, resource_matches
+from public_cultivation_supplement import needs_supplement, refresh_supplement
 
 OFFICIAL = "https://aoqi.100bt.com/play/"
+OFFICIAL_ROOTS = (OFFICIAL, "https://aoqi.100bt.com/h5/")
 RUNTIMES = {
     "java": {"url": "https://github.com/adoptium/temurin21-binaries/releases/download/jdk-21.0.12.1%2B1/OpenJDK21U-jre_x64_windows_hotspot_21.0.12.1_1.zip",
              "sha256": "d35f31e712f0fcf6ac5a093edc90204fbff22f720ba3950bd09d331d5e621636",
@@ -44,12 +47,15 @@ RUNTIMES = {
 }
 COMPONENTS = {"pets": "pet-detail-data.json", "skills": "pet-skill-data.json",
               "shop": "shop-exchange-data.json", "images": "pet-image-index.json",
-              "icons": "public-icon-index.json", "routines": "routine-overview.json"}
-# Checked in this order; each part commits independently, so any subset can be
-# updated on its own and the rest keep their current files.
+              "icons": "public-icon-index.json", "routines": "routine-overview.json",
+              "battleReplay": "battle-replay-catalog.brpack"}
+# Builders run in this order inside an isolated candidate. Dependency-group
+# retention and publication are owned by public_dataset_store and the native
+# publisher, respectively.
 COMPONENT_LABELS = (("pets", "精灵与养成资料"), ("skills", "精灵技能资料"),
                     ("shop", "指定精灵商店"), ("images", "精灵图片索引"),
-                    ("icons", "星神与属性图标"), ("routines", "日常任务与活动"))
+                    ("icons", "星神与属性图标"), ("routines", "日常任务与活动"),
+                    ("battleReplay", "战斗回放资料"))
 POWER_RULE_VERSION = 1
 CULTIVATION_RULE_VERSION = 1
 PET_RESOURCES = (("petDictionary", "pet/petdictionarydata", "mmo.pet.petdictionarydata.PetDictionaryDataContents"),
@@ -128,9 +134,7 @@ def power_rules_valid(catalog: dict) -> bool:
 
 
 def matching_resource(previous: dict, label: str, key: str, versions: dict) -> bool:
-    version = versions.get(key, "")
-    resource = previous.get(label, {})
-    return bool(re.fullmatch(r"\d{8,20}", version) and isinstance(resource, dict) and resource.get("version") == version)
+    return resource_matches(previous.get(label, {}), key, versions)
 
 
 def emit(event: str, **values) -> None:
@@ -171,14 +175,14 @@ def atomic_json(path: Path, value: dict) -> None:
 
 
 def fetch(url: str, output: Path, *, runtime: bool = False) -> dict:
-    if not runtime and not url.startswith(OFFICIAL):
+    if not runtime and not url.startswith(OFFICIAL_ROOTS):
         raise ValueError("resource is outside the official game origin")
     request = urllib.request.Request(url, headers={"User-Agent": "KQPetPublicData/2.0"})
     limit = (96 if runtime else 32) * 1024 * 1024
     total = 0
     with urllib.request.urlopen(request, timeout=60) as response, output.open("wb") as stream:
         final = urllib.parse.urlsplit(response.url)
-        if final.scheme != "https" or (not runtime and final.hostname != "aoqi.100bt.com"):
+        if final.scheme != "https" or (not runtime and not response.url.startswith(OFFICIAL_ROOTS)):
             raise ValueError("resource redirected outside the allowed HTTPS origin")
         while chunk := response.read(128 * 1024):
             total += len(chunk)
@@ -230,11 +234,17 @@ def runtime_entry(tools: Path, name: str, scratch: Path) -> Path:
 
 
 class Updater:
-    def __init__(self, root: Path, baseline: Path, scratch: Path, *, fetcher=fetch, exporter=None):
+    def __init__(self, root: Path, baseline: Path, scratch: Path, *, fetcher=fetch, exporter=None,
+                 isolated_workspace=False, runtime_root=None):
+        if isolated_workspace is not True:
+            raise ValueError("Low-level Updater requires an isolated candidate workspace")
         self.root, self.baseline, self.scratch = root, baseline, scratch
         self.catalog = root / "catalog"
         self.tools = root / "data-tools"
-        self.fetch = fetcher
+        self.runtime_tools = Path(runtime_root) if runtime_root is not None else self.tools
+        self.force_components = set()
+        self.public_resources = PublicResourceSession(scratch, fetcher)
+        self.fetch = self.public_resources.fetch
         self.exporter = exporter
         self.runtimes = None
         self.start_version = ""
@@ -243,14 +253,71 @@ class Updater:
         self.activity_exchange_failures = []
         self.activity_exchange_pending = []
         self.resource_cache = {}
+        self.export_cache = {}
+        self.quality_results = {}
+        self.shared_dependency_failures = {}
+
+    def assess_quality(self, component, candidate, previous, *, source_coverage=None, reference_evidence=None,
+                       source_fidelity=None, replay_regression=None):
+        from public_catalog_quality import enforce_catalog_quality, CatalogQualityError
+        self.stage('validating', component)
+        try:
+            result = enforce_catalog_quality(component, candidate, previous,
+                self.tools / 'quality', source_coverage=source_coverage, reference_evidence=reference_evidence,
+                source_fidelity=source_fidelity, replay_regression=replay_regression)
+        except CatalogQualityError as error:
+            self.quality_results[component] = error.metadata
+            raise
+        self.quality_results[component] = result
+        return result
+
+    def stage(self, phase, component='', completed=-1, total=-1):
+        callback = getattr(self, 'progress_callback', None)
+        if callback:
+            callback(phase, component, completed, total)
 
     def export(self, swf: Path, target: Path, selected: str) -> Path:
+        key = (digest(swf), selected)
+        cached = self.export_cache.get(key)
+        if cached and cached[0].is_file():
+            source, fingerprint, relative = cached
+            if digest(source) != fingerprint:
+                raise ValueError("本次公共解析缓存校验失败")
+            output = target / relative
+            output.parent.mkdir(parents=True, exist_ok=True)
+            if source.resolve() != output.resolve():
+                shutil.copyfile(source, output)
+            return output
         if self.exporter:
-            return self.exporter(swf, target, selected)
+            result = self.exporter(swf, target, selected)
+            self.export_cache[key] = (result, digest(result), result.relative_to(target))
+            return result
         if self.runtimes is None:
             self.tools.mkdir(parents=True, exist_ok=True)
-            self.runtimes = (runtime_entry(self.tools, "java", self.scratch), runtime_entry(self.tools, "ffdec", self.scratch))
+            self.runtimes = (runtime_entry(self.runtime_tools, "java", self.scratch), runtime_entry(self.runtime_tools, "ffdec", self.scratch))
         java, ffdec = self.runtimes
+        persistent = getattr(self, "source_cache", None)
+        cache_directory = None
+        if persistent is not None:
+            from public_dataset_store import canonical, immutable_write, parse_json, read_bytes, sha
+            if not hasattr(self, "_extractor_fingerprint"):
+                self._extractor_fingerprint = {"javaSha256": digest(java), "ffdecSha256": digest(ffdec)}
+            identity = {"sourceSha256": key[0], "selectedClass": selected,
+                        "extractor": self._extractor_fingerprint,
+                        "parserSha256": getattr(self, "parser_identity", ""), "format": "actionscript-utf8-v1"}
+            cache_directory = Path(persistent) / "extracts" / sha(canonical(identity))
+            if (cache_directory / "record.json").is_file():
+                record = parse_json(read_bytes(cache_directory / "record.json"))
+                raw = read_bytes(cache_directory / "script.as", 16 * 1024 * 1024)
+                relative = PurePosixPath(record.get("relative", ""))
+                if record.get("identity") != identity or record.get("sha256") != sha(raw) or not relative.parts \
+                        or relative.is_absolute() or any(part in (".", "..") or ":" in part or "\\" in part for part in relative.parts):
+                    raise ValueError("持久公共解析缓存的字节或规则身份不匹配")
+                output = target.joinpath(*relative.parts)
+                output.parent.mkdir(parents=True, exist_ok=True)
+                output.write_bytes(raw)
+                self.export_cache[key] = (output, sha(raw), output.relative_to(target))
+                return output
         command = [str(java), "-Xmx2g", "-Djava.awt.headless=true", "-jar", str(ffdec),
                    "-selectclass", selected, "-export", "script", str(target), str(swf)]
         flags = subprocess.CREATE_NO_WINDOW if os.name == "nt" else 0
@@ -261,41 +328,44 @@ class Updater:
         matches = list(target.rglob(selected.rsplit(".", 1)[-1] + ".as"))
         if len(matches) != 1 or matches[0].stat().st_size > 16 * 1024 * 1024:
             raise ValueError("官方资源结构已改变，保留原数据")
+        self.export_cache[key] = (matches[0], digest(matches[0]), matches[0].relative_to(target))
+        if cache_directory is not None:
+            raw = matches[0].read_bytes()
+            record_raw = canonical({"identity": identity, "sha256": sha(raw),
+                                    "relative": matches[0].relative_to(target).as_posix()})
+            if not hasattr(self, "_persistent_cache_bytes"):
+                existing = list((Path(persistent) / "extracts").glob("*/*"))
+                self._persistent_cache_bytes = sum(path.stat().st_size for path in existing if path.is_file())
+                self._persistent_cache_files = len(existing)
+            # Filling the bounded cache must never require deleting a possible
+            # in-flight reader's objects. A full cache simply stops new writes.
+            if self._persistent_cache_bytes + len(raw) + len(record_raw) <= 128 * 1024 * 1024 and self._persistent_cache_files < 4096:
+                immutable_write(cache_directory / "script.as", raw)
+                immutable_write(cache_directory / "record.json", record_raw)
+                self._persistent_cache_bytes += len(raw) + len(record_raw)
+                self._persistent_cache_files += 2
         return matches[0]
 
     def versions(self) -> dict[str, str]:
         emit("progress", message="检查官方公共数据版本")
-        path = self.scratch / "start.xml"
-        self.fetch(OFFICIAL + "start.xml", path)
-        root = ET.fromstring(path.read_bytes())
-        self.start_version = root.findtext("lv") or root.findtext("v") or ""
-        if not re.fullmatch(r"\d{8,20}", self.start_version):
-            raise ValueError("官方入口版本无效，保留本地数据")
-        # The manifest is itself versioned: persist one current copy, so a
-        # repeated manual check downloads only the small start.xml document.
-        cache = read_object(self.catalog / "official-versions.json")
-        if cache.get("startVersion") == self.start_version and isinstance(cache.get("versions"), dict) and len(cache["versions"]) > 100:
-            versions = cache["versions"].copy()
-        else:
-            manifest = self.scratch / "versiondata.swf"
-            self.fetch(OFFICIAL + f"versiondata~{self.start_version}.swf", manifest)
-            versions = dict(re.findall(r'<f\b[^>]*\bn="([^"]+)"[^>]*\bv="([0-9]+)"', swf_text(manifest)))
-            if len(versions) < 100:
-                raise ValueError("官方资源版本表不完整，保留本地数据")
-            atomic_json(self.catalog / "official-versions.json", {"startVersion": self.start_version, "versions": versions})
-        for node in root.findall("./u/f"):
-            if node.get("n") and re.fullmatch(r"\d{8,20}", node.get("v", "")):
-                versions[node.get("n")] = node.get("v")
+        versions, _, chain = self.public_resources.flash_chain()
+        self.start_version = chain['versiondata']['version']
+        atomic_json(self.catalog / "official-versions.json", {"startVersion": self.start_version,
+                    "versionRule": VERSION_RULE, "versions": versions, "source": chain})
         return versions
 
     def resource(self, key: str, versions: dict) -> tuple[Path, dict]:
-        version = versions.get(key, "")
-        if not re.fullmatch(r"\d{8,20}", version):
+        version = versions.get(key, "2000")
+        if not re.fullmatch(r"[A-Za-z0-9_/-]+", key) or '..' in key or key.startswith('/'):
+            raise ValueError("无效的官方资源路径")
+        if not re.fullmatch(r"(?:2000|\d{8,20})", version):
             raise ValueError("官方清单缺少资源版本：" + key)
         cached = self.resource_cache.get((key, version))
         if cached and cached[0].is_file():
+            if digest(cached[0]) != cached[1]['sha256']:
+                raise ValueError("本次共享资源缓存校验失败：" + key)
             return cached[0], dict(cached[1])
-        path = self.scratch / (hashlib.sha256(key.encode()).hexdigest()[:16] + ".swf")
+        path = self.scratch / (hashlib.sha256((key + '~' + version).encode()).hexdigest()[:16] + ".swf")
         source = self.fetch(OFFICIAL + f"{key}~{version}.swf", path)
         source["version"] = version
         self.resource_cache[(key, version)] = (path, dict(source))
@@ -312,8 +382,16 @@ class Updater:
 
     def pets(self, versions: dict) -> bool:
         current = self.current("pets")
+        prior_catalog = copy.deepcopy(current)
+        if "pets" in self.force_components:
+            # Invalidate only the candidate's prior parser decisions. Raw rows
+            # and prior_catalog stay intact for the independent loss check.
+            current = copy.deepcopy(current)
+            for field in ("petDictionarySchema", "powerRuleVersion", "cultivationRuleVersion",
+                          "nameRuleVersion", "cultivationSupplementRuleVersion"):
+                current[field] = -1
         previous = current.get("source", {}).get("resources", {})
-        dictionary_changed = (current.get("petDictionarySchema") != 4 or len(current.get("pets", {})) < 9000 or
+        dictionary_changed = (current.get("petDictionarySchema") != PET_DICTIONARY_SCHEMA or len(current.get("pets", {})) < 9000 or
             any(not isinstance(pet, dict) or not isinstance(pet.get("sign"), str) for pet in current.get("pets", {}).values()) or
             not all(matching_resource(previous, label, key, versions) for label, key, _ in PET_RESOURCES))
         rules_upgrade = not power_rules_valid(current)
@@ -328,8 +406,10 @@ class Updater:
         items_changed = cultivation_upgrade or not all(matching_resource(previous, label, key, versions)
                                                       for label, key in CULTIVATION_RESOURCES[2:])
         names_changed = needs_names_update(current, versions)
+        supplement_changed = needs_supplement(current, versions)
         astrolabe_changed = astrolabe_changed or cultivation_upgrade
-        if not any((dictionary_changed, stars_changed, astrolabe_changed, badges_changed, sacred_changed, items_changed, names_changed)):
+        if not any((dictionary_changed, stars_changed, astrolabe_changed, badges_changed, sacred_changed, items_changed, names_changed, supplement_changed)):
+            self.assess_quality("pets", current, prior_catalog)
             if read_object(self.catalog / COMPONENTS["pets"]) != current:
                 atomic_json(self.catalog / COMPONENTS["pets"], current)
             return False
@@ -347,7 +427,7 @@ class Updater:
             if len(pets) < 9000 or len(pets) < len(current.get("pets", {})) * 0.9:
                 raise ValueError("精灵字典不完整，保留旧字典")
             current["pets"] = pets
-            current["petDictionarySchema"] = 4
+            current["petDictionarySchema"] = PET_DICTIONARY_SCHEMA
         if stars_changed:
             emit("progress", message="正在更新星神战力、搭配限制与职业规则")
             swfs = {}
@@ -417,6 +497,9 @@ class Updater:
         if names_changed:
             emit("progress", message="正在更新属性、职业组合与货币名称")
             update_names(self, current, versions, resources)
+        if supplement_changed:
+            emit("progress", message="正在更新源兽、传说石与潜能完整名称和说明")
+            refresh_supplement(self, current, versions, resources)
         current["powerRuleVersion"] = POWER_RULE_VERSION
         current["cultivationRuleVersion"] = CULTIVATION_RULE_VERSION
         if not power_rules_valid(current):
@@ -428,6 +511,7 @@ class Updater:
                              "cultivationRuleVersion": CULTIVATION_RULE_VERSION,
                              "nameRuleVersion": NAME_RULE_VERSION,
                              "petDictionaryVersion": resources["petDictionaryUpdate"]["version"], "resources": resources}
+        self.assess_quality("pets", current, prior_catalog)
         atomic_json(self.catalog / COMPONENTS["pets"], current)
         return True
 
@@ -435,19 +519,23 @@ class Updater:
         from public_activity_exchange_updater import load_selectable_packages
         self.selectable_package_source = load_selectable_packages(self, versions)
         package_versions = self.selectable_package_source["versions"]
+        package_hashes = self.selectable_package_source.get("dependencyHashes", {})
         original = self.current("shop")
         current = original
         # Parser upgrades also invalidate same-version caches: old catalogs
         # either omitted selectable rewards or included unrelated material rows.
-        changed = (not current.get("shops") or current.get("source", {}).get("shopVersion") != versions.get(RESOURCE)
-                   or current.get("source", {}).get("shopParserVersion") != 4
-                   or current.get("source", {}).get("selectablePackageVersions", {}) != package_versions)
+        changed = ("shop" in self.force_components or not current.get("shops") or
+                   not resource_matches(current.get("source", {}).get("resources", {}).get("shop", {}), RESOURCE, versions)
+                   or current.get("source", {}).get("shopParserVersion") != 5
+                   or current.get("source", {}).get("selectablePackageVersions", {}) != package_versions
+                   or current.get("source", {}).get("selectablePackageHashes", {}) != package_hashes)
         if changed:
             swf, resource = self.resource(RESOURCE, versions)
             emit("progress", message="正在整理指定精灵兑换项目")
             script = self.export(swf, self.scratch / "shop", CONFIG_CLASS)
-            source = {"clientVersion": self.start_version, "shopVersion": resource["version"], "shopParserVersion": 4, "resources": {"shop": resource},
+            source = {"clientVersion": self.start_version, "shopVersion": resource["version"], "shopParserVersion": 5, "resources": {"shop": resource},
                       "selectablePackageVersions": package_versions,
+                    "selectablePackageHashes": package_hashes,
                       "configSha256": digest(script), "extractor": "JPEXS 26.2.1; public_data_updater.py"}
             current = parse_config(script.read_text(encoding="utf-8-sig"), source, include_manual=True,
                                    selectable_packages=self.selectable_package_source["packages"])
@@ -495,8 +583,11 @@ class Updater:
         # Filled from the official, versioned resource manifest; never infer a
         # race from a translated name or reuse another pet's picture.
         current = self.current("images")
+        from public_icon_updater import loader_default
+        default = loader_default(self, current)
         exceptions, rules = self.icon_exceptions(versions, current)
-        faces = image_entries(versions, self.current("pets").get("pets", {}).keys(), exceptions)
+        faces = image_entries(versions, self.current("pets").get("pets", {}).keys(), exceptions,
+                              default_version=default["defaultVersion"])
         if not faces:
             raise ValueError("官方清单中没有可识别的精灵图片资源，保留旧索引")
         revision = hashlib.sha256(json.dumps(faces, sort_keys=True, separators=(",", ":")).encode()).hexdigest()
@@ -504,10 +595,12 @@ class Updater:
         # missing-picture requests possible without a surprise runtime download.
         self.tools.mkdir(parents=True, exist_ok=True)
         if self.runtimes is None:
-            self.runtimes = (runtime_entry(self.tools, "java", self.scratch), runtime_entry(self.tools, "ffdec", self.scratch))
+            self.runtimes = (runtime_entry(self.runtime_tools, "java", self.scratch), runtime_entry(self.runtime_tools, "ffdec", self.scratch))
         if current.get("revision") == revision:
-            if current.get("source", {}).get("iconRules") != rules:
+            if (current.get("source", {}).get("iconRules") != rules or
+                    current.get("source", {}).get("loaderDefault") != default):
                 current.setdefault("source", {})["iconRules"] = rules
+                current["source"]["loaderDefault"] = default
                 current["faceIdExceptions"] = exceptions
                 atomic_json(self.catalog / COMPONENTS["images"], current)
             # Same index: only a revision change (or an earlier failed refresh,
@@ -517,17 +610,24 @@ class Updater:
             return False
         atomic_json(self.catalog / COMPONENTS["images"], {"schemaVersion": 1, "revision": revision,
                     "source": {"kind": "aoqi-official-resource-manifest", "startVersion": self.start_version,
-                               "iconRules": rules}, "faceIdExceptions": exceptions, "images": {}, "faces": faces})
+                               "iconRules": rules, "loaderDefault": default},
+                    "faceIdExceptions": exceptions, "images": {}, "faces": faces})
         # Only an explicit public update replaces a previously cached picture.
         # Missing pictures stay lazy; no mass pre-download of thousands of pets.
         self.image_failures = refresh_cached_images(self.root, current, faces)
+        if self.image_failures:
+            # Keep the usable source selection when a cached picture cannot be
+            # refreshed. Successfully extracted new-version files stay separate
+            # and may be reused on the next explicit attempt.
+            atomic_json(self.catalog / COMPONENTS["images"], current)
+            return False
         return True
 
     def icon_exceptions(self, versions: dict, current: dict) -> tuple[list[int], dict]:
         resource = "pet/petdataservice"
         previous = current.get("source", {}).get("iconRules", {})
         exceptions = current.get("faceIdExceptions")
-        if previous.get("version") == versions.get(resource) and isinstance(exceptions, list):
+        if "images" not in self.force_components and resource_matches(previous, resource, versions) and isinstance(exceptions, list):
             return exceptions, previous
         swf, source = self.resource(resource, versions)
         emit("progress", message="正在更新精灵外观规则")
@@ -540,32 +640,85 @@ class Updater:
             raise ValueError("官方精灵外观规则无效")
         return exceptions, source
 
+    def prepare_resource_plan(self, selected):
+        from public_resource_plan import workbench_dependencies, build_plan, recorded_dependencies
+        workbench = workbench_dependencies()
+        historical = []
+        # Keep requirements already evidenced by either installed or embedded
+        # catalogs. They remain explicitly historical until this run checks them.
+        for component, filename in COMPONENTS.items():
+            if filename.endswith('.json'):
+                for directory in (self.baseline, self.catalog):
+                    historical.extend(recorded_dependencies(read_object(directory / filename), component))
+        for directory in (self.baseline, self.catalog):
+            historical.extend(recorded_dependencies(read_object(directory / 'activity-exchange-data.json'), 'shop'))
+        replay, failures = [], {}
+        if 'battleReplay' in selected:
+            try:
+                from public_battle_replay_updater import prepare_replay_update, replay_dependencies
+                replay = replay_dependencies(prepare_replay_update(self))
+            except Exception as error:
+                failures['battleReplay'] = str(error)
+        self.public_resources.plan = build_plan(workbench, replay, historical)
+        fixed = [row for row in self.public_resources.plan if 'declared-dependency' in row['sourceStatuses']]
+        emit('progress', message='已建立工作台与回放的资源并集：' + str(len(fixed)) +
+             ' 项固定依赖，官方动态引用继续追加；各自完整资料均保留')
+        atomic_json(self.catalog / 'public-resource-manifest.json',
+                    dict(self.public_resources.audit(), state='prepared', selected=selected, preparationErrors=failures))
+        emit('progress', message='正在校验所选类别的完整资源并集，共用下载及版本快照')
+        prepared = self.public_resources.prefetch([name for name in selected if name not in failures])
+        failures.update(prepared)
+        return failures
+
     def run(self, components=None) -> dict:
         selected = [name for name, _ in COMPONENT_LABELS if components is None or name in components]
         if not selected:
             raise ValueError("没有选择要更新的数据")
         self.resource_cache.clear()
+        self.export_cache.clear()
+        self.public_resources.reset()
+        self.quality_results.clear()
+        self.shared_dependency_failures.clear()
+        self._prepared_replay = None
         self.image_failures = 0
         self.icon_failures = []
         self.activity_exchange_failures = []
         self.activity_exchange_pending = []
-        versions = self.versions()
+        self.stage('fetchingResources')
+        preparation_errors = self.prepare_resource_plan(selected)
+        # Every Flash consumer sees the same start.v/versiondata/u.f snapshot.
+        # H5-only skills do not depend on the Flash endpoint being available.
+        versions, version_error = {}, None
+        if any(name not in ("skills", "battleReplay") for name in selected):
+            try:
+                versions = self.versions()
+            except Exception as error:
+                version_error = str(error)
         results = {}
         for name, label in COMPONENT_LABELS:
             if name not in selected:
                 continue
             emit("progress", message="检查" + label)
+            self.stage('parsing', name)
+            self.public_resources.component = name
             try:
+                if name in preparation_errors:
+                    raise ValueError(preparation_errors[name])
+                if name not in ("skills", "battleReplay") and version_error is not None:
+                    raise ValueError(version_error)
                 changed = getattr(self, name)(versions)
                 results[name] = {"status": "updated" if changed else "unchanged"}
                 if name == "images" and self.image_failures:
                     results[name]["error"] = f"{self.image_failures} 张图片更新失败，已保留原图；下次检查更新可重试"
+                    results[name]['retryable'] = True
                 if name == "icons" and self.icon_failures:
                     results[name]["error"] = f"{len(self.icon_failures)} 项图标未更新，已保留已有图片：" + "；".join(map(str,self.icon_failures[:3]))
+                    results[name]['retryable'] = True
                 if name == "pets":
                     catalog = self.current("pets")
                     results[name]["counts"] = {key: len(catalog.get(key, {})) for key in
-                        ("pets","stargods","badges","sacredEquipment","astrolabe","items","attributes","jobs","money")}
+                        ("pets","stargods","badges","sacredEquipment","astrolabe","items","attributes","jobs","money",
+                         "sourceBeasts","legendStones","proficiencies")}
                     missing = [f"{value.get('name', key)}：对应源兽材料 {value.get('sourceId')} 待官方补名"
                                for key, value in catalog.get("sacredEquipment", {}).items() if not value.get("sourceName")]
                     if missing:
@@ -599,6 +752,8 @@ class Updater:
                         results[name]["unsupportedTypes"] = pending
                         results[name]["error"] = "奖励已识别，部分培养适用判断待适配：" + "、".join(pending[:16])
                     problems = list(self.activity_exchange_failures)
+                    if problems:
+                        results[name]['retryable'] = True
                     if self.activity_exchange_pending:
                         results[name]["pendingActivities"] = self.activity_exchange_pending
                         problems.append(f"{len(self.activity_exchange_pending)} 条活动兑换配置待识别")
@@ -614,10 +769,22 @@ class Updater:
                     pending = catalog.get("unsupportedRules", [])
                     if pending:
                         results[name]["error"] = f"{len(pending)} 条日常活动规则待适配"
+                if name == "battleReplay":
+                    results[name].update(self.battle_replay_result)
+                if name in self.quality_results:
+                    results[name]["quality"] = self.quality_results[name]
+                if name in self.shared_dependency_failures:
+                    results[name]["dependencyFailure"] = self.shared_dependency_failures[name]
                 emit("component", component=name, **results[name])
             except Exception as error:
-                results[name] = {"status": "failed", "error": str(error)}
+                results[name] = {"status": "failed", "error": str(error), "retryable": True}
+                if name in self.quality_results:
+                    results[name]["quality"] = self.quality_results[name]
                 emit("component", component=name, **results[name])
+            self.stage('parsing', '', len(results), len(selected))
+        atomic_json(self.catalog / 'public-resource-manifest.json',
+                    dict(self.public_resources.audit(), state='finished', selected=selected,
+                         preparationErrors=preparation_errors, components=results))
         # A partial update keeps the last known result of the parts it skipped.
         status_path = self.catalog / "public-update-status.json"
         merged = read_object(status_path).get("components", {})
@@ -637,8 +804,14 @@ class Updater:
         from public_routine_updater import update_routines
         return update_routines(self, versions)
 
+    def battleReplay(self, versions: dict) -> bool:
+        # These optional scripts are exported only for replay/all updates.
+        from public_battle_replay_updater import update_battle_replay
+        changed, self.battle_replay_result = update_battle_replay(self)
+        return changed
 
-def image_entries(versions: dict, pet_ids=(), exceptions=()) -> dict:
+
+def image_entries(versions: dict, pet_ids=(), exceptions=(), *, default_version=None) -> dict:
     result = {}
     allowed = set(map(int, exceptions))
     faces = {int(value) for value in pet_ids if str(value).isdecimal() and int(value) > 0}
@@ -653,9 +826,13 @@ def image_entries(versions: dict, pet_ids=(), exceptions=()) -> dict:
         if actual <= 0:
             continue
         resource = f"peticon/peticon{actual}"
-        version = versions.get(resource, "2000")  # VersManager.DEFAULT_VERSION
-        result[str(face)] = {"swfUrl": OFFICIAL + f"{resource}~{version}.swf",
-                             "symbol": f"mmo.pet.peticon{actual}_L", "revision": version}
+        version = versions.get(resource, default_version)
+        if not isinstance(version, str) or not re.fullmatch(r"\d{1,20}", version):
+            raise ValueError("图片默认版本未由官方加载器确认，保留旧索引")
+        entry = {"swfUrl": OFFICIAL + f"{resource}~{version}.swf",
+                 "symbol": f"mmo.pet.peticon{actual}_L", "revision": version}
+        entry["sourceIdentity"] = picture_source_identity(entry)
+        result[str(face)] = entry
     return result
 
 
@@ -684,22 +861,109 @@ def picture_entry(index: dict, visual_key: str) -> dict:
     # The index contains explicit high-face exceptions. Unlisted high values
     # follow the official modulo rule and only use a known local base entry.
     fallback = str(int(selected) % 10000)
-    return faces.get(fallback, {}) if int(selected) >= 10000 else {}
+    return faces.get(fallback, {}) if int(selected) >= 10000 and int(selected) not in index.get("faceIdExceptions", []) else {}
 
 
-def extract_image(root: Path, visual_key: str, *, replace=False) -> dict:
-    index = read_object(root / "catalog" / "pet-image-index.json")
+def picture_source_identity(entry: dict) -> str:
+    """Identity of one exact official symbol at one approved source version."""
+    url, symbol, revision = entry.get("swfUrl", ""), entry.get("symbol", ""), entry.get("revision", "")
+    match = re.fullmatch(r"https://aoqi\.100bt\.com/play/peticon/peticon([1-9]\d*)~(\d{1,20})\.swf", url)
+    if not match or symbol != f"mmo.pet.peticon{match[1]}_L" or revision != match[2]:
+        raise ValueError("unsupported official picture resource/symbol/version binding")
+    identity = hashlib.sha256(json.dumps([url, symbol, revision], ensure_ascii=False,
+                                        separators=(",", ":")).encode()).hexdigest()
+    if entry.get("sourceIdentity", identity) != identity:
+        raise ValueError("picture source identity mismatch")
+    return identity
+
+
+def picture_cache_path(root: Path, visual_key: str, entry: dict) -> Path:
+    if not re.fullmatch(r"[1-9]\d*_[0-9]+", visual_key):
+        raise ValueError("invalid picture key")
+    return root / "images" / "pets" / "sources" / picture_source_identity(entry) / (visual_key + ".png")
+
+
+def picture_cache_matches(path: Path, entry: dict, *, verify_content=True) -> bool:
+    metadata = read_object(path.with_suffix(".json"))
+    return (path.is_file() and metadata.get("url") == entry.get("swfUrl") and
+            metadata.get("symbol") == entry.get("symbol") and metadata.get("revision") == entry.get("revision") and
+            isinstance(metadata.get("pngSha256"), str) and
+            re.fullmatch(r"[0-9a-f]{64}", metadata.get("pngSha256", "")) is not None and
+            (not verify_content or metadata["pngSha256"] == digest(path)))
+
+
+def commit_picture(raster: Path, output: Path, entry: dict, metadata: dict) -> None:
+    """Publish one immutable PNG identity, or repair its recorded original bytes."""
+    candidate_hash = digest(raster)
+    previous = read_object(output.with_suffix(".json"))
+    expected = previous.get("pngSha256", "") if (previous.get("url") == entry["swfUrl"] and
+        previous.get("symbol") == entry["symbol"] and previous.get("revision") == entry["revision"]) else ""
+    if not isinstance(expected, str) or not re.fullmatch(r"[0-9a-f]{64}", expected):
+        expected = ""
+    if expected and expected != candidate_hash:
+        raise ValueError("同一图片来源的内容已变化，保留原对象")
+    existing = digest(output) if output.is_file() else ""
+    if existing and existing != candidate_hash and expected != candidate_hash:
+        raise ValueError("同一图片来源已有不同内容，保留原对象")
+    output.parent.mkdir(parents=True, exist_ok=True)
+    if existing != candidate_hash:
+        # A private completed file can be linked exclusively without exposing a
+        # partial PNG or overwriting a concurrent first publisher. Legacy input
+        # is copied first, so modifying its old path cannot mutate this object.
+        with tempfile.NamedTemporaryFile(prefix=".picture-", dir=output.parent, delete=False) as staged:
+            temporary = Path(staged.name)
+            with raster.open("rb") as incoming:
+                shutil.copyfileobj(incoming, staged)
+        try:
+            if existing:
+                # Only the digest previously committed for this exact source
+                # may repair corruption; another official PNG is not a repair.
+                os.replace(temporary, output)
+            else:
+                try:
+                    os.link(temporary, output)
+                except FileExistsError:
+                    if digest(output) != candidate_hash:
+                        raise ValueError("并发写入的图片内容不同，保留先写入的对象")
+        finally:
+            temporary.unlink(missing_ok=True)
+    atomic_json(output.with_suffix(".json"), {**metadata, "sourceIdentity": picture_source_identity(entry),
+                                             "pngSha256": candidate_hash})
+
+
+def extract_image(root: Path, visual_key: str, *, replace=False, expected_source_identity=None,
+                  expected_content_sha256=None, image_index_object=None) -> dict:
+    from public_dataset_store import image_index
+    index = image_index(root, image_index_object)
     entry = picture_entry(index, visual_key)
-    output = root / "images" / "pets" / (visual_key + ".png")
-    if output.is_file() and not replace:
-        return {"status": "cached", "path": str(output)}
     if not entry:
         raise ValueError("本地图片索引未收录此外观，请在设置中点击“全部检查更新”")
+    identity = picture_source_identity(entry)
+    if expected_source_identity is not None and identity != expected_source_identity:
+        raise ValueError("图片来源快照已变化，保留旧图片请求")
+    race, face = map(int, visual_key.split("_"))
+    selected = face or race
+    actual = selected % 10000 if selected >= 10000 and selected not in index.get("faceIdExceptions", []) else selected
+    if entry["symbol"] != f"mmo.pet.peticon{actual}_L":
+        raise ValueError("图片资源与精灵外观编号不一致")
+    output = picture_cache_path(root, visual_key, entry)
+    if expected_content_sha256 is not None and not re.fullmatch(r"[0-9a-f]{64}", expected_content_sha256):
+        raise ValueError("invalid expected picture content identity")
+    if picture_cache_matches(output, entry):
+        actual_hash = digest(output)
+        if expected_content_sha256 and expected_content_sha256 != actual_hash:
+            raise ValueError("图片内容与请求快照不同，保留原对象")
+        return {"status": "cached", "path": str(output), "sourceIdentity": identity, "contentSha256": actual_hash}
+    # Only a cache with the exact official source, symbol and content proof can
+    # migrate. Unknown/name-derived files are retained, never renamed or guessed.
+    legacy = root / "images" / "pets" / (visual_key + ".png")
+    if picture_cache_matches(legacy, entry):
+        metadata = read_object(legacy.with_suffix(".json"))
+        if expected_content_sha256 and expected_content_sha256 != metadata["pngSha256"]:
+            raise ValueError("图片内容与请求快照不同，保留原对象")
+        commit_picture(legacy, output, entry, metadata)
+        return {"status": "cached", "path": str(output), "sourceIdentity": identity, "contentSha256": metadata["pngSha256"]}
     url, symbol = entry.get("swfUrl", ""), entry.get("symbol", "")
-    if not re.fullmatch(r"https://aoqi\.100bt\.com/play/peticon/peticon[1-9]\d*~(?:2000|\d{8,20})\.swf", url):
-        raise ValueError("unsupported official picture resource")
-    if not re.fullmatch(r"mmo\.pet\.peticon[1-9]\d*_L", symbol):
-        raise ValueError("unsupported official picture symbol")
     java, ffdec = installed_runtime(root, "java"), installed_runtime(root, "ffdec")
     output.parent.mkdir(parents=True, exist_ok=True)
     with tempfile.TemporaryDirectory(prefix="picture-", dir=root / "data-tools") as temporary:
@@ -718,16 +982,19 @@ def extract_image(root: Path, visual_key: str, *, replace=False) -> dict:
         if len(images) != 1 or images[0].name != "1.png":
             raise ValueError("官方精灵图片帧缺失或不唯一")
         info = png_details(images[0])
+        if expected_content_sha256 and expected_content_sha256 != info["sha256"]:
+            raise ValueError("同版本图片内容与请求快照不同，保留原对象")
         if info["width"] * info["height"] > 16 * 1024 * 1024 or info["bytes"] > 16 * 1024 * 1024:
             raise ValueError("官方精灵图片过大")
-        latest = picture_entry(read_object(root / "catalog" / "pet-image-index.json"), visual_key)
+        # An immutable object explicitly pins the old request, so a concurrent
+        # current-pointer switch must not cancel that valid old snapshot.
+        latest = picture_entry(image_index(root, image_index_object), visual_key)
         if latest != entry:
             raise ValueError("图片索引已更新，旧来源下载结果已忽略")
-        # os.replace is atomic on the same volume, including overwriting.
-        os.replace(images[0], output)
-        atomic_json(output.with_suffix(".json"), {"url": url, "revision": entry.get("revision", ""), "resource": resource,
+        commit_picture(images[0], output, entry, {"url": url, "revision": entry.get("revision", ""), "resource": resource,
+                    "sourceIdentity": identity,
                     "symbol": symbol, "pngSha256": info["sha256"]})
-    return {"status": "saved", "path": str(output)}
+    return {"status": "saved", "path": str(output), "sourceIdentity": identity, "contentSha256": info["sha256"]}
 
 
 def refresh_cached_images(root: Path, previous: dict, faces: dict, *, verify_content: bool = True) -> int:
@@ -736,14 +1003,18 @@ def refresh_cached_images(root: Path, previous: dict, faces: dict, *, verify_con
         return 0
     new = {"faces": faces, "images": {}}
     failures = 0
-    for path in directory.glob("*.png"):
+    seen = set()
+    for path in directory.rglob("*.png"):
         key = path.stem
-        if not re.fullmatch(r"[1-9]\d*_[0-9]+", key):
+        if not re.fullmatch(r"[1-9]\d*_[0-9]+", key) or key in seen:
             continue
         entry = picture_entry(new, key)
-        metadata = read_object(path.with_suffix(".json"))
-        if not entry or (metadata.get("revision") == entry.get("revision")
-                         and (not verify_content or metadata.get("pngSha256") == digest(path))):
+        old = picture_entry(previous, key)
+        if not entry or not old or not picture_cache_matches(path, old, verify_content=False):
+            continue
+        seen.add(key)
+        output = picture_cache_path(root, key, entry)
+        if picture_cache_matches(output, entry, verify_content=verify_content):
             continue
         try:
             emit("progress", message="更新已缓存图片 " + key)
@@ -781,6 +1052,12 @@ def main() -> int:
     parser.add_argument("--baseline", type=Path, default=Path(__file__).resolve().parent / "baseline")
     parser.add_argument("--extract-image", action="store_true")
     parser.add_argument("--visual-key")
+    parser.add_argument("--image-source-identity")
+    parser.add_argument("--image-content-sha256")
+    parser.add_argument("--image-index-object")
+    parser.add_argument("--prepare-only", action="store_true",
+                        help="prepare a candidate for application by the running workbench")
+    parser.add_argument('--attempt-id', help='existing preparation request identity from the workbench')
     parser.add_argument("--replace", action="store_true")
     parser.add_argument("--components", default="",
                         help="comma-separated subset of: " + ",".join(COMPONENTS) + " (default: all)")
@@ -793,24 +1070,40 @@ def main() -> int:
             emit("finished", success=False, error="未知的数据类别：" + "、".join(sorted(unknown)), components={})
             return 1
     root = args.data_root.resolve()
+    active_attempt = None
     try:
         if args.extract_image:
-            result = extract_image(root, args.visual_key or "", replace=args.replace)
+            result = extract_image(root, args.visual_key or "", replace=args.replace,
+                                   expected_source_identity=args.image_source_identity,
+                                   expected_content_sha256=args.image_content_sha256,
+                                   image_index_object=args.image_index_object)
             emit("finished", success=True, **result)
             return 0
         with update_lock(root):
-            tools = root / "data-tools"
-            tools.mkdir(exist_ok=True)
-            with tempfile.TemporaryDirectory(prefix="update-", dir=tools) as scratch:
-                result = Updater(root, args.baseline.resolve(), Path(scratch)).run(components)
-            success = all(v["status"] != "failed" and not v.get("error") for v in result.values())
-            checked = "、".join(label for name, label in COMPONENT_LABELS if name in result)
-            changed = [label for name, label in COMPONENT_LABELS if result.get(name, {}).get("status") == "updated"]
-            summary = ("，已更新：" + "、".join(changed)) if changed else "，均已是最新"
-            message = ("检查完成：" + checked + summary) if success else "已保留可用数据，仍有未完成或待补齐的项目"
-            emit("finished", success=success, message=message, components=result)
-            return 0 if success else 2
+            from public_dataset_store import prepare_candidate, apply_candidate, ensure_migrated, begin_request
+            request = begin_request(root, components, args.attempt_id)
+            active_attempt = request['attempt']
+            ensure_migrated(root)
+            candidate = prepare_candidate(root, args.baseline.resolve(), components, emit=emit, attempt_id=active_attempt)
+            complete = all(row.get("status") not in ("failed", "retained") and not row.get("error")
+                           for row in candidate["results"].values())
+            if args.prepare_only:
+                emit("finished", success=True, candidatePassed=True, diskCommitted=False, sessionApplied=False,
+                     complete=complete,
+                     attempt=candidate["attempt"], revision=candidate["revision"],
+                     message="候选资料已准备，等待工作台检查并应用", components=candidate["results"])
+                return 0
+            committed = apply_candidate(root, candidate)
+            emit("finished", success=True, candidatePassed=True, diskCommitted=True, sessionApplied=False,
+                 complete=complete,
+                 attempt=candidate["attempt"], revision=candidate["revision"],
+                 message="公共资料版本已保存；运行中的工作台需完成快照重载后才算应用", components=candidate["results"],
+                 publication=committed)
+            return 0
     except Exception as error:
+        if active_attempt:
+            from public_dataset_store import record_preparation_failure
+            record_preparation_failure(root, active_attempt, error)
         emit("finished", success=False, error=str(error), components={})
         return 1
 

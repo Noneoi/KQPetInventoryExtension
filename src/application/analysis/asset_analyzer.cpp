@@ -13,6 +13,7 @@
 #include "application/shop/shop_exchange_controller.h"
 #include "domain/shop_pet_eligibility.h"
 #include "domain/pet_metadata_view.h"
+#include "domain/routine_opportunity_rules.h"
 
 #include <QJsonArray>
 #include <QSet>
@@ -39,8 +40,9 @@ bool hasFullDetail(const PetRepository* repository, const QJsonObject& pet) {
 }
 
 void analyzeRoutine(const RoutineOverviewController* controller,
-                    AccountAssetOverview* result) {
+                    AccountAssetOverview* result, std::shared_ptr<const RoutineCatalogSnapshot> snapshot) {
   if (!controller || !result) return;
+  if (!snapshot) snapshot = RoutineOverviewCatalog::instance().snapshot();
   const QJsonObject daily = controller->dailyPacket();
   const auto validity = controller->periodValiditySnapshot();
   const auto current = [&validity](const QString& key) { return validity.value(key).current(); };
@@ -51,7 +53,7 @@ void analyzeRoutine(const RoutineOverviewController* controller,
     const QJsonArray week = daily.value(QStringLiteral("wti")).toArray();
     int dayIndex = 0, weekIndex = 0, unfinishedDay = 0, unfinishedWeek = 0;
     bool dayKnown = current(QStringLiteral("ti:daily")), weekKnown = current(QStringLiteral("wti:weekly"));
-    for (const RoutineTaskDefinition& task : RoutineOverviewCatalog::instance().snapshot()->tasks) {
+    for (const RoutineTaskDefinition& task : snapshot->tasks) {
       qint64 progress = 0;
       if (task.dayFinish > 0) {
         if (dayIndex >= day.size() || !PacketContracts::checkedInteger(day.at(dayIndex), &progress, 0, INT_MAX)) dayKnown = false;
@@ -71,6 +73,7 @@ void analyzeRoutine(const RoutineOverviewController* controller,
   }
 
   const QJsonObject packets = controller->opportunityPackets();
+  const auto rules = RoutineOpportunityRules::read(snapshot->root);
   // One entry per independent contribution. A source is validated on its own:
   // a valid field in one packet says nothing about that packet's other fields.
   // A group this analysis never covered is not counted as zero, and it does not
@@ -111,7 +114,7 @@ void analyzeRoutine(const RoutineOverviewController* controller,
           entry.confirmed = true;
           entry.observedAt = controller->observedAt(group);
         } else {
-          entry.pendingReason = QStringLiteral("来源数据无效");
+          entry.pendingReason = QStringLiteral("额度规则未就绪或来源数据无效");
         }
       }
     }
@@ -126,8 +129,8 @@ void analyzeRoutine(const RoutineOverviewController* controller,
       [&](qint64* result) { return number(star, "ti", result); });
   evaluate(QStringLiteral("星轮探险（本周）"), QStringLiteral("1008_20220603_swa_0_0"), true,
       [&](qint64* result) {
-        if (!number(star, "wgt", result)) return false;
-        *result = qMax<qint64>(0, 6 - *result);
+        if (!rules.starWeekly || !number(star, "wgt", result) || *result > *rules.starWeekly) return false;
+        *result = *rules.starWeekly - *result;
         return true;
       });
   const auto tree = packets.value(QStringLiteral("1008_20190531_gbt_1")).toObject();
@@ -137,14 +140,16 @@ void analyzeRoutine(const RoutineOverviewController* controller,
   evaluate(QStringLiteral("源兽之门（今日）"), QStringLiteral("2_36_1"), false,
       [&](qint64* result) { return number(beast, "t", result); });
   const auto farm = packets.value(QStringLiteral("1008_20260522_nf_0")).toObject();
-  evaluate(QStringLiteral("最新版农场（今日）"), QStringLiteral("1008_20260522_nf_0"), false,
+  evaluate(QStringLiteral("最新版农场（储存）"), QStringLiteral("1008_20260522_nf_0"), false,
       [&](qint64* result) { return number(farm, "pt", result); });
   const auto competition = packets.value(QStringLiteral("110_123_0")).toObject();
   evaluate(QStringLiteral("全民斗技（今日）"), QStringLiteral("110_123_0"), false,
       [&](qint64* result) {
         qint64 used = 0, bought = 0;
         if (!number(competition, "rdt", &used) || !number(competition, "rdb", &bought)) return false;
-        *result = qMax<qint64>(0, 40 + bought - used);
+        const auto remaining = RoutineOpportunityRules::remaining(rules.competitionDaily, bought, used);
+        if (!remaining) return false;
+        *result = *remaining;
         return true;
       });
   evaluate(QStringLiteral("全民斗技（本周）"), QStringLiteral("110_123_0"), true,
@@ -159,7 +164,10 @@ void analyzeRoutine(const RoutineOverviewController* controller,
         QStringLiteral("16_24_A:") + field, false, [&](qint64* result) {
           qint64 used = 0, bought = 0;
           if (!number(info, "ct", &used) || !number(info, "bct", &bought)) return false;
-          *result = qMax<qint64>(0, 8 + bought - used);
+          const auto base = rules.arenaDaily.contains(field) ? std::optional<qint64>(rules.arenaDaily.value(field)) : std::nullopt;
+          const auto remaining = RoutineOpportunityRules::remaining(base, bought, used);
+          if (!remaining) return false;
+          *result = *remaining;
           return true;
         });
   }
@@ -253,7 +261,8 @@ InventorySignature AssetAnalyzer::inventorySignature() const {
   return result;
 }
 
-AccountAssetOverview AssetAnalyzer::captureInput(std::shared_ptr<const PetDetailCatalogSnapshot> snapshot) const {
+AccountAssetOverview AssetAnalyzer::captureInput(std::shared_ptr<const PetDetailCatalogSnapshot> snapshot,
+                                               std::shared_ptr<const RoutineCatalogSnapshot> routines) const {
   const PetMetadataView metadata(snapshot ? std::move(snapshot) : PetDetailCatalog::instance().snapshot());
   AccountAssetOverview input;
   if (!repository_) return input;
@@ -293,7 +302,7 @@ AccountAssetOverview AssetAnalyzer::captureInput(std::shared_ptr<const PetDetail
       [](const PetAssetRecord& pet) { return pet.observationVerified; });
   // The small routine summary is a frozen input value, independent of the
   // expensive per-pet cultivation and product-pair computation below.
-  analyzeRoutine(routineController_, &input);
+  analyzeRoutine(routineController_, &input, std::move(routines));
   return input;
 }
 
@@ -317,14 +326,14 @@ AccountAssetOverview AssetAnalyzer::analyze() const {
   while (calculation.step() == RecommendationSession::Status::Running) {}
   return calculation.takeOverview();
 }
-AccountAssetOverview AssetAnalyzer::routineSummary() const {
+AccountAssetOverview AssetAnalyzer::routineSummary(std::shared_ptr<const RoutineCatalogSnapshot> routines) const {
   AccountAssetOverview result;
   if (repository_) result.account = repository_->accountKey();
-  analyzeRoutine(routineController_, &result);
+  analyzeRoutine(routineController_, &result, std::move(routines));
   return result;
 }
 
-void AssetAnalyzer::updateRoutineSummary(AccountAssetOverview* overview) const {
+void AssetAnalyzer::updateRoutineSummary(AccountAssetOverview* overview, std::shared_ptr<const RoutineCatalogSnapshot> routines) const {
   if (!overview) return;
   overview->routineDataKnown = false;
   overview->dailyTasksKnown = false;
@@ -337,5 +346,5 @@ void AssetAnalyzer::updateRoutineSummary(AccountAssetOverview* overview) const {
   overview->weekOpportunityRemaining = 0;
   overview->todayOpportunities = {};
   overview->weekOpportunities = {};
-  analyzeRoutine(routineController_, overview);
+  analyzeRoutine(routineController_, overview, std::move(routines));
 }

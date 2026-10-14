@@ -1,0 +1,165 @@
+{
+  "opportunityRules": {
+    "schema": 1,
+    "starAdventure": {
+      "dailyDeclaredLimit": 3,
+      "weeklyLimit": 6
+    },
+    "nationalCompetition": {
+      "dailyBase": 40,
+      "weeklyDeclaredLimit": 40
+    },
+    "farm": {
+      "inviteBonus": [
+        {
+          "count": 0,
+          "dailyRefresh": 4,
+          "refreshMax": 16,
+          "dailyPick": 2,
+          "pickMax": 8
+        },
+        {
+          "count": 1,
+          "dailyRefresh": 4,
+          "refreshMax": 16,
+          "dailyPick": 2,
+          "pickMax": 8
+        },
+        {
+          "count": 2,
+          "dailyRefresh": 4,
+          "refreshMax": 16,
+          "dailyPick": 2,
+          "pickMax": 8
+        },
+        {
+          "count": 3,
+          "dailyRefresh": 4,
+          "refreshMax": 20,
+          "dailyPick": 2,
+          "pickMax": 8
+        },
+        {
+          "count": 4,
+          "dailyRefresh": 5,
+          "refreshMax": 20,
+          "dailyPick": 2,
+          "pickMax": 8
+        }
+      ]
+    },
+    "arena": {
+      "zao1": {
+        "fieldId": 8,
+        "dailyBase": 8
+      },
+      "zao2": {
+        "fieldId": 9,
+        "dailyBase": 8
+      }
+    }
+  },
+  "source": {
+    "kind": "official-routine-rules-test-fixture",
+    "resources": {
+      "starRules": {
+        "key": "newactivityext/newact20220602/starwheeladventure/starwheeladventure",
+        "version": "2026082767617311",
+        "sha256": "9c24a7443c68d0a601adafe584e7b03e297e2cf418858280d9dce2bc70e01402",
+        "url": "https://aoqi.100bt.com/play/newactivityext/newact20220602/starwheeladventure/starwheeladventure~2026082767617311.swf",
+        "bytes": 31643,
+        "scripts": {
+          "mmo.activityext.newact20220602.starwheeladventure.config.SWA_Config": "bdd830fca7db072c501e891dee6532b5bb6c261de171a49d66436ed26829450e",
+          "mmo.activityext.newact20220602.starwheeladventure.model.SWA_Model": "52ea62a9654a28e0ba598d1de1e94ef79578171198c466a1c70670a59f455611"
+        },
+        "contracts": {
+          "mmo.activityext.newact20220602.starwheeladventure.model.SWA_Model.parseGetGameInfo": "21af447a17d997960ca070ca54484d38c51469b0bb6f377b5ed1bc8c6a9a15f2",
+          "mmo.activityext.newact20220602.starwheeladventure.model.SWA_Model.todayRestGameTimes": "ddc7a17cb44f71f6d41949a8d9c38ffa9c061907b9f630da69308286a78717bf",
+          "mmo.activityext.newact20220602.starwheeladventure.model.SWA_Model.weekRestGameTimes": "47a621ffc35856cc92a5593f4ae058cd28bff698ff5517b402e652117d8020b4",
+          "mmo.activityext.newact20220602.starwheeladventure.model.SWA_Model.weekPlayedTimes": "13d6082d84fd5de9cb703bfecf46eabe36fd31456437ef469c6806ba933d678f"
+        },
+        "rulesSha256": "9d1769119575e9b0e8756ca792a1d4042700cf98562e9efcb00052654dc2c99a"
+      },
+      "competitionRules": {
+        "key": "newactivityext/newact20240705/nationalcompetition/nationalcompetition",
+        "version": "261009031754821",
+        "sha256": "4915dc3e66f7b410850ddaebd3605d574d34b8e0d67d2514344fedd8089d27ef",
+        "url": "https://aoqi.100bt.com/play/newactivityext/newact20240705/nationalcompetition/nationalcompetition~261009031754821.swf",
+        "bytes": 64959,
+        "scripts": {
+          "mmo.activityext.newact20240705.nationalcompetition.config.NC_Config": "d70bbbf27187e290669582a5ec29f317f700a0949e9e3feac848cb5625a434a1",
+          "mmo.activityext.newact20240705.nationalcompetition.model.NC_Model": "fd1f90d86dd97ed40323ba10d89ecc8f8c02d0afa757a7dff79745ce089d576f",
+          "mmo.activityext.newact20240705.nationalcompetition.panel.NC_MainPanel": "81116ed7ba7436165913c107bb3b4928fc590f52e6669eeff10ca623128682b8"
+        },
+        "contracts": {
+          "mmo.activityext.newact20240705.nationalcompetition.model.NC_Model.init": "abc464f12fa55c201afde5cc123f59c901276361935ced0d836ca157a0012ce7",
+          "mmo.activityext.newact20240705.nationalcompetition.model.NC_Model.buyDailyTicketTimes": "70880c7fa0f80b64ad90d903b79f4ac9270288ed76d1fbc5d668c08d7c1f3f31",
+          "mmo.activityext.newact20240705.nationalcompetition.model.NC_Model.dailyTicketNum": "929d5971dd2931c94e6762e7d40f9b872fb87351ccf69a7b630ac127a2cb05b6",
+          "mmo.activityext.newact20240705.nationalcompetition.model.NC_Model.weekTicketNum": "13d6f1f802f9c15301109d6812823854134e1bd80d79f99e0c11eceb1f6c3a7c",
+          "mmo.activityext.newact20240705.nationalcompetition.model.NC_Model.ticketNum": "335ef7855199f029905272d6b016a9a481cdb0360c3c2a1b8f384a00752debcb",
+          "mmo.activityext.newact20240705.nationalcompetition.panel.NC_MainPanel.updatePanel": "7411262e76701c6f3b4b15a94ddbcd8854c587a429164167c0f84e4688c2b669"
+        },
+        "rulesSha256": "3565e790581a1fed7eaadf79da2e8d47ffe61d97fea6ced4d35cb2002ce69163"
+      },
+      "farmRules": {
+        "key": "newactivityext/newact20260522/farmv2/farmv2",
+        "version": "2026082066906688",
+        "sha256": "dc74e447bf3bffa63d43d6626137f3414997e5d5cca5d4a133086c9c62c923ae",
+        "url": "https://aoqi.100bt.com/play/newactivityext/newact20260522/farmv2/farmv2~2026082066906688.swf",
+        "bytes": 39325,
+        "scripts": {
+          "mmo.activityext.newact20260522.farmv2.model.FV2Config": "94018fbd0667cc9f721d83811f5afc9b969d1f4ede187227bc2592aa214fc54d",
+          "mmo.activityext.newact20260522.farmv2.model.FV2Model": "cf86ba250f9f4cafdf9c649d538fb45dbc9bae6cc18d5964a7c2dbcd4248f504",
+          "mmo.activityext.newact20260522.farmv2.model.FV2Client": "6da182e01150bae6569175cf5bf14d85f215ecf765f31bb92151f764cb23eb24"
+        },
+        "contracts": {
+          "mmo.activityext.newact20260522.farmv2.model.FV2Config.getInviteBonus": "4f9ce93b742ae75b78e0c79f3539b5a15ff9af830376b9236007daeb57577564",
+          "mmo.activityext.newact20260522.farmv2.model.FV2Model.parseData": "bb02ab47865d66c56b1e9b929931601bf8248683c389af242f3559265afe1e54",
+          "mmo.activityext.newact20260522.farmv2.model.FV2Model.refreshTimes": "5be25eee33242b8a8aa128db6f34b798141feaa0d56f5b35186c9ecf9ef91db2",
+          "mmo.activityext.newact20260522.farmv2.model.FV2Model.refreshTimesMax": "c3cd3434e5ca5f29e3abb0c726c643fdc0521ca396ba50e63435d725d2a2f63a",
+          "mmo.activityext.newact20260522.farmv2.model.FV2Model.pickTimes": "642b2cd055a211a760896cdb46351ff63e870b1da3d65b2f044e6c3eb6b52ffe",
+          "mmo.activityext.newact20260522.farmv2.model.FV2Model.pickTimesMax": "a18d33ef017cad21ddfbd3f12bd1e9db764b9b081807c32b311461d13e9f8dc9",
+          "mmo.activityext.newact20260522.farmv2.model.FV2Model.inviteCount": "075786396a3f3522c587de0585e4a4eccc569df052287e576d7f9198171b5adc",
+          "mmo.activityext.newact20260522.farmv2.model.FV2Client.getInfo": "b0d4aa8bb9d730990cb81628bb223d9180cdec890b875c75aa467805f636e7cc",
+          "mmo.activityext.newact20260522.farmv2.model.FV2Client._parseInviteString": "9d9e4430b80d70979135e04c654bd8e4ad56018d86658218e52f7f82b333ce42"
+        },
+        "rulesSha256": "f8b7d6b1cf81014894be9bea55f6616a208ede19ad618fc3ad54739eb6c8d722"
+      },
+      "arenaRules": {
+        "key": "arenav3/arenav3service",
+        "version": "2026091011614836",
+        "sha256": "fed193e8fd69f3cd6a82c34f6f3c60b0ff16573780059d8de13aa98fcfce1b68",
+        "url": "https://aoqi.100bt.com/play/arenav3/arenav3service~2026091011614836.swf",
+        "bytes": 65208,
+        "scripts": {
+          "mmo.arenav3.config.ArenaV3BattleFieldConfig": "ebc3810f7e2d306a6a68c5bf8cc1ec6a9147a7c152889bbd2008027363a7e302",
+          "mmo.arenav3.model.ArenaV3Model": "852ed020cfad314d5ed79ce14edf59fc0a3a5dcbf03b0054a38541521ec2850c",
+          "mmo.arenav3.model.ArenaV3FieldInfo": "be4d2f452baf3068c7e51e524ab0a89010db1abfed87a013b89dbc3f5a57ef07",
+          "mmo.arenav3.defines.ArenaV3BattleFieldDefine": "9a0a40c9d3aacb8c1676c4908d8882e828bc04311f1ae480ac906c4676f05bdf"
+        },
+        "contracts": {
+          "mmo.arenav3.config.ArenaV3BattleFieldConfig.getFieldDefineById": "6a2cb48fc167b0df50dfaa713d06f78221c8e31d295cf4e462a583e2ceee9d10",
+          "mmo.arenav3.model.ArenaV3Model.setArenaV3Info": "448b0118a052058efc2a72cdb453c43610056f8063a2f35abdab245b2cd8b9fd",
+          "mmo.arenav3.model.ArenaV3FieldInfo.parseInfo": "1671e5ebdd96c91093ad57973e516f6eb28008c1dc1d74f9da828509b2a68b38",
+          "mmo.arenav3.model.ArenaV3FieldInfo.fieldDefine": "28db76e2198fdad436d63b0d76c228eb3381fe5039b1679d79b755ee85c7eeed",
+          "mmo.arenav3.model.ArenaV3FieldInfo.remainChallengeTime": "155b22e31f43dc53c836c4e593db5f8b2ae081f6ba659867db0311d0c6a86755",
+          "mmo.arenav3.defines.ArenaV3BattleFieldDefine.createWithObjArr": "3f615780f86b16e8d2228ee4d8563883bfb4280795aa082286b96e7ddd93f2ba",
+          "mmo.arenav3.defines.ArenaV3BattleFieldDefine.createWithObj": "d720a2e567cb5360dc11834eb3fefb8e61faffbda7880cb29561c36a6c26ba9d",
+          "mmo.arenav3.defines.ArenaV3BattleFieldDefine.dailyFreeChallengeTime": "e8182e7b0d0f6cc8aa7d6180ae121d5cef85cdc1c6e79913dc04511f2298e07b",
+          "mmo.arenav3.defines.ArenaV3BattleFieldDefine.id": "4ad6a2b1fef6cc0483a567d9e48045a7eda2443f40becadfc0dfd18759f5ddd9"
+        },
+        "rulesSha256": "d50debfecb64b16a4ab5840481f7739f9f07a328b44daef0061ad88399c4bac8"
+      }
+    },
+    "rulesStatus": {
+      "starAdventure.dailyDeclaredLimit": "official-declaration-only-not-used-to-derive-account-counts",
+      "starAdventure.weeklyLimit": "consumer-verified",
+      "nationalCompetition.dailyBase": "consumer-verified",
+      "nationalCompetition.weeklyDeclaredLimit": "official-declaration-only-not-an-observed-weekly-cap",
+      "farm.inviteBonus": "consumer-verified-storage-and-daily-replenishment-by-invite-count",
+      "arena.zao1": "consumer-verified",
+      "arena.zao2": "consumer-verified"
+    },
+    "rulesParserFingerprint": "9ed83a11897440136cf72f2ce122ec64e3dfaba58f0bf23b1da07845c0639896"
+  }
+}

@@ -2,10 +2,17 @@ param(
   [Parameter(Mandatory=$true)][string]$DataRoot,
   [switch]$ExtractImage,
   [string]$VisualKey,
+  [string]$ImageIndexObject,
+  [switch]$PrepareOnly,
+  [ValidatePattern('^$|^[a-f0-9]{32}$')][string]$AttemptId = '',
   # Comma-separated subset (pets,skills,shop,images,icons,routines); empty checks all.
   [string]$Components = ''
 )
 $ErrorActionPreference = 'Stop'
+# A PowerShell 7 parent can supply its own PSModulePath to this Windows
+# PowerShell 5 child. Use this host's Utility module for the hash/JSON commands,
+# just as the existing release/target helpers do; never skip runtime checks.
+Import-Module -Name (Join-Path $PSHOME 'Modules\Microsoft.PowerShell.Utility\Microsoft.PowerShell.Utility.psd1') -Global -ErrorAction Stop
 $ProgressPreference = 'SilentlyContinue'
 [Console]::OutputEncoding = New-Object System.Text.UTF8Encoding($false)
 $env:PYTHONUTF8 = '1'
@@ -67,7 +74,12 @@ try {
   }
   $helperPath = Join-Path $PSScriptRoot 'public_data_updater.py'
   $pythonArgs = @('-B', '-u', $helperPath, '--data-root', $resolvedRoot, '--baseline', (Join-Path $PSScriptRoot 'baseline'))
-  if ($ExtractImage) { $pythonArgs += @('--extract-image', '--visual-key', $VisualKey) }
+  if ($PrepareOnly) { $pythonArgs += '--prepare-only' }
+  if ($AttemptId) { $pythonArgs += @('--attempt-id', $AttemptId) }
+  if ($ExtractImage) {
+    $pythonArgs += @('--extract-image', '--visual-key', $VisualKey)
+    if ($ImageIndexObject) { $pythonArgs += @('--image-index-object', $ImageIndexObject) }
+  }
   elseif ($Components) { $pythonArgs += @('--components', $Components) }
   & $pythonExe @pythonArgs
   exit $LASTEXITCODE

@@ -1,16 +1,20 @@
 #!/usr/bin/env python3
-"""Build the manually reviewed, static supplement for the pet skill UI.
+"""Build versioned, archival notes from the official skill catalogue.
 
 This tool is intentionally separate from ``public_skill_updater.py``.  Its
 output is bundled into a release and is never replaced by the in-app game-data
-updater.  Every mechanism note is assembled from text already present in the
+updater. Default UI explanations use the current official catalogue instead.
+Every mechanism note is assembled from text already present in the
 official catalog; when the game only mentions a term in context, the note says
-so instead of inventing a standalone definition.
+so instead of inventing a standalone definition. Keyword summaries are
+explicitly local and hidden by default. Rebuilding preserves earlier records.
 """
 
 from __future__ import annotations
 
 import argparse
+from copy import deepcopy
+import hashlib
 import json
 import re
 from collections import Counter
@@ -18,9 +22,7 @@ from pathlib import Path
 
 
 TERM = re.compile(r"\[([^\[\]\r\n]{1,80})\]")
-PARAMETER = re.compile(r"^(.*?)[·-]([^·-]+)$")
 SENTENCE_BREAK = re.compile(r"(?<=[。；;！？!?])|\n+")
-ROMAN_SUFFIX = re.compile(r"[·-]?[ⅠⅡⅢⅣⅤⅥⅦⅧⅨⅩIVX]+$", re.I)
 
 
 THEMES = (
@@ -111,16 +113,30 @@ def excerpts(text: str, term: str) -> list[str]:
     return matches or [text.strip()]
 
 
-def parameterized_entry(term: str, entries: dict) -> tuple[str, str, str] | None:
-    match = PARAMETER.match(term)
-    if match and match.group(1) in entries and "ARG" in str(entries[match.group(1)]):
-        base, argument = match.group(1), match.group(2)
-        return base, argument, str(entries[base])
+def parameterized_entry(term: str, entries: dict) -> tuple[str, list[str], str] | None:
+    """Official EntryConfigParser uses exact names, then only a middle dot.
 
-    base = ROMAN_SUFFIX.sub("", term)
-    if base != term and base in entries and "ARG" in str(entries[base]):
-        return base, term[len(base):].lstrip("·-"), str(entries[base])
+    A Roman suffix or hyphen is part of a name, not evidence of an alias.
+    Current exact entries (including empty descriptions) always win.
+    """
+    if term in entries:
+        return None
+    parts = term.split("·")
+    if len(parts) > 1 and parts[0] and isinstance(entries.get(parts[0]), str):
+        return parts[0], parts[1:], entries[parts[0]]
     return None
+
+
+def parameter_text(text: str, arguments: list[str]) -> str:
+    # Complete official placeholders only. Missing ARG2 cannot borrow ARG's
+    # value and accidentally become "first2"; absent arguments stay explicit.
+    def replacement(match):
+        digits = match.group(1)
+        if digits and (len(digits) > 9 or digits.startswith("0")):
+            return "指定数值"
+        index = int(digits) - 1 if digits else 0
+        return arguments[index] if 0 <= index < len(arguments) else "指定数值"
+    return re.sub(r"ARG(\d*)", replacement, text)
 
 
 def build_mechanisms(catalog: dict, texts: list[str]) -> tuple[dict, dict]:
@@ -142,12 +158,13 @@ def build_mechanisms(catalog: dict, texts: list[str]) -> tuple[dict, dict]:
     for term in missing:
         parameterized = parameterized_entry(term, entries)
         if parameterized:
-            base, argument, evidence = parameterized
+            base, arguments, evidence = parameterized
             result[term] = {
-                "text": evidence.replace("ARG", argument or "X"),
+                "text": parameter_text(evidence, arguments),
                 "source": "parameterized-official-entry",
                 "baseEntry": base,
-                "argument": argument,
+                "argument": arguments[0] if arguments else "",
+                "arguments": arguments,
                 "evidence": [evidence],
             }
             continue
@@ -215,7 +232,7 @@ def pet_skill_text(catalog: dict, pet: dict) -> tuple[list[int], str]:
 def build_evaluations(catalog: dict) -> dict:
     result = {}
     for race_id, pet in catalog.get("pets", {}).items():
-        if not isinstance(pet, dict) or "灵初" not in str(pet.get("signs", "")):
+        if not isinstance(pet, dict) or "灵初" not in str(pet.get("signs", "")).split(","):
             continue
         skill_ids, text = pet_skill_text(catalog, pet)
         scored = []
@@ -243,22 +260,53 @@ def build_evaluations(catalog: dict) -> dict:
             "skillIds": skill_ids,
             "themes": themes,
             "mechanisms": mechanisms,
+            "source": "local-keyword-summary",
+            "defaultVisible": False,
         }
     return result
 
 
-def build_supplement(catalog: dict) -> dict:
+def _digest(value) -> str:
+    raw = json.dumps(value, ensure_ascii=False, sort_keys=True, separators=(",", ":"), allow_nan=False)
+    return hashlib.sha256(raw.encode("utf8")).hexdigest()
+
+
+def build_supplement(catalog: dict, previous: dict | None = None) -> dict:
     texts = official_texts(catalog)
     mechanisms, coverage = build_mechanisms(catalog, texts)
-    return {
+    version = str(catalog.get("source", {}).get("version", ""))
+    for item in mechanisms.values():
+        item["sourceVersion"] = version
+        item["usage"] = "historical-reference-only"
+        if item["source"] == "official-buff":
+            # Equal display text is evidence of a historical text reference,
+            # not a confirmed identity relation between Buffs and entry terms.
+            item["binding"] = "same-display-name-reference"
+    result = {
         "schema": 1,
         "kind": "pet-skill-manual-supplement",
         "updatePolicy": "manual-static",
-        "sourceVersion": str(catalog.get("source", {}).get("version", "")),
+        "sourceVersion": version,
+        "sourceCatalogSha256": _digest(catalog),
+        "defaultDisplayPolicy": "current-official-catalog-only",
         "mechanisms": mechanisms,
         "mechanismCoverage": coverage,
         "evaluations": build_evaluations(catalog),
     }
+    history = []
+    if previous is not None:
+        if not isinstance(previous, dict) or previous.get("schema") != 1 or previous.get("kind") != result["kind"]:
+            raise ValueError("existing supplement is not a supported historical record")
+        history = deepcopy(previous.get("historicalSnapshots", []))
+        if not isinstance(history, list) or any(not isinstance(item, dict) for item in history):
+            raise ValueError("existing supplement history is invalid")
+        prior = {key: deepcopy(value) for key, value in previous.items() if key != "historicalSnapshots"}
+        # Preserve every old field, including old generated notes, but never
+        # make that archived snapshot a default UI explanation source.
+        if prior != result and _digest(prior) not in {_digest(item) for item in history}:
+            history.append(prior)
+    result["historicalSnapshots"] = history
+    return result
 
 
 def main() -> int:
@@ -266,7 +314,8 @@ def main() -> int:
     parser.add_argument("--catalog", required=True, type=Path)
     parser.add_argument("--output", required=True, type=Path)
     args = parser.parse_args()
-    supplement = build_supplement(load_json(args.catalog))
+    previous = load_json(args.output) if args.output.is_file() else None
+    supplement = build_supplement(load_json(args.catalog), previous=previous)
     args.output.parent.mkdir(parents=True, exist_ok=True)
     args.output.write_text(json.dumps(supplement, ensure_ascii=False, separators=(",", ":")),
                            encoding="utf-8")

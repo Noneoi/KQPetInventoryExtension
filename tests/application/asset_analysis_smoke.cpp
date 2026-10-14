@@ -5,6 +5,8 @@
 #include "application/pet/pet_repository.h"
 #include "domain/pet_power_calculator.h"
 #include "application/catalog/pet_detail_catalog.h"
+#include "application/catalog/shop_exchange_catalog.h"
+#include "application/catalog/routine_overview_catalog.h"
 #include <QElapsedTimer>
 #include <QThread>
 #include <functional>
@@ -661,6 +663,35 @@ int main(int argc, char* argv[]) {
   ok &= require(!unknownProfile.analysisRunning() && unknownProfile.analysisRunCount() == runsBeforeClosing,
                 "Closing admitted new analysis work");
 
+  {
+    AssetAnalysisController bundled(&repository, &shop, &routine);
+    bundled.setCompatibilityIdentity(QStringLiteral("fixture-build"), QStringLiteral("fixture-profile"), true);
+    auto first = std::make_shared<PublicDatasetSnapshot>(); first->revision = QStringLiteral("analysis-bundle-a");
+    first->detail = PetDetailCatalog::instance().snapshot(); first->shop = ShopExchangeCatalog::instance().snapshot();
+    first->routine = RoutineOverviewCatalog::instance().snapshot();
+    first->components[QStringLiteral("pets")].sha256 = QString(64,QLatin1Char('a'));
+    first->components[QStringLiteral("shop")].sha256 = QString(64,QLatin1Char('b'));
+    first->components[QStringLiteral("routines")].sha256 = QString(64,QLatin1Char('c'));
+    bundled.setPublicDataset(first); analyze(bundled);
+    const auto retained = bundled.retainedAnalysisResult();
+    auto imageOnly = std::make_shared<PublicDatasetSnapshot>(*first); imageOnly->revision = QStringLiteral("analysis-bundle-image-only");
+    bundled.setPublicDataset(imageOnly);
+    ok &= require(retained && bundled.retainedAnalysisResult() == retained && !bundled.inventoryAnalysisStale(),
+        "unrelated public data update invalidated usable cultivation analysis");
+    auto next = std::make_shared<PublicDatasetSnapshot>(*first); next->revision = QStringLiteral("analysis-bundle-b");
+    auto metadata = std::make_shared<PetDetailCatalogSnapshot>(*first->detail); ++metadata->revision;
+    next->detail = metadata; next->components[QStringLiteral("pets")].sha256 = QString(64,QLatin1Char('d'));
+    bool switched = false; int published = 0;
+    const auto capture = QObject::connect(&bundled,&AssetAnalysisController::analysisInputCaptured,&application,[&](quint64) {
+      if (!switched) { switched = true; bundled.setPublicDataset(next); }
+    });
+    const auto publication = QObject::connect(&bundled,&AssetAnalysisController::analysisCompleted,&application,[&] { ++published; });
+    analyze(bundled); QObject::disconnect(capture); QObject::disconnect(publication);
+    const auto newest = bundled.retainedAnalysisResult();
+    ok &= require(switched && published == 1 && newest && newest != retained &&
+        newest->key.versions.publicDatasetRevision == next->revision && newest->key.versions.metadata == metadata->revision &&
+        !bundled.inventoryAnalysisStale(), "old public-data calculation published after the bundle changed during capture");
+  }
   repository.markSessionUncertain(QStringLiteral("synthetic source loss"));
   ok &= require(!store.write(account, trustedInput).accepted,
                 "lost session trust still allowed a snapshot write");

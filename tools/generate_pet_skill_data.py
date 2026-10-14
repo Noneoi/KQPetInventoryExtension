@@ -250,7 +250,9 @@ def build_catalog(root: Path, source: dict | None = None) -> dict:
         if not isinstance(row, dict):
             continue
         define_id = positive_int(row.get("id"))
-        race = define_id % 10000
+        # Both AlmightyConfigParser and AlmightyConfigXML index the exact id;
+        # SkillIcon requests dict.raceId. Higher digits do not imply inheritance.
+        race = define_id
         if not race:
             continue
         almighty_by_race.setdefault(str(race), []).append({
@@ -275,8 +277,11 @@ def build_catalog(root: Path, source: dict | None = None) -> dict:
             "skillEntries": [value for value in str(row["skillEntries"] or "").split("#") if value],
             "qiYunType": positive_int(row["qiYunType"]),
         }
+        # PetDictionaryDataItem.findSign compares complete comma-separated
+        # signs. A partial name is not evidence that a pet has a mechanism.
+        signs = set(str(row["signs"] or "").split(","))
         pet["traits"] = [tag for tag in ("天觉者", "吞噬技", "携同技", "寰力量", "异形族", "双英雄技")
-                         if tag in pet["signs"]]
+                         if tag in signs]
         if row["starGodSkillName"]:
             pet["starGodSkill"] = {"name": clean_text(row["starGodSkillName"]),
                                    "description": clean_text(row["starGodSkillDesc"])}
@@ -293,10 +298,6 @@ def build_catalog(root: Path, source: dict | None = None) -> dict:
         if race in groups:
             pet["forms"] = groups[race]
         almighty_rows = list(almighty_by_race.get(race, []))
-        for grouped_race in groups.get(race, []):
-            for value in almighty_by_race.get(str(grouped_race), []):
-                if value not in almighty_rows:
-                    almighty_rows.append(value)
         if almighty_rows:
             pet["almighty"] = almighty_rows
         info = pet_info.get(race)
@@ -306,9 +307,13 @@ def build_catalog(root: Path, source: dict | None = None) -> dict:
         evo = evolution.get(race)
         if isinstance(evo, list) and len(evo) > 3 and positive_int(evo[3]) != int(race):
             pet["evolutionFrom"] = positive_int(evo[3])
-        huan_rows = [value for key, value in huan.items() if str(key).endswith(race)]
-        if huan_rows:
-            pet["huan"] = [clean_text(value) for value in huan_rows[0] if clean_text(value)]
+        # Official huanSkillNo uses yuanLiSkillNo only for these exact signs;
+        # HuanSkillConfigParser.getHuanDefine is an exact-key lookup. Race-ID
+        # suffix matching incorrectly attaches unrelated skills to normal pets.
+        huan_id = positive_int(row["yuanLiSkill"]) if signs & {"寰力量", "异形族"} else 0
+        huan_rows = huan.get(str(huan_id)) if huan_id else None
+        if isinstance(huan_rows, list) and huan_rows:
+            pet["huan"] = [clean_text(value) for value in huan_rows if clean_text(value)]
         pets[race] = pet
 
     compact_transform = {}

@@ -1,0 +1,8 @@
+<RCC>
+  <qresource prefix="/kqpet/replay-regression">
+    <file alias="manifest.json">manifest.json</file>
+    <file alias="team-execution.json">team-execution.json</file>
+    <file alias="summon-and-sequence.json">summon-and-sequence.json</file>
+    <file alias="clone-entry.json">clone-entry.json</file>
+  </qresource>
+</RCC>

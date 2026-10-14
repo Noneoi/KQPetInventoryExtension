@@ -21,6 +21,7 @@
 #include "application/pet/pet_derivation_cache.h"
 #include "application/pet/pet_detail_preparation_service.h"
 #include "data_update_service.h"
+#include "public_update_service.h"
 #include "cache_management_service.h"
 #include "application/analysis/local_stargod_statistics_service.h"
 #include "domain/pet_identity.h"
@@ -50,6 +51,17 @@ struct State {
   bool finished = false;
   bool clean = false;
   bool imageBatchRunning = false; // Core thread only.
+  bool imageBatchKnown = false;
+  bool imageBatchCancelled = false;
+  int imageCompleted = 0, imageTotal = 0, imageFailed = 0;
+  quint64 replayCatalogJob = 0; // Core thread only; not an account-scoped job.
+  quint64 publicDatasetJob = 0;
+  quint64 rollbackJob = 0;
+  quint64 cacheRestoreJob = 0;
+  quint64 publicReloadJob = 0;
+  QJsonObject pendingCacheRestore;
+  bool replayRequested = false;
+  QString candidateSummary;
   int queuedTasks = 0;
   qint64 queuedBytes = 0;
   bool guiScheduled = false;
@@ -130,6 +142,7 @@ struct CoreViews {
 void closeCore(const std::shared_ptr<State>& state, const CoreServices& services, QThread* thread) {
   if (services.starStatistics) services.starStatistics->close();
   if (services.dataUpdater) services.dataUpdater->close();
+  if (services.publicUpdates) services.publicUpdates->close();
   if (services.cacheManager) services.cacheManager->close();
   if (services.details) services.details->shutdown();
   services.repo->setConnectionState(SessionConnectionState::Closing, QStringLiteral("扩展正在退出"));
@@ -166,8 +179,41 @@ protected:
     try {
       services.storage = new StorageService(state->options.dataRoot, {}, {}, services.root);
       DiagnosticLogger::attachStorage(services.storage, services.root);
-      services.catalogs = new CatalogIoService(services.storage, {}, services.root);
+      CatalogIoOptions catalogOptions;
+      catalogOptions.publicDatasetMode = true;
+      services.catalogs = new CatalogIoService(services.storage, catalogOptions, services.root);
+      QObject::connect(services.catalogs, &CatalogIoService::finished, services.root,
+          [state, catalogs = services.catalogs](quint64 job, CatalogKind kind, StorageStatus status, const QString& error) {
+        if (kind != CatalogKind::BattleReplay || job != state->replayCatalogJob || state->closing.load()) return;
+        state->replayCatalogJob = 0;
+        const auto snapshot = catalogs->battleReplaySnapshot();
+        QString message;
+        if (status == StorageStatus::Loaded && snapshot) {
+          message = snapshot->warning.isEmpty() ? snapshot->sourceLabel + QStringLiteral("已就绪") : snapshot->warning;
+        } else if (status == StorageStatus::NotFound && snapshot && snapshot->embedded) {
+          message = QStringLiteral("暂无外部回放资料，继续使用内置资料");
+        } else {
+          message = (snapshot ? QStringLiteral("读取失败，继续使用上次有效资料：") : QStringLiteral("回放资料暂不可用：")) + error;
+        }
+        notify(state, [snapshot, message](ApplicationRuntime* target) {
+          emit target->battleReplayCatalogChanged(snapshot, message, false);
+        }, QStringLiteral("battle-replay-catalog"));
+      });
       services.dataUpdater = new DataUpdateService(services.storage, services.root);
+      services.publicUpdates = new PublicUpdateService(services.storage, services.root);
+      QObject::connect(services.publicUpdates, &PublicUpdateService::stateChanged, services.root,
+          [state](const PublicUpdateState& update) {
+        notify(state, [update](ApplicationRuntime* target) { emit target->publicUpdateStateChanged(update); },
+            QStringLiteral("public-update-state"));
+      });
+      QObject::connect(services.publicUpdates, &PublicUpdateService::diagnosticsExported, services.root,
+          [state](bool success, const QString& path, const QString& message) {
+        notify(state, [success, path, message](ApplicationRuntime* target) {
+          emit target->publicDiagnosticsExported(success, path, message);
+        });
+      });
+      QObject::connect(services.dataUpdater, &DataUpdateService::progressChanged,
+          services.publicUpdates, &PublicUpdateService::observeProgress);
       services.cacheManager = new CacheManagementService(services.storage, state->options.clientRoot, services.root);
       services.repo = new PetRepository(services.root, services.storage, state->options.legacyDataRoot);
       services.starStatistics = new LocalStargodStatisticsService(services.storage,services.root);
@@ -191,12 +237,6 @@ protected:
       services.analysis->setDetailRefreshController(services.refresh);
       services.analysis->setCompatibilityIdentity(state->options.buildIdentity, state->options.profileIdentity,
                                                    state->options.compatibilityVerified);
-      QObject::connect(services.catalogs, &CatalogIoService::catalogUpdated, services.root,
-          [services](CatalogKind kind, quint64) {
-        if (kind == CatalogKind::PetDetail) services.analysis->metadataChanged();
-      });
-      for (auto kind : {CatalogKind::Shop, CatalogKind::Routine, CatalogKind::PetDetail, CatalogKind::PetSkill})
-        services.catalogs->requestReload(kind);
       const auto selectionChanged = [state, services] {
         const auto catalog = ShopExchangeCatalog::instance().snapshot();
         const bool editable = services.catalogs->shopSelectionEditable();
@@ -225,24 +265,121 @@ protected:
         emit target->dataUpdateStatusChanged(text, true);
       }, QStringLiteral("data-update")); });
       QObject::connect(services.dataUpdater, &DataUpdateService::finished, services.root,
-          [state, services](bool, const QStringList& components, const QString& text) {
-        if (components.contains(QStringLiteral("pets"))) services.catalogs->requestReload(CatalogKind::PetDetail);
-        if (components.contains(QStringLiteral("skills"))) services.catalogs->requestReload(CatalogKind::PetSkill);
-        if (components.contains(QStringLiteral("shop"))) services.catalogs->requestReload(CatalogKind::Shop);
-        if (components.contains(QStringLiteral("routines"))) services.catalogs->requestReload(CatalogKind::Routine);
-        if (components.contains(QStringLiteral("images")) || components.contains(QStringLiteral("icons"))) services.images->reloadImageIndex();
+          [state, services](bool, const QStringList&, const QString& text) {
+        services.publicUpdates->setBusy(false);
+        services.publicUpdates->refresh();
         notify(state, [text](ApplicationRuntime* target) { emit target->dataUpdateStatusChanged(text, false); }, QStringLiteral("data-update"));
       });
+      QObject::connect(services.dataUpdater, &DataUpdateService::candidatePrepared, services.root,
+          [state, services](const QString& attempt, const QString& text) {
+        services.publicUpdates->setBusy(true, false);
+        PublicUpdateProgress progress;
+        progress.phase = PublicUpdatePhase::Applying; progress.attempt = attempt;
+        progress.message = QStringLiteral("正在检查并应用完整资料版本…");
+        services.publicUpdates->observeProgress(progress);
+        state->candidateSummary = text;
+        state->publicDatasetJob = services.catalogs->requestPublicCandidate(attempt);
+        if (!state->publicDatasetJob)
+          services.dataUpdater->completePublication(false, QStringLiteral("候选资料未能进入应用队列，仍使用原完整版本"));
+      });
+      QObject::connect(services.catalogs, &CatalogIoService::publicDatasetFinished, services.root,
+           [state, services](quint64 job, bool applied, const QString& message, const QJsonObject& receipt) {
+        const auto appliedSnapshot = services.catalogs->publicDatasetSnapshot();
+        services.publicUpdates->setSessionRevision(appliedSnapshot ? appliedSnapshot->revision : QString{});
+        // A candidate may already contain its decoded replay catalog. Such a
+        // complete publication does not run the lazy BattleReplay job, so it
+        // must still advertise the new catalog to an existing replay page.
+        // The page pins the current battle and offers an explicit reparse.
+        if (applied && state->replayRequested && !state->replayCatalogJob) {
+          const auto replay = services.catalogs->battleReplaySnapshot();
+          if (replay) notify(state, [replay](ApplicationRuntime* target) {
+            emit target->battleReplayCatalogChanged(replay,
+                replay->warning.isEmpty() ? replay->sourceLabel + QStringLiteral("已就绪") : replay->warning, false);
+          }, QStringLiteral("battle-replay-catalog"));
+        }
+        if (job == state->publicDatasetJob && job) {
+          state->publicDatasetJob = 0;
+          QString text = message;
+          if (!state->candidateSummary.isEmpty()) text += QStringLiteral("；") + state->candidateSummary;
+          state->candidateSummary.clear();
+          services.dataUpdater->completePublication(applied, text);
+        } else if (job == state->cacheRestoreJob && job) {
+          state->cacheRestoreJob = 0;
+          auto result = std::exchange(state->pendingCacheRestore, QJsonObject{});
+          const auto snapshot = services.catalogs->publicDatasetSnapshot();
+          const bool restored = applied && snapshot &&
+              snapshot->revision == result.value(QStringLiteral("publicRestoreRevision")).toString();
+          result.insert(QStringLiteral("sessionApplied"), restored);
+          result.insert(QStringLiteral("publicApplyReceipt"), receipt);
+          if (!restored) {
+            result.insert(QStringLiteral("ok"), false);
+            result.insert(QStringLiteral("message"), result.value(QStringLiteral("message")).toString() +
+                QStringLiteral("；恢复的公共资料已保存，当前会话尚未确认应用：") + message);
+          } else {
+            result.insert(QStringLiteral("message"), result.value(QStringLiteral("message")).toString() +
+                QStringLiteral("；公共资料已在当前会话应用"));
+          }
+          notify(state, [result](ApplicationRuntime* target) {
+            emit target->dataUpdateStatusChanged(result.value(QStringLiteral("message")).toString(), false);
+            emit target->cacheActionFinished(QStringLiteral("restore"), result);
+          });
+        } else if (job == state->publicReloadJob && job) {
+          state->publicReloadJob = 0;
+          notify(state, [applied, message](ApplicationRuntime* target) {
+            emit target->dataUpdateStatusChanged(applied ? QStringLiteral("已载入保存的完整资料")
+                : QStringLiteral("当前仍使用原资料，请重试载入；") + message, false);
+          }, QStringLiteral("data-update"));
+        } else if (job == state->rollbackJob && job) {
+          state->rollbackJob = 0;
+          const QString text = applied ? QStringLiteral("已恢复上一份完整公共资料；已打开的战报继续使用原资料")
+              : QStringLiteral("未恢复公共资料：") + message;
+          notify(state, [text](ApplicationRuntime* target) { emit target->dataUpdateStatusChanged(text, false); }, QStringLiteral("data-update"));
+        } else if (!applied && !state->closing.load()) {
+          notify(state, [message](ApplicationRuntime* target) {
+            emit target->dataUpdateStatusChanged(QStringLiteral("共享资料尚未应用：") + message, false);
+          }, QStringLiteral("data-update"));
+        } else if (applied && !services.dataUpdater->busy() && !state->replayCatalogJob && !state->closing.load()) {
+          notify(state, [](ApplicationRuntime* target) {
+            emit target->dataUpdateStatusChanged(QStringLiteral("本地共享资料已就绪，各页面使用完整资料版本。"), false);
+          }, QStringLiteral("data-update"));
+        }
+        if (!services.dataUpdater->busy() && !state->rollbackJob && !state->cacheRestoreJob && !state->publicReloadJob)
+          services.publicUpdates->setBusy(false);
+        services.publicUpdates->refresh();
+      });
       QObject::connect(services.cacheManager, &CacheManagementService::finished, services.root,
-          [state](const QString& action, const QJsonObject& result) { notify(state, [action, result](ApplicationRuntime* target) {
-        emit target->cacheActionFinished(action, result);
-      }); });
+           [state, services](const QString& action, const QJsonObject& original) {
+        auto result = original;
+        // A later account-file failure must not hide a committed public version.
+        // Keep cache management pending until Core publishes and acknowledges it.
+        if (action == QStringLiteral("restore") &&
+            !result.value(QStringLiteral("publicRestoreRevision")).toString().isEmpty()) {
+          state->cacheRestoreJob = services.catalogs->requestPublicReload(result.value(QStringLiteral("publicRestoreAttempt")).toString());
+          if (state->cacheRestoreJob) {
+            state->pendingCacheRestore = result;
+            notify(state, [](ApplicationRuntime* target) {
+              emit target->dataUpdateStatusChanged(QStringLiteral("备份资料已保存，正在载入完整资料版本…"), true);
+            }, QStringLiteral("data-update"));
+            return;
+          }
+          result.insert(QStringLiteral("ok"), false);
+          result.insert(QStringLiteral("sessionApplied"), false);
+          result.insert(QStringLiteral("message"), result.value(QStringLiteral("message")).toString() +
+              QStringLiteral("；公共资料已保存，但未能进入会话载入队列，请重启工作台"));
+        }
+        notify(state, [action, result](ApplicationRuntime* target) { emit target->cacheActionFinished(action, result); });
+      });
       QObject::connect(services.images, &ImageService::batchProgress, services.root,
-          [state](int completed, int total, int failed) { notify(state, [completed, total, failed](ApplicationRuntime* target) {
+          [state, services](int completed, int total, int failed) {
+        state->imageBatchKnown = true; state->imageCompleted = completed;
+        state->imageTotal = total; state->imageFailed = failed;
+        services.publicUpdates->observePictures(completed, total);
+        notify(state, [completed, total, failed](ApplicationRuntime* target) {
         emit target->imageBatchProgress(completed, total, failed);
       }, QStringLiteral("image-batch")); });
       QObject::connect(services.images, &ImageService::batchFinished, services.root,
           [state](bool cancelled, int failed) { state->imageBatchRunning = false;
+        state->imageBatchKnown = true; state->imageBatchCancelled = cancelled; state->imageFailed = failed;
         notify(state, [cancelled, failed](ApplicationRuntime* target) { emit target->imageBatchFinished(cancelled, failed); });
       });
       const AsyncSender sender = [state](const OutboundIntent& intent) {
@@ -262,17 +399,42 @@ protected:
           [analysis = services.analysis](std::function<void()> job) { return analysis->postPriorityCompute(std::move(job)); },
           {}, services.root);
       inventoryPublisher->setDetailService(services.details, services.derivations);
+      QObject::connect(inventoryPublisher, &InventoryPublisher::relationCatalogNeeded, services.root,
+          [state, services, inventoryPublisher] {
+        if (state->closing.load()) return;
+        // Details and replay lazily read the same immutable public component.
+        state->replayRequested = true;
+        if (!state->replayCatalogJob)
+          state->replayCatalogJob = services.catalogs->requestReload(CatalogKind::BattleReplay);
+        if (!state->replayCatalogJob)
+          inventoryPublisher->relationCatalogLoadFinished(false, QStringLiteral("关联资料读取暂时无法排队"));
+      });
+      QObject::connect(services.catalogs, &CatalogIoService::finished, inventoryPublisher,
+          [services, inventoryPublisher](quint64, CatalogKind kind, StorageStatus status, const QString& error) {
+        if (kind != CatalogKind::BattleReplay) return;
+        const auto dataset = services.catalogs->publicDatasetSnapshot();
+        inventoryPublisher->relationCatalogLoadFinished(status == StorageStatus::Loaded && dataset && dataset->replay, error);
+      });
       QObject::connect(services.analysis, &AssetAnalysisController::derivedFactsChanged, inventoryPublisher,
           [inventoryPublisher](qint64 id, const PetDerivedFactsHandle& facts) { inventoryPublisher->factsUpdated(id, facts); });
       QObject::connect(services.analysis, &AssetAnalysisController::derivedFactsFailed,
           inventoryPublisher, &InventoryPublisher::factsFailed);
-      QObject::connect(services.catalogs, &CatalogIoService::catalogUpdated, inventoryPublisher,
-          [inventoryPublisher](CatalogKind kind, quint64) {
-        if (kind == CatalogKind::PetDetail)
-          inventoryPublisher->metadataUpdated(PetDetailCatalog::instance().snapshot());
-        if (kind == CatalogKind::PetSkill)
-          inventoryPublisher->skillMetadataUpdated(PetSkillCatalog::instance().snapshot());
+      QObject::connect(services.catalogs, &CatalogIoService::publicDatasetChanged, inventoryPublisher,
+          [state, services, inventoryPublisher](PublicDatasetSnapshotHandle snapshot) {
+        inventoryPublisher->setPublicDataset(snapshot);
+        services.analysis->setPublicDataset(snapshot);
+        services.images->applyPublicDataset(snapshot);
+        services.publicUpdates->setSessionRevision(snapshot->revision);
+        notify(state, [snapshot](ApplicationRuntime* target) { emit target->publicDatasetChanged(snapshot); },
+            QStringLiteral("public-dataset"));
+        if (state->replayRequested && !snapshot->replay && !state->replayCatalogJob) {
+          state->replayCatalogJob = services.catalogs->requestReload(CatalogKind::BattleReplay);
+          notify(state, [](ApplicationRuntime* target) {
+            emit target->battleReplayCatalogChanged({}, QStringLiteral("正在读取新版回放资料；本场保持原资料"), true);
+          }, QStringLiteral("battle-replay-catalog"));
+        }
       });
+      services.catalogs->requestPublicReload();
       analysisPublisher = new AnalysisPublisher(services.repo, services.analysis, state->options.analysisProjection, services.root);
       auto* validity = new QTimer(services.root);
       validity->setInterval(100);
@@ -470,6 +632,7 @@ protected:
     if (!initialized) {
       state->closing.store(true, std::memory_order_release); revoke(state);
       if (services.dataUpdater) services.dataUpdater->close();
+      if (services.publicUpdates) services.publicUpdates->close();
       if (services.cacheManager) services.cacheManager->close();
       if (services.starStatistics) services.starStatistics->close();
       if (services.images) services.images->shutdown();
@@ -487,6 +650,7 @@ protected:
       delete analysisPublisher; delete inventoryPublisher;
       delete services.images;
       delete services.dataUpdater;
+      delete services.publicUpdates;
       delete services.cacheManager;
       delete services.starStatistics;
       delete services.catalogs;
@@ -581,8 +745,12 @@ bool ApplicationRuntime::start() {
 }
 
 bool ApplicationRuntime::enqueue(const QString& account, quint64 epoch, bool scoped,
-                                 CoreAction action, qint64 bytes, bool packet) {
-  if (!action || bytes < 0 || !inputValid(state_)) return false;
+                                 CoreAction action, qint64 bytes, bool packet, bool publicDataTask) {
+  // Only private public-data commands (local catalog reads and explicit data
+  // updates) may work without the capture channel. Game commands and the
+  // general post()/postUnscoped() entry points still require a valid source.
+  if (!action || bytes < 0 || state_->closing.load() || (publicDataTask && (scoped || packet)) ||
+      (!publicDataTask && !inputValid(state_))) return false;
   const auto state = state_;
   bool full = false;
   bool posted = false;
@@ -597,8 +765,9 @@ bool ApplicationRuntime::enqueue(const QString& account, quint64 epoch, bool sco
     if (!full) {
       ++state->queuedTasks; state->queuedBytes += bytes;
       reservation->armed = true;
-      try { posted = QMetaObject::invokeMethod(state->receiver, [state, reservation, account, epoch, scoped, action = std::move(action)] {
-        if (!inputValid(state)) {
+      try { posted = QMetaObject::invokeMethod(state->receiver, [state, reservation, account, epoch, scoped, publicDataTask, action = std::move(action)] {
+        if (state->closing.load()) return;
+        if (!publicDataTask && !inputValid(state)) {
           if (!state->closing.load()) state->services.repo->markSessionUncertain(QStringLiteral("入站来源或队列完整性已失效"));
           return;
         }
@@ -658,14 +827,159 @@ void ApplicationRuntime::saveShopSelection(const QStringList& selected, const QS
 }
 void ApplicationRuntime::requestDataUpdate(const QStringList& components) {
   const auto state = state_;
-  if (!postUnscoped([state, components](const CoreServices& services) {
-    if (services.cacheManager->busy() || state->imageBatchRunning || !services.dataUpdater->requestUpdate(components)) {
+  if (!enqueue({}, 0, false, [state, components](const CoreServices& services) {
+    if (!services.catalogs->publicDatasetSnapshot()) {
+      notify(state, [](ApplicationRuntime* target) {
+        emit target->dataUpdateStatusChanged(QStringLiteral("正在准备共享资料版本，请待资料就绪后再检查更新。"), false);
+      });
+      return;
+    }
+    if (services.cacheManager->busy() || state->imageBatchRunning || state->rollbackJob || state->cacheRestoreJob || state->publicReloadJob || !services.dataUpdater->requestUpdate(components)) {
       const bool busy = services.dataUpdater->busy();
       notify(state, [busy](ApplicationRuntime* target) {
         emit target->dataUpdateStatusChanged(QStringLiteral("已有数据更新、补图或缓存管理任务，请完成后再检查。"), busy);
       });
+    } else {
+      services.publicUpdates->setBusy(true, services.dataUpdater->canCancel());
     }
-  })) emit dataUpdateStatusChanged(QStringLiteral("当前无法开始数据更新，请稍后重试。"), false);
+  }, 256, false, true)) emit dataUpdateStatusChanged(QStringLiteral("当前无法开始数据更新，请稍后重试。"), false);
+}
+void ApplicationRuntime::requestPublicDataRollback() {
+  const auto state = state_;
+  if (!enqueue({}, 0, false, [state](const CoreServices& services) {
+    if (services.dataUpdater->busy() || services.cacheManager->busy() || state->imageBatchRunning || state->rollbackJob || state->cacheRestoreJob || state->publicReloadJob) {
+      const bool busy = services.dataUpdater->busy() || state->rollbackJob || state->cacheRestoreJob || state->publicReloadJob;
+      notify(state, [busy](ApplicationRuntime* target) { emit target->dataUpdateStatusChanged(QStringLiteral("请等待当前资料任务结束后再恢复。"), busy); });
+      return;
+    }
+    state->rollbackJob = services.catalogs->requestPublicRollback();
+    const bool accepted = state->rollbackJob != 0;
+    services.publicUpdates->setBusy(accepted, false);
+    notify(state, [accepted](ApplicationRuntime* target) {
+      emit target->dataUpdateStatusChanged(accepted ? QStringLiteral("正在校验并恢复上一份完整公共资料…")
+          : QStringLiteral("暂时无法恢复公共资料，请稍后重试。"), accepted);
+    }, QStringLiteral("data-update"));
+  }, 128, false, true)) emit dataUpdateStatusChanged(QStringLiteral("当前无法恢复公共资料，请稍后重试。"), false);
+}
+
+void ApplicationRuntime::requestPublicUpdateState() {
+  const auto state = state_;
+  if (!enqueue({}, 0, false, [state](const CoreServices& services) {
+    services.publicUpdates->refresh();
+    const auto update = services.publicUpdates->state();
+    notify(state, [update](ApplicationRuntime* target) { emit target->publicUpdateStateChanged(update); },
+        QStringLiteral("public-update-state"));
+    if (state->imageBatchKnown) {
+      const auto completed = state->imageCompleted, total = state->imageTotal, failed = state->imageFailed;
+      const bool running = state->imageBatchRunning, cancelled = state->imageBatchCancelled;
+      notify(state, [completed, total, failed, running, cancelled](ApplicationRuntime* target) {
+        emit target->imageBatchProgress(completed, total, failed);
+        if (!running) emit target->imageBatchFinished(cancelled, failed);
+      }, QStringLiteral("image-batch"));
+    }
+  }, 128, false, true)) {
+    PublicUpdateState update;
+    update.readable = false; update.error = QStringLiteral("暂时无法读取更新结果，请稍后重新打开设置。");
+    emit publicUpdateStateChanged(update);
+  }
+}
+void ApplicationRuntime::requestPublicDataRetry() {
+  const auto state = state_;
+  if (!enqueue({}, 0, false, [state](const CoreServices& services) {
+    const auto components = services.publicUpdates->state().retryComponents;
+    notify(state, [components](ApplicationRuntime* target) {
+      if (components.isEmpty()) {
+        emit target->dataUpdateStatusChanged(QStringLiteral("没有需要重试的资料，可以重新检查全部。"), false);
+        target->requestPublicUpdateState();
+      } else target->requestDataUpdate(components);
+    });
+  }, 128, false, true)) emit dataUpdateStatusChanged(QStringLiteral("暂时无法重试，请稍后再试。"), false);
+}
+void ApplicationRuntime::requestPublicDataReload() {
+  const auto state = state_;
+  if (!enqueue({}, 0, false, [state](const CoreServices& services) {
+    if (services.dataUpdater->busy() || services.cacheManager->busy() || state->imageBatchRunning ||
+        state->rollbackJob || state->cacheRestoreJob || state->publicReloadJob) {
+      const bool busy = services.dataUpdater->busy() || state->rollbackJob || state->cacheRestoreJob || state->publicReloadJob;
+      notify(state, [busy](ApplicationRuntime* target) {
+        emit target->dataUpdateStatusChanged(QStringLiteral("请等待当前资料任务结束后再载入。"), busy);
+      });
+      return;
+    }
+    const auto update = services.publicUpdates->state();
+    const bool prepared = update.readable && update.outcome == PublicUpdateOutcome::PendingApply &&
+        update.candidatePassed && !update.diskCommitted && !update.latestAttempt.isEmpty();
+    state->publicReloadJob = prepared ? services.catalogs->requestPublicCandidate(update.latestAttempt)
+        : services.catalogs->requestPublicReload();
+    services.publicUpdates->setBusy(state->publicReloadJob != 0, false);
+    if (!state->publicReloadJob) notify(state, [](ApplicationRuntime* target) {
+      emit target->dataUpdateStatusChanged(QStringLiteral("暂时无法载入资料，请稍后再试。"), false);
+    });
+  }, 128, false, true)) emit dataUpdateStatusChanged(QStringLiteral("暂时无法载入资料，请稍后再试。"), false);
+}
+void ApplicationRuntime::cancelDataUpdate() {
+  const auto state = state_;
+  enqueue({}, 0, false, [state](const CoreServices& services) {
+    if (services.dataUpdater->cancelPreparation()) {
+      auto progress = services.publicUpdates->state().progress;
+      progress.message = QStringLiteral("正在取消检查，已应用资料保持可用…");
+      services.publicUpdates->setBusy(true, false); services.publicUpdates->observeProgress(progress);
+    } else {
+      const bool busy = services.dataUpdater->busy();
+      notify(state, [busy](ApplicationRuntime* target) {
+        emit target->dataUpdateStatusChanged(busy ? QStringLiteral("正在结束当前资料任务，请等待结果。")
+            : QStringLiteral("当前没有正在进行的检查。"), busy);
+      });
+    }
+  }, 128, false, true);
+}
+void ApplicationRuntime::exportPublicDataDiagnostics(const QString& path) {
+  const auto state = state_;
+  if (!enqueue({}, 0, false, [state, path](const CoreServices& services) {
+    if (!services.publicUpdates->exportDiagnostics(path)) notify(state, [path](ApplicationRuntime* target) {
+      emit target->publicDiagnosticsExported(false, path, QStringLiteral("导出未能开始，请稍后重试。"));
+    });
+  }, 256, false, true)) emit publicDiagnosticsExported(false, path, QStringLiteral("当前无法导出诊断，请稍后重试。"));
+}
+void ApplicationRuntime::requestPublicDatasetState() {
+  const auto state = state_;
+  enqueue({}, 0, false, [state](const CoreServices& services) {
+    const auto snapshot = services.catalogs->publicDatasetSnapshot();
+    notify(state, [snapshot](ApplicationRuntime* target) { emit target->publicDatasetChanged(snapshot); },
+        QStringLiteral("public-dataset"));
+  }, 128, false, true);
+}
+void ApplicationRuntime::requestSettingsState() {
+  const auto state = state_;
+  if (!enqueue({}, 0, false, [state](const CoreServices& services) {
+    const auto timings = services.refresh->timings();
+    const bool ready = services.refresh->timingsKnown() && !services.refresh->timingsPending();
+    const auto error = services.refresh->timingsStorageError();
+    notify(state, [timings, ready, error](ApplicationRuntime* target) { emit target->settingsStateReady(timings, ready, error); });
+  }, 128, false, true)) emit settingsStateReady({}, false, QStringLiteral("当前无法读取设置，请稍后再试。"));
+}
+void ApplicationRuntime::saveRefreshTimings(const RefreshTimings& timings) {
+  enqueue({}, 0, false, [timings](const CoreServices& services) { services.refresh->setTimings(timings); },
+      128, false, true);
+}
+
+void ApplicationRuntime::requestBattleReplayCatalog(bool reload) {
+  const auto state = state_;
+  if (!enqueue({}, 0, false, [state, reload](const CoreServices& services) {
+    state->replayRequested = true;
+    const auto snapshot = services.catalogs->battleReplaySnapshot();
+    // Explicit reloads must not be lost if an older read is already running.
+    // CatalogIoService bounds/coalesces those requests and cancels stale reads.
+    if (reload || (!state->replayCatalogJob && !snapshot))
+      state->replayCatalogJob = services.catalogs->requestReload(CatalogKind::BattleReplay);
+    const bool busy = state->replayCatalogJob != 0;
+    const auto message = busy ? QStringLiteral("正在后台读取回放资料…") : snapshot ?
+        (snapshot->warning.isEmpty() ? snapshot->sourceLabel + QStringLiteral("已就绪") : snapshot->warning) :
+        QStringLiteral("暂时无法读取回放资料，请稍后重试。");
+    notify(state, [snapshot, message, busy](ApplicationRuntime* target) {
+      emit target->battleReplayCatalogChanged(snapshot, message, busy);
+    }, QStringLiteral("battle-replay-catalog"));
+  }, 256, false, true)) emit battleReplayCatalogChanged({}, QStringLiteral("暂时无法读取回放资料，请稍后重试。"), false);
 }
 
 void ApplicationRuntime::requestCacheAction(const QString& action, const QJsonObject& options) {
@@ -677,7 +991,7 @@ void ApplicationRuntime::requestCacheAction(const QString& action, const QJsonOb
     };
     const bool inspect = action == QStringLiteral("inspect");
     const auto imageState = services.images->memoryUsage();
-    if (!inspect && (services.dataUpdater->busy() || state->imageBatchRunning ||
+    if (!inspect && (services.dataUpdater->busy() || state->imageBatchRunning || state->rollbackJob || state->cacheRestoreJob || state->publicReloadJob ||
         services.refresh->listRefreshRunning() || services.refresh->detailBatchRunning() || services.refresh->moveRunning() ||
         services.shop->isRunning() || services.routine->isRunning() || services.analysis->analysisRunning() ||
         services.storage->state().outstandingTasks > 0 || imageState.downloads > 0 || imageState.waiting > 0 || imageState.decoding)) {
@@ -701,7 +1015,7 @@ void ApplicationRuntime::requestCacheAction(const QString& action, const QJsonOb
 void ApplicationRuntime::requestMissingImages() {
   const auto state = state_;
   if (!postUnscoped([state](const CoreServices& services) {
-    if (services.cacheManager->busy() || services.dataUpdater->busy() || state->imageBatchRunning) {
+    if (services.cacheManager->busy() || services.dataUpdater->busy() || state->imageBatchRunning || state->rollbackJob || state->cacheRestoreJob || state->publicReloadJob) {
       const bool batchRunning = state->imageBatchRunning, updateBusy = services.dataUpdater->busy();
       notify(state, [batchRunning, updateBusy](ApplicationRuntime* target) {
         if (!batchRunning) emit target->imageBatchFinished(true, 0);

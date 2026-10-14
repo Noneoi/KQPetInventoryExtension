@@ -1,15 +1,20 @@
 #pragma once
 
 #include "storage/storage_service.h"
+#include "contracts/battle_replay_catalog.h"
+#include "contracts/public_dataset.h"
 #include <QObject>
 #include <QString>
 #include <QStringList>
 #include <memory>
 
-enum class CatalogKind { Shop, Routine, PetDetail, PetSkill };
+enum class CatalogKind { Shop, Routine, PetDetail, PetSkill, BattleReplay, PublicDataset };
 enum class CatalogRequestMode { Reload, OfficialUpdate };
 
 struct CatalogIoOptions {
+  // The application enables the complete-version workflow. The isolated
+  // legacy importer remains available only to explicitly constructed tools/tests.
+  bool publicDatasetMode = false;
   QString officialRoot;
   QString petOverlayPath;
   qint64 maximumSourceBytes = 16 * 1024 * 1024;
@@ -41,6 +46,11 @@ public:
   bool shopSelectionEditable() const;
   QString shopSelectionMessage() const;
   CatalogIoStats stats() const;
+  BattleReplayCatalogHandle battleReplaySnapshot() const;
+  PublicDatasetSnapshotHandle publicDatasetSnapshot() const;
+  quint64 requestPublicReload(const QString& acknowledgementAttempt = {});
+  quint64 requestPublicCandidate(const QString& attempt);
+  quint64 requestPublicRollback();
   void close();
 
 signals:
@@ -48,15 +58,19 @@ signals:
   void finished(quint64 jobId, CatalogKind kind, StorageStatus status, const QString& error);
   void stateChanged();
   void shopSelectionChanged();
+  void publicDatasetChanged(PublicDatasetSnapshotHandle snapshot);
+  void publicDatasetFinished(quint64 jobId, bool applied, const QString& message, const QJsonObject& receipt);
 
 private:
   friend struct CatalogIoInternal::State;
   quint64 request(CatalogKind kind, CatalogRequestMode mode);
+  quint64 requestPublic(int operation, const QString& attempt = {});
   void pump();
   void receive(std::shared_ptr<CatalogIoInternal::Candidate> candidate);
   void publish(const std::shared_ptr<CatalogIoInternal::Candidate>& candidate);
   void complete(StorageStatus status, const QString& error);
   void publishShopSelection();
+  void publishPublicDataset(PublicDatasetSnapshotHandle snapshot);
   struct Impl;
   std::unique_ptr<Impl> impl_;
 };

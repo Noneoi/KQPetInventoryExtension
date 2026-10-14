@@ -82,5 +82,7 @@ private:
   };
   QHash<PetImageBrowser*,BrowserResources> browsers_;
   quint64 bindingGeneration_ = 0;
+  quint64 sourceGeneration_ = 0;
+  ImageCatalogHandle imageCatalog_;
   qreal devicePixelRatio_ = 1;
 };

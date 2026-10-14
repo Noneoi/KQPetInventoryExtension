@@ -1,0 +1,370 @@
+{
+  "format": 1,
+  "checkedOn": "2026-10-08",
+  "manifest": {
+    "retrievedUtc": "2026-10-08T11:23:24.515334+00:00",
+    "manifestUrl": "http://aoqi.100bt.com/play/start.xml",
+    "manifestSha256": "5797a33bccd4d04f82edf6f043ae9cfc8dbde8beb306aa63bd8cba8673d2dddb"
+  },
+  "packages": [
+    {
+      "resource": "library/interfaces",
+      "version": "20260930468207480",
+      "url": "http://aoqi.100bt.com/play/library/interfaces~20260930468207480.swf",
+      "file": "library_interfaces.swf",
+      "bytes": 621582,
+      "sha256": "2a7b34e20b998b40e38fea17050fde581c10ae22b6f1750632709a1dc8ad6872"
+    },
+    {
+      "resource": "battle/battle",
+      "version": "260930623185041",
+      "url": "http://aoqi.100bt.com/play/battle/battle~260930623185041.swf",
+      "file": "battle_battle.swf",
+      "bytes": 138593,
+      "sha256": "e429b57fae82a8af9dd92f0d6ec7f6ff1612f743a790f9036987cd1c4ea73a75"
+    },
+    {
+      "resource": "battleconfig/battleconfig",
+      "version": "260930372598462",
+      "url": "http://aoqi.100bt.com/play/battleconfig/battleconfig~260930372598462.swf",
+      "file": "battleconfig_battleconfig.swf",
+      "bytes": 734720,
+      "sha256": "8e912e2bb1a92ba89c5c2ee9a6abc0c0543a8092d2da84618e4800c9a086a16c"
+    }
+  ],
+  "rules": [
+    "初始化从当前展示玩家的 ppbf 读 pbid/cp/mp，不硬编码 12，不使用当今配置 initValue 覆盖历史日志 cp。",
+    "技能内按官方已验证阶段推进 t=4，使用 proa/mp 更新此玩家、此 pbid 的进度；prob/vc 仅用于前后变化说明和一致性核对。",
+    "同一技能能同时改变敌我通灵条。条归属来自承载数值记录的玩家：cn 为 cti/cpn，trl/prl 为 tti/tpn；不能统一归给 actor。",
+    "协议 ppbf 每玩家一个对象；官方运行时按 pbid 查找进度 Buff。当前样本每玩家始终只有同一条，未证明全协议永远只支持一条。",
+    "官方为 mp 数量的分格，以当前/满值显示。当前样本包含 12 和 14；两侧应分别读数，不强制相同格数。",
+    "满条只是记录中的进度已满；是否施放通灵还应以实际行动/技能记录为证据，不能单凭达到上限自动编造触发事件。",
+    "缺少 ppbf 或非法 current/max 时显示未记录/待核实，不补为 0/12。"
+  ],
+  "recommendedUi": [
+    "每方九宫格上方常驻通灵之魂条，标题标明我方/敌方；分格数来自此玩家 mp，条内当前值/满值。",
+    "以轻量高亮显示本步 +N/-N，并在行动摘要注明归属；原始路径和 prob/proa/vc/mp 放入详情。",
+    "若支持多人轮换，随当前出战玩家切换该条，不把同队多个玩家的魂量合计。",
+    "通灵 Buff 可作为队伍效果显示；不要复制到每个精灵的身上 Buff。",
+    "条的技能名和描述使用 catalog.bufferExecution[pbid].skillId 关联官方技能表；不从内部 Buff 名猜所属精灵。"
+  ],
+  "sampleSummary": {
+    "format": 1,
+    "checkedOn": "2026-10-08",
+    "sampleDirectory": "C:\\keqi\\config64\\brush",
+    "counts": {
+      "files": 500,
+      "teams": 1000,
+      "players": 1000,
+      "playersWithPpbf": 1000,
+      "actions": 66255,
+      "t4Updates": 69040,
+      "timing2": 57339,
+      "actionType1": 58339,
+      "timing1": 11701,
+      "updateOwnerDiffersFromActor": 23952,
+      "fullUpdates": 21828,
+      "fullToZeroUpdates": 10135,
+      "actionType2": 10701,
+      "teamsWithMultiplePlayers": 0,
+      "playersWithoutPpbf": 0,
+      "updateOwnerWithoutInitialPpbf": 0,
+      "updateIdDiffersFromInitialPpbf": 0,
+      "updateMaxDiffersFromInitialPpbf": 0,
+      "updateDeltaNotEqualProaMinusProb": 0,
+      "negativeCurrentUpdates": 0,
+      "currentAboveMaxUpdates": 0,
+      "playerWithMultipleProgressIds": 0,
+      "playerWithChangingProgressMax": 0
+    },
+    "initialMaxDistribution": {
+      "12": 487,
+      "14": 513
+    },
+    "updateMaxDistribution": {
+      "12": 33964,
+      "14": 35076
+    },
+    "updateRoleDistribution": {
+      "prl": 69040
+    },
+    "examples": {
+      "initialMp12": {
+        "file": "20260904220042-1-fail.txt",
+        "path": "/br/or/team/0/players/0/ppbf",
+        "value": {
+          "mp": 12,
+          "pbid": 220475,
+          "cp": 0
+        }
+      },
+      "initialMp14": {
+        "file": "20260904220042-1-fail.txt",
+        "path": "/br/or/team/1/players/0/ppbf",
+        "value": {
+          "mp": 14,
+          "pbid": 220485,
+          "cp": 7
+        }
+      },
+      "updateMp14": {
+        "file": "20260904220042-1-fail.txt",
+        "path": "/br/fr/0/rl/9/prl/0/tn/rl/0",
+        "ownerTeam": 1,
+        "ownerPlayer": "side1-player0",
+        "actorTeam": 1,
+        "actorPlayer": "side1-player0",
+        "value": {
+          "pbid": 220485,
+          "prob": 7,
+          "vc": 1,
+          "proa": 8,
+          "isse": false,
+          "mp": 14,
+          "t": 4,
+          "changeset": 6,
+          "o": 2
+        }
+      },
+      "updateMp12": {
+        "file": "20260904220042-1-fail.txt",
+        "path": "/br/fr/0/rl/10/prl/1/tn/rl/0",
+        "ownerTeam": 0,
+        "ownerPlayer": "side0-player0",
+        "actorTeam": 1,
+        "actorPlayer": "side1-player0",
+        "value": {
+          "pbid": 220475,
+          "prob": 0,
+          "vc": 4,
+          "proa": 4,
+          "isse": false,
+          "mp": 12,
+          "t": 4,
+          "changeset": 2,
+          "o": 1
+        }
+      },
+      "opponentProgressUpdate": {
+        "file": "20260904220042-1-fail.txt",
+        "path": "/br/fr/0/rl/10/prl/1/tn/rl/0",
+        "ownerTeam": 0,
+        "ownerPlayer": "side0-player0",
+        "actorTeam": 1,
+        "actorPlayer": "side1-player0",
+        "value": {
+          "pbid": 220475,
+          "prob": 0,
+          "vc": 4,
+          "proa": 4,
+          "isse": false,
+          "mp": 12,
+          "t": 4,
+          "changeset": 2,
+          "o": 1
+        }
+      }
+    }
+  },
+  "sampleOfficialReferences": [
+    {
+      "buffId": 220459,
+      "max": 12,
+      "players": 11,
+      "officialBuffName": "灵初暗黑（本体和皮肤通用）_通灵条",
+      "officialConfiguredMax": 12,
+      "skillId": "806471",
+      "officialSkillName": "缚灵魂契"
+    },
+    {
+      "buffId": 220464,
+      "max": 14,
+      "players": 28,
+      "officialBuffName": "灵初黑金尼莫妮_通灵条",
+      "officialConfiguredMax": 14,
+      "skillId": "806521",
+      "officialSkillName": "银河·命定引帆"
+    },
+    {
+      "buffId": 220469,
+      "max": 12,
+      "players": 195,
+      "officialBuffName": "灵初黑金瑟柏娜_通灵条",
+      "officialConfiguredMax": 12,
+      "skillId": "806705",
+      "officialSkillName": "蛇灵·缚命惑语"
+    },
+    {
+      "buffId": 220471,
+      "max": 12,
+      "players": 86,
+      "officialBuffName": "灵初黑金无敌_通灵条",
+      "officialConfiguredMax": 12,
+      "skillId": "806821",
+      "officialSkillName": "凌宇万世无双"
+    },
+    {
+      "buffId": 220475,
+      "max": 12,
+      "players": 183,
+      "officialBuffName": "灵初黑金女帝_通灵条",
+      "officialConfiguredMax": 12,
+      "skillId": "806974",
+      "officialSkillName": "占星降灵"
+    },
+    {
+      "buffId": 220477,
+      "max": 12,
+      "players": 12,
+      "officialBuffName": "灵初黑金未来_通灵条",
+      "officialConfiguredMax": 12,
+      "skillId": "807042",
+      "officialSkillName": "未来星纪"
+    },
+    {
+      "buffId": 220483,
+      "max": 14,
+      "players": 247,
+      "officialBuffName": "灵初黑金究_通灵条",
+      "officialConfiguredMax": 14,
+      "skillId": "807319",
+      "officialSkillName": "召魂灵极化生"
+    },
+    {
+      "buffId": 220485,
+      "max": 14,
+      "players": 35,
+      "officialBuffName": "灵初黑金诺雅_通灵条",
+      "officialConfiguredMax": 14,
+      "skillId": "807471",
+      "officialSkillName": "日月圣明"
+    },
+    {
+      "buffId": 220486,
+      "max": 14,
+      "players": 203,
+      "officialBuffName": "灵初黑金昆吾_通灵条",
+      "officialConfiguredMax": 14,
+      "skillId": "807560",
+      "officialSkillName": "不灭神火归"
+    }
+  ],
+  "sampleInventory": {
+    "path": "build-battle-reference/spirit-evidence-samples.json",
+    "sha256": "5fbd430b672bbb17cadd87884a850e5e6ae68132f676bbcdd581deb4dbcb01cd",
+    "contains": "500 文件逐一 SHA256 与聚合统计"
+  },
+  "sources": [
+    {
+      "path": "interfaces/scripts/mmo/interfaces/battle/data/PlayerInfo.as",
+      "sha256": "ece404a6e00849cf4db5466117505f4797191ca61d16f9b81b7981305ba636b1",
+      "startLine": 114,
+      "endLine": 118,
+      "rule": "ppbf 是当前玩家 psychicsBuffData，数据属于玩家而非某个精灵。"
+    },
+    {
+      "path": "interfaces/scripts/mmo/interfaces/battle/data/BufferData.as",
+      "sha256": "7ab8c4346db28f4e3e3e55300f31e75714d9d28e9168e173a402160fcdd6ae33",
+      "startLine": 17,
+      "endLine": 23,
+      "rule": "pbid=Buff ID，cp=初始当前值，mp=满值。"
+    },
+    {
+      "path": "interfaces/scripts/mmo/interfaces/battle/consts/SkillNumUnitType.as",
+      "sha256": "1c271a8f8019e39f290f2ed86da85d9267269f896d7bae25943db366fd195ae3",
+      "startLine": 12,
+      "endLine": 12,
+      "rule": "BUFF_STATE_CHANGE 的类型值是 4。"
+    },
+    {
+      "path": "interfaces/scripts/mmo/interfaces/battle/data/SkillNumUnitBuffChangedState.as",
+      "sha256": "6283d04b8af3b3159ae28e817f8375364866776a61612faefcb2d2797f190981",
+      "startLine": 30,
+      "endLine": 38,
+      "rule": "pbid/prob/proa/vc/mp/isse 解析为 Buff ID、旧值、新值、变化值、满值、技能生效标记。"
+    },
+    {
+      "path": "interfaces/scripts/mmo/interfaces/battle/data/SkillNumUnitTiming.as",
+      "sha256": "ab0b3934465d08277f6075cb41f0b82f03bce34c1539dc0dff59072d7d4179b8",
+      "startLine": 6,
+      "endLine": 29,
+      "rule": "o=1 在技能前，o=2 在技能后。"
+    },
+    {
+      "path": "interfaces/scripts/mmo/interfaces/battle/data/SkillNumResult.as",
+      "sha256": "5fc66eceb5686237dab233f7a1fb595445b460285057b2fc231910a1149353cf",
+      "startLine": 165,
+      "endLine": 213,
+      "rule": "特殊记录先按 o 放入前后阶段，再以自身 changeset 分组。"
+    },
+    {
+      "path": "battle/scripts/mmo/battle/command/playbattle/SetupFighterCommand.as",
+      "sha256": "c0fa311d97f018b57a2593ac8d1dc9100c85a0f338067a98b5234615a3e8b940",
+      "startLine": 182,
+      "endLine": 211,
+      "rule": "每位玩家有自己的队伍代表；将该玩家 ppbf.bufferId 添加到该代表。"
+    },
+    {
+      "path": "battle/scripts/mmo/battle/fighter/BattleRepresenter.as",
+      "sha256": "452c0f0d56c4437f4f0a32d7b8be270e76e61ca74bffe8a8e121b5451c324bbf",
+      "startLine": 232,
+      "endLine": 273,
+      "rule": "初始化通灵条时用所属玩家 ppbf 的 cp/mp；以 Buff ID 缓存已显示进度。"
+    },
+    {
+      "path": "battle/scripts/mmo/battle/command/attack/common/BeforeAttackResultObjectCommand.as",
+      "sha256": "1b035af9630186a905922f592e5dad8c45ba37cea21c8da7adbecc509e5d3dab",
+      "startLine": 47,
+      "endLine": 71,
+      "rule": "技能前 t4 承载者的玩家由 source/trl/prl 分别解析；prl 使用其 targetPlayerName。"
+    },
+    {
+      "path": "battle/scripts/mmo/battle/command/attack/common/AfterAttackResultObjectCommand.as",
+      "sha256": "612f74ab0c83ec74c0f8d4eb96c26090b3d8c4b4ee146a4c00588094576afcbf",
+      "startLine": 50,
+      "endLine": 74,
+      "rule": "技能后规则同上；不把所有队伍进度归给技能施放者。"
+    },
+    {
+      "path": "battle/scripts/mmo/battle/util/BattleNumUnitUtil.as",
+      "sha256": "b11ac2a651f025d1d5d25e7d08d1e2b59004e7d3a8990eac47af11caf3fc127e",
+      "startLine": 183,
+      "endLine": 220,
+      "rule": "t4 使用承载者玩家的队伍代表，按 buffId 找到对应条；vc/isse 控制增减展示分支。"
+    },
+    {
+      "path": "battle/scripts/mmo/battle/util/BattleNumUnitUtil.as",
+      "sha256": "b11ac2a651f025d1d5d25e7d08d1e2b59004e7d3a8990eac47af11caf3fc127e",
+      "startLine": 233,
+      "endLine": 246,
+      "rule": "最终调用 setBuffProgress(buff,proa,mp,skill)，不能靠累加 vc 代替权威 proa。"
+    },
+    {
+      "path": "battle/scripts/mmo/battle/helper/BattleBufferHelper.as",
+      "sha256": "516bacc76d938146ff5bc1f6af886cb5df1a4486e3e5812c32ccd94fb9bf98ff",
+      "startLine": 62,
+      "endLine": 103,
+      "rule": "条宽按 current/max；mcWalls.gotoAndStop(max)；官方提示标题为通灵之魂 current/max。"
+    },
+    {
+      "path": "interfaces/scripts/mmo/interfaces/battleconfig/define/BufferExecuteDefine.as",
+      "sha256": "94b3648e3568aa39d0b81b193682cdd53cd2b0cf521ed5b24b113bf9d20a8b93",
+      "startLine": 25,
+      "endLine": 36,
+      "rule": "BufferExecuteDefine 提供 buffId 到关联 skillId 的映射，用于显示官方技能名/描述。"
+    }
+  ],
+  "limitations": [
+    "官方包为 2026-10-08 下载版本，不宣称与每份历史日志使用的版本完全相同。",
+    "本次为源信息和原始日志独立核对；未修改主解析或 UI 实现。",
+    "只核查进度字段和归属，不将通灵技能描述当作已发生的事件。"
+  ],
+  "privacy": {
+    "schema": 1,
+    "playerAlias": "side{teamId}-player{zeroBasedPlayerIndex}",
+    "scope": "Player identifiers in the included battle excerpts are pseudonymized. The original battle reports are not modified.",
+    "evidence": "Sample filenames, JSON pointers, battle values, official rules and original source hashes are retained. Source hashes refer to the original reports, not the pseudonymized excerpts.",
+    "names": "Official species and skill names are preserved. Private custom nicknames are omitted or cleared.",
+    "mapping": "No reverse identity mapping is included."
+  }
+}

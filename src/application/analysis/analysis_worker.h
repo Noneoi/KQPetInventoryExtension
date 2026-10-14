@@ -23,6 +23,10 @@ struct AnalysisVersionStamp {
   quint64 routineFreshness = 0;
   QString build;
   QString profile;
+  // Revision is provenance; only identities of actually consumed components
+  // decide freshness, so an unrelated image update keeps usable calculations.
+  QString publicDatasetRevision;
+  QString publicInputs;
   bool operator==(const AnalysisVersionStamp& other) const;
 };
 

@@ -270,7 +270,6 @@ std::shared_ptr<const ShopCatalogSnapshot> ShopExchangeCatalog::prepare(const QJ
       good.manualSelectionRequired = goodObject.value(QStringLiteral("manualSelectionRequired")).toBool();
       good.rewardRaw = goodObject.value(QStringLiteral("rewardRaw")).toString();
       static const QRegularExpression selectable(QStringLiteral("(?:^!?|\\|!?)(?:Choice|SelectPrizes),[^\\n]+"));
-      static const QRegularExpression namedChoice(QStringLiteral("自选|任选|[二三四五六七八九十0-9]+选[一二三四五六七八九十0-9]+"));
       static const QRegularExpression targeted(QStringLiteral("^Strengthen,[1-9][0-9]*(?:\\$[1-9][0-9]*)?(?:-[1-9][0-9]*(?:\\$[1-9][0-9]*)?)*,"));
       bool hasSelectablePackage = false;
       for (const auto& value : goodObject.value(QStringLiteral("selectablePackageIds")).toArray()) {
@@ -281,8 +280,7 @@ std::shared_ptr<const ShopCatalogSnapshot> ShopExchangeCatalog::prepare(const QJ
       }
       const bool alternative = cultivationAlternative(goodObject);
       if (!alternative && (selectable.match(good.rewardRaw).hasMatch() || hasSelectablePackage ||
-          !goodObject.value(QStringLiteral("rewardOptions")).toArray().isEmpty() ||
-          namedChoice.match(goodObject.value(QStringLiteral("description")).toString()).hasMatch())) continue;
+          !goodObject.value(QStringLiteral("rewardOptions")).toArray().isEmpty())) continue;
       if (alternative) good.manualSelectionRequired = true;
       // Older saved scans included generic materials and invented activity
       // entries. Hide these immediately, including previously selected rows.

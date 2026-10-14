@@ -20,6 +20,7 @@ class PetWindow;
 class ShopWindow;
 class RoutineOverviewWindow;
 class AssetAnalysisWindow;
+class BattleReplaySource;
 class QPushButton;
 class QDialog;
 class QWidget;
@@ -37,6 +38,7 @@ private:
   void finishCoreInitialization(bool ready, const QString& error = {});
   void attachToOriginalWindow();
   void positionButton();
+  void ensureReplaySource();
   void ensureWorkbench();
   void showWorkbench();
   void openPage(WorkbenchPage page);
@@ -62,6 +64,7 @@ private:
   InventoryProjection* inventory_ = nullptr;
   AnalysisProjection* analysis_ = nullptr;
   PetImageCache* images_ = nullptr;
+  BattleReplaySource* replaySource_ = nullptr;
   std::shared_ptr<OutboundQueue> outbound_;
   std::atomic_bool outboundScheduled_{false};
   bool coreReady_ = false;

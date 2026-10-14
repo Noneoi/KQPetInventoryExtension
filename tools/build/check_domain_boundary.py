@@ -62,7 +62,8 @@ INCLUDE_LINE = re.compile(r'^\s*#\s*include\b[^\r\n]*', re.M)
 # are inspected below just like Domain sources; this is not a directory waiver.
 # pet_detail_types -> pet_derivation_types -> pet_record_types contains frozen
 # identities, QtCore value data and opaque lifetime leases, with no IO behavior.
-REVIEWED_CONTRACTS = {"pet_detail_types.h", "pet_derivation_types.h", "pet_record_types.h"}
+REVIEWED_CONTRACTS = {"pet_detail_types.h", "pet_derivation_types.h", "pet_record_types.h",
+                      "public_data_contract.h", "public_dataset.h", "battle_replay_catalog.h", "public_data_detail.h"}
 
 
 def reviewed_contracts(root: Path) -> set[Path]:

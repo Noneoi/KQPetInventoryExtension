@@ -6,6 +6,7 @@
 
 #include <QApplication>
 #include <QBuffer>
+#include <QCryptographicHash>
 #include <QDir>
 #include <QElapsedTimer>
 #include <QFile>
@@ -129,7 +130,16 @@ int main(int argc, char* argv[]) {
   options.timeoutMilliseconds = 200;
   const QString base = QStringLiteral("http://127.0.0.1:%1").arg(server.serverPort());
   for (const auto& name : {"one", "two", "bad", "large", "oversize", "slow", "redirect", "full"})
-    options.verifiedUrls.insert(QString::fromLatin1(name), base + QLatin1Char('/') + QString::fromLatin1(name));
+    options.verifiedUrls.insert(QStringLiteral("id:v-") + QString::fromLatin1(name), base + QLatin1Char('/') + QString::fromLatin1(name));
+  for (const auto& key : {"over-budget", "scratch-budget", "lru-a", "delete-service", "close-first"})
+    options.verifiedUrls.insert(QStringLiteral("id:") + QString::fromLatin1(key),base + QStringLiteral("/one"));
+  for (const auto& key : {"lru-b", "close-second"})
+    options.verifiedUrls.insert(QStringLiteral("id:") + QString::fromLatin1(key),base + QStringLiteral("/two"));
+  for (const auto& key : {"batch-cancel", "cancel-slow"})
+    options.verifiedUrls.insert(QStringLiteral("id:") + QString::fromLatin1(key),base + QStringLiteral("/slow"));
+  options.verifiedUrls.insert(QStringLiteral("id:777_0"),base + QStringLiteral("/size-split"));
+  options.verifiedUrls.insert(QStringLiteral("id:778_0"),base + QStringLiteral("/hold-join"));
+  options.verifiedUrls.insert(QStringLiteral("one"),base + QStringLiteral("/must-not-use-name"));
   const quint64 privateBaseline = privateBytes();
   quint64 sampledPrivatePeak = privateBaseline;
   QTimer memorySampler;
@@ -165,69 +175,128 @@ int main(int argc, char* argv[]) {
                 "a plugin/resource revision downloaded an already cached image again");
   versionedService.shutdown();
 
-  // A stable resource ID survives a renamed pet, a new plugin revision and a
-  // missing online index. Old directories remain available for manual cleanup.
+  // Unproved historical files remain intact, but never identify a pet.
   const QString legacyDirectory = QDir(directory.path()).filePath(QStringLiteral("images/pets/versions/old-resource"));
   QDir().mkpath(legacyDirectory);
   const QString legacyPath = QDir(legacyDirectory).filePath(QStringLiteral("123_456_abcdefabcdef.png"));
   QFile legacyFile(legacyPath);
   ok &= require(legacyFile.open(QIODevice::WriteOnly) && legacyFile.write(smallPng) == smallPng.size(), "legacy image setup failed");
   legacyFile.close();
-  service.request(request(QStringLiteral("123_456_0123456789ab"), QStringLiteral("no-known-name")));
+  service.request(request(QStringLiteral("123_456_0123456789ab"), QStringLiteral("one")));
   ok &= require(until([&] { return results.contains(QStringLiteral("123_456_0123456789ab")); }) &&
-      results.value(QStringLiteral("123_456_0123456789ab")).outcome == ImageOutcome::Ready,
-      "offline renamed pet did not reuse an older same-resource image");
-  ok &= require(until([&] { return QFile::exists(QDir(directory.path()).filePath(QStringLiteral("images/pets/123_456.png"))); }) &&
-      QFile::exists(legacyPath), "legacy image was not migrated without deleting the original");
+      results.value(QStringLiteral("123_456_0123456789ab")).outcome == ImageOutcome::Unavailable &&
+      requests.value(QStringLiteral("/must-not-use-name")) == 0,
+      "unknown legacy file or name lookup supplied an unproved image");
+  ok &= require(QFile::exists(legacyPath) && !QFile::exists(QDir(directory.path()).filePath(QStringLiteral("images/pets/123_456.png"))),
+      "unproved historical cache was moved or removed");
   ok &= require(ImageService::storageKey(QStringLiteral("123_457_0123456789ab")) != ImageService::storageKey(QStringLiteral("123_456_0123456789ab")),
       "different skins shared one disk path");
 
+  const auto officialEntry = [](const QString& version) {
+    const QString url = QStringLiteral("https://aoqi.100bt.com/play/peticon/peticon999~%1.swf").arg(version);
+    const QString symbol = QStringLiteral("mmo.pet.peticon999_L");
+    const QString identity = QString::fromLatin1(QCryptographicHash::hash(
+        QJsonDocument(QJsonArray{url,symbol,version}).toJson(QJsonDocument::Compact),QCryptographicHash::Sha256).toHex());
+    return QJsonObject{{QStringLiteral("swfUrl"),url},{QStringLiteral("symbol"),symbol},
+        {QStringLiteral("revision"),version},{QStringLiteral("sourceIdentity"),identity}};
+  };
+  const auto installPicture = [&](const QJsonObject& entry, const QByteArray& bytes, bool legacy) {
+    const QString relative = legacy ? QStringLiteral("images/pets/999_0.png")
+        : QStringLiteral("images/pets/sources/%1/999_0.png").arg(entry.value(QStringLiteral("sourceIdentity")).toString());
+    const QString path = QDir(directory.path()).filePath(relative);
+    QDir().mkpath(QFileInfo(path).absolutePath());
+    QFile raster(path); ok &= require(raster.open(QIODevice::WriteOnly) && raster.write(bytes)==bytes.size(),"versioned picture fixture failed"); raster.close();
+    QFile metadata(path.chopped(4)+QStringLiteral(".json"));
+    const auto body = QJsonDocument(QJsonObject{{QStringLiteral("url"),entry.value(QStringLiteral("swfUrl"))},
+        {QStringLiteral("symbol"),entry.value(QStringLiteral("symbol"))},{QStringLiteral("revision"),entry.value(QStringLiteral("revision"))},
+        {QStringLiteral("pngSha256"),QString::fromLatin1(QCryptographicHash::hash(bytes,QCryptographicHash::Sha256).toHex())}}).toJson();
+    ok &= require(metadata.open(QIODevice::WriteOnly) && metadata.write(body)==body.size(),"picture proof fixture failed");
+    return path;
+  };
   const QString indexPath = QDir(directory.path()).filePath(QStringLiteral("catalog/pet-image-index.json"));
   QDir().mkpath(QFileInfo(indexPath).absolutePath());
-  QFile index(indexPath);
-  const QByteArray indexBytes = QJsonDocument(QJsonObject{{QStringLiteral("schemaVersion"), 1},
-      {QStringLiteral("images"), QJsonObject{{QStringLiteral("999_0"), QJsonObject{{QStringLiteral("url"), base + QStringLiteral("/indexed")}}}}}}).toJson();
-  service.request(request(QStringLiteral("999_0_0123456789ab"), QStringLiteral("unknown-before-update")));
-  ok &= require(until([&] { return results.contains(QStringLiteral("999_0_0123456789ab")); }) &&
-      results.value(QStringLiteral("999_0_0123456789ab")).outcome == ImageOutcome::Unavailable,
-      "missing ID index was not reported");
-  ok &= require(index.open(QIODevice::WriteOnly) && index.write(indexBytes) == indexBytes.size(), "ID index setup failed");
-  index.close();
-  QSignalSpy reloaded(&service, &ImageService::imageIndexReloaded);
+  const auto installIndex = [&](const QJsonObject& entry) {
+    QFile index(indexPath);
+    const auto bytes=QJsonDocument(QJsonObject{{QStringLiteral("schemaVersion"),1},
+        {QStringLiteral("faces"),QJsonObject{{QStringLiteral("999"),entry}}}}).toJson();
+    ok &= require(index.open(QIODevice::WriteOnly|QIODevice::Truncate) && index.write(bytes)==bytes.size(),"exact source index fixture failed");
+  };
+  const auto oldEntry=officialEntry(QStringLiteral("2000"));
+  const auto newEntry=officialEntry(QStringLiteral("3001"));
+  const QString provenLegacy=installPicture(oldEntry,smallPng,true);
+  installIndex(oldEntry);
+  QSignalSpy reloaded(&service,&ImageService::imageIndexReloaded);
   service.reloadImageIndex();
-  ok &= require(until([&] { return reloaded.size() == 1; }) && requests.value(QStringLiteral("/indexed")) == 0,
-      "local index reload itself fetched a pet image");
-  results.remove(QStringLiteral("999_0_0123456789ab"));
-  service.request(request(QStringLiteral("999_0_0123456789ab"), QStringLiteral("unknown-before-update")));
-  ok &= require(until([&] { return results.contains(QStringLiteral("999_0_0123456789ab")); }) &&
-      results.value(QStringLiteral("999_0_0123456789ab")).outcome == ImageOutcome::Ready && requests.value(QStringLiteral("/indexed")) == 1,
-      "hot-reloaded resource ID index did not supply the missing image");
-  ok &= require(until([&] { return QFile::exists(QDir(directory.path()).filePath(QStringLiteral("images/pets/999_0.json"))); }),
-      "downloaded raster did not retain source metadata for future manual updates");
-  const QByteArray changedIndex = QJsonDocument(QJsonObject{{QStringLiteral("schemaVersion"), 1},
-      {QStringLiteral("images"), QJsonObject{{QStringLiteral("999_0"), QJsonObject{{QStringLiteral("url"), base + QStringLiteral("/indexed-new")},
-          {QStringLiteral("revision"), QStringLiteral("new-revision")}}}}}}).toJson();
-  ok &= require(index.open(QIODevice::WriteOnly | QIODevice::Truncate) && index.write(changedIndex) == changedIndex.size(), "changed image index setup failed");
-  index.close();
+  ok &= require(until([&] { return reloaded.size()==1; }),"exact image index did not reload");
+  auto oldRequest=request(QStringLiteral("999_0_0123456789ab"),QStringLiteral("same-name"));
+  oldRequest.sourceGeneration=1;
+  service.request(oldRequest);
+  ok &= require(until([&] { return results.contains(oldRequest.visualKey); }) &&
+      results.value(oldRequest.visualKey).outcome==ImageOutcome::Ready,"proved legacy picture did not load");
+  oldRequest.sourceIdentity=results.value(oldRequest.visualKey).sourceIdentity;
+  oldRequest.contentSha256=results.value(oldRequest.visualKey).contentSha256;
+  ok &= require(oldRequest.contentSha256==QString::fromLatin1(QCryptographicHash::hash(smallPng,QCryptographicHash::Sha256).toHex()),
+      "actual encoded content fingerprint was not returned");
+  const QString oldVersionPath=QDir(directory.path()).filePath(QStringLiteral("images/pets/sources/%1/999_0.png").arg(oldRequest.sourceIdentity));
+  ok &= require(until([&] { return QFile::exists(oldVersionPath); }) && QFile::exists(provenLegacy),"proved cache migration did not preserve original");
+  const QString newVersionPath=installPicture(newEntry,png({128,64},Qt::red),false);
+  installIndex(newEntry);
   service.reloadImageIndex();
-  ok &= require(until([&] { return reloaded.size() == 2; }), "changed image index did not reload");
-  results.remove(QStringLiteral("999_0_0123456789ab"));
-  auto changedRequest = request(QStringLiteral("999_0_0123456789ab"), QStringLiteral("unknown-before-update"));
-  service.request(changedRequest);
-  ok &= require(until([&] { return results.contains(changedRequest.visualKey); }) && requests.value(QStringLiteral("/indexed-new")) == 0,
-      "ordinary viewing refreshed an existing image after the public index changed");
-  changedRequest.refreshChangedSource = true;
-  results.remove(changedRequest.visualKey); service.request(changedRequest);
-  ok &= require(until([&] { return results.contains(changedRequest.visualKey); }) &&
-      results.value(changedRequest.visualKey).outcome == ImageOutcome::Ready && requests.value(QStringLiteral("/indexed-new")) == 1,
-      "explicit data update did not replace a changed image source");
-  ok &= require(until([&] {
-    QFile metadata(QDir(directory.path()).filePath(QStringLiteral("images/pets/999_0.json")));
-    return metadata.open(QIODevice::ReadOnly) && QJsonDocument::fromJson(metadata.readAll()).object().value(QStringLiteral("revision")).toString() == QStringLiteral("new-revision");
-  }), "updated image source revision did not persist");
-  results.remove(changedRequest.visualKey); service.request(changedRequest);
-  ok &= require(until([&] { return results.contains(changedRequest.visualKey); }) && requests.value(QStringLiteral("/indexed-new")) == 1,
-      "unchanged manual image update downloaded the same image again");
+  ok &= require(until([&] { return reloaded.size()==2; }),"new image source did not reload");
+  auto newRequest=oldRequest; newRequest.sourceGeneration=2; newRequest.sourceIdentity.clear(); newRequest.contentSha256.clear();
+  results.remove(newRequest.visualKey); service.request(newRequest);
+  ok &= require(until([&] { return results.contains(newRequest.visualKey); }) &&
+      results.value(newRequest.visualKey).outcome==ImageOutcome::Ready &&
+      results.value(newRequest.visualKey).handle->image.pixelColor(0,0)==QColor(Qt::red),"new snapshot did not use new exact source");
+  results.remove(oldRequest.visualKey); service.request(oldRequest);
+  ok &= require(until([&] { return results.contains(oldRequest.visualKey); }) &&
+      results.value(oldRequest.visualKey).outcome==ImageOutcome::Ready &&
+      results.value(oldRequest.visualKey).handle->image.pixelColor(0,0)==QColor(35,120,200),"old snapshot read newer same-name bytes");
+  ok &= require(QFile::exists(oldVersionPath)&&QFile::exists(newVersionPath),"source update overwrote old version file");
+  auto unboundOld=oldRequest; unboundOld.sourceIdentity.clear(); unboundOld.outputLogicalSize={299,299};
+  results.remove(unboundOld.visualKey); service.request(unboundOld);
+  ok &= require(until([&] { return results.contains(unboundOld.visualKey); }) &&
+      results.value(unboundOld.visualKey).outcome==ImageOutcome::Unavailable,"unbound old snapshot borrowed new source");
+
+  // A hidden document must reacquire its pinned bytes after the service LRU and
+  // GUI weak cache were cleared by a directory reload.
+  {
+    PetImageCache proxy(directory.path()); proxy.setService(&service);
+    QTest::qWait(15);
+    const QJsonObject pet{{QStringLiteral("r"),999},{QStringLiteral("fr"),0},{QStringLiteral("n"),QStringLiteral("same-name")}};
+    PetImageBrowser oldBrowser; oldBrowser.show();
+    const QString oldUrl=proxy.ensurePetImage(pet,{QStringLiteral("one")});
+    proxy.setDocumentImage(&oldBrowser,QStringLiteral("<img src='%1'>").arg(oldUrl),oldUrl);
+    const auto color=[&](PetImageBrowser& browser,const QString& url) {
+      const auto image=browser.document()->resource(QTextDocument::ImageResource,QUrl(url)).value<QImage>();
+      return image.isNull() ? QColor() : image.pixelColor(0,0);
+    };
+    ok &= require(until([&] { return color(oldBrowser,oldUrl)==QColor(Qt::red); }),"GUI did not bind exact source identity");
+    installIndex(oldEntry); service.reloadImageIndex();
+    ok &= require(until([&] { return reloaded.size()==3; }),"GUI snapshot fixture did not reload");
+    QTest::qWait(15); results.clear(); oldBrowser.hide(); QTest::qWait(15); oldBrowser.show();
+    ok &= require(until([&] { return color(oldBrowser,oldUrl)==QColor(Qt::red); }),"hidden old GUI document changed source after reload");
+    PetImageBrowser newBrowser; newBrowser.show();
+    const QString newUrl=proxy.ensurePetImage(pet,{QStringLiteral("one")});
+    proxy.setDocumentImage(&newBrowser,QStringLiteral("<img src='%1'>").arg(newUrl),newUrl);
+    ok &= require(newUrl!=oldUrl && until([&] { return color(newBrowser,newUrl)==QColor(35,120,200); }) &&
+        color(oldBrowser,oldUrl)==QColor(Qt::red),"new GUI snapshot replaced an old document's resource");
+    // Simulate a separate fresh request after disk cache deletion obtaining a
+    // changed PNG at exactly the same official URL/symbol/version. The old
+    // document must reject it, even with matching new on-disk metadata.
+    QFile::remove(newVersionPath); QFile::remove(newVersionPath.chopped(4)+QStringLiteral(".json"));
+    installPicture(newEntry,png({128,64},Qt::green),false);
+    service.reloadImageIndex();
+    ok &= require(until([&] { return reloaded.size()==4; }),"same-version content fixture did not reload");
+    QTest::qWait(15); results.clear(); oldBrowser.hide(); QTest::qWait(15); oldBrowser.show();
+    QTest::qWait(150);
+    ok &= require(color(oldBrowser,oldUrl)!=QColor(Qt::green),"old GUI snapshot accepted new same-version PNG bytes");
+    installPicture(newEntry,png({128,64},Qt::red),false);
+    service.reloadImageIndex();
+    ok &= require(until([&] { return reloaded.size()==5; }),"original-content recovery fixture did not reload");
+    QTest::qWait(15); results.clear(); oldBrowser.hide(); QTest::qWait(15); oldBrowser.show();
+    ok &= require(until([&] { return color(oldBrowser,oldUrl)==QColor(Qt::red); }),"original content could not be restored to the pinned GUI snapshot");
+  }
 
   QList<ImageRequest> batch;
   for (int i = 0; i < 70; ++i) {
@@ -599,7 +668,7 @@ int main(int argc, char* argv[]) {
     // stay a failure and must not be presented as a confirmed new version.
     {
       ImageServiceOptions networkOptions = persistenceOptions;
-      networkOptions.verifiedUrls.insert(QStringLiteral("net-one"), base + QStringLiteral("/one"));
+      networkOptions.verifiedUrls.insert(QStringLiteral("id:net-key"), base + QStringLiteral("/one"));
       ok &= require(QDir().mkpath(QDir(persistentRoot).filePath(QStringLiteral("images/pets/net-key.json"))),
           "metadata fixture failed");
       ImageService networkService(networkOptions, persistenceExecutors);
@@ -781,6 +850,75 @@ int main(int argc, char* argv[]) {
     ok &= require(requests.value(QStringLiteral("/hold-join")) == 1,
                   "an in-flight render size downloaded its own copy of the source");
     std::fprintf(stdout, "in-flight join downloads: %d\n", requests.value(QStringLiteral("/hold-join")));
+  }
+
+  {
+    // Both requests retain their directory object, including an old request
+    // whose first acquisition starts only after current has switched.
+    installPicture(oldEntry, smallPng, false);
+    installPicture(newEntry, png({128,64}, Qt::red), false);
+    const auto bundle = [&](const QJsonObject& entry, const QByteArray& icon) {
+      auto value = std::make_shared<PublicDatasetSnapshot>();
+      value->imageIndex = QJsonObject{{QStringLiteral("schemaVersion"),1},
+          {QStringLiteral("faces"),QJsonObject{{QStringLiteral("999"),entry}}}};
+      const QString digest = QString::fromLatin1(QCryptographicHash::hash(icon,QCryptographicHash::Sha256).toHex());
+      const QString relative = QStringLiteral("images/public-icons/%1.png").arg(digest);
+      const QString path = QDir(directory.path()).filePath(relative);
+      QDir().mkpath(QFileInfo(path).absolutePath()); QFile file(path);
+      ok &= require(file.open(QIODevice::WriteOnly) && file.write(icon) == icon.size(), "immutable icon fixture could not be created");
+      value->iconIndex = QJsonObject{{QStringLiteral("schemaVersion"),1},{QStringLiteral("attributes"),
+          QJsonObject{{QStringLiteral("999"),QJsonObject{{QStringLiteral("file"),relative},
+              {QStringLiteral("png"),QJsonObject{{QStringLiteral("sha256"),digest}}}}}}}};
+      value->components[QStringLiteral("images")].sha256 = QString::fromLatin1(QCryptographicHash::hash(
+          QJsonDocument(value->imageIndex).toJson(QJsonDocument::Compact),QCryptographicHash::Sha256).toHex());
+      value->components[QStringLiteral("icons")].sha256 = QString::fromLatin1(QCryptographicHash::hash(
+          QJsonDocument(value->iconIndex).toJson(QJsonDocument::Compact),QCryptographicHash::Sha256).toHex());
+      return value;
+    };
+    ImageService pinned(options,executors); ImageCatalogHandle catalog;
+    QHash<QString,ImageResult> delivered;
+    QObject::connect(&pinned,&ImageService::imageCatalogAvailable,&app,[&](const ImageCatalogHandle& value) { catalog=value; });
+    QObject::connect(&pinned,&ImageService::completed,&app,[&](const ImageResult& result) { delivered[result.key]=result; });
+    const auto oldBundle = bundle(oldEntry,smallPng), newBundle = bundle(newEntry,png({128,64},Qt::red));
+    pinned.applyPublicDataset(oldBundle);
+    auto early = request(QStringLiteral("999_0"),QStringLiteral("before-directory-handshake"));
+    const auto earlyKey = ImageService::requestKey(early,options.resourceVersion);
+    pinned.request(early);
+    ok &= require(until([&] { return delivered.contains(earlyKey); }) && delivered.value(earlyKey).catalog == catalog,
+        "early image completion did not return the immutable index it actually used");
+    early.catalog = delivered.value(earlyKey).catalog; early.catalogKeyed = false;
+    ok &= require(ImageService::requestKey(early,options.resourceVersion) == earlyKey,
+        "adopting an early request's index lease changed its document delivery key");
+    delivered.clear();
+    auto oldPinned = request(QStringLiteral("999_0"),QStringLiteral("unused")); oldPinned.catalog=catalog;
+    auto oldIcon = request(QStringLiteral("attribute-999"),QString()); oldIcon.attributeId=999; oldIcon.catalog=catalog;
+    pinned.applyPublicDataset(newBundle);
+    auto newPinned=oldPinned; newPinned.catalog=catalog;
+    auto newIcon=oldIcon; newIcon.catalog=catalog;
+    const auto keyOf=[&](const ImageRequest& value) { return ImageService::requestKey(value,options.resourceVersion); };
+    ok &= require(keyOf(oldPinned)!=keyOf(newPinned) && keyOf(oldIcon)!=keyOf(newIcon), "public index identity was omitted from render keys");
+    for (const auto& item : {oldPinned,newPinned,oldIcon,newIcon}) pinned.request(item);
+    ok &= require(until([&] { return delivered.size()==4; }), "pinned public-index images did not complete");
+    const auto resultColor=[&](const ImageRequest& value) {
+      const auto image=delivered.value(keyOf(value)).handle;
+      return image ? image->image.pixelColor(0,0) : QColor();
+    };
+    ok &= require(resultColor(oldPinned)==QColor(35,120,200) && resultColor(newPinned)==QColor(Qt::red) &&
+        resultColor(oldIcon)==QColor(35,120,200) && resultColor(newIcon)==QColor(Qt::red),
+        "old first-time request used latest public pet/icon index instead of its pinned index");
+    early.outputLogicalSize={219,219}; pinned.request(early);
+    ok &= require(until([&] { return delivered.contains(keyOf(early)); }) && resultColor(early)==QColor(35,120,200),
+        "early document lost its index binding when reacquiring after current changed");
+    // Even a writable or corrupted old filename cannot replace the bound PNG.
+    const QString oldIconPath = QDir(directory.path()).filePath(oldBundle->iconIndex.value(QStringLiteral("attributes")).toObject()
+        .value(QStringLiteral("999")).toObject().value(QStringLiteral("file")).toString());
+    QFile corrupt(oldIconPath); const auto changed=png({128,64},Qt::green);
+    ok &= require(corrupt.open(QIODevice::WriteOnly) && corrupt.write(changed)==changed.size(), "icon mutation fixture failed"); corrupt.close();
+    oldIcon.outputLogicalSize={217,217}; pinned.request(oldIcon);
+    ok &= require(until([&] { return delivered.contains(keyOf(oldIcon)); }) &&
+        delivered.value(keyOf(oldIcon)).outcome==ImageOutcome::Unavailable,
+        "old icon index accepted changed bytes from its recorded path");
+    pinned.shutdown();
   }
 
   auto deletingService = std::make_unique<ImageService>(options, executors);

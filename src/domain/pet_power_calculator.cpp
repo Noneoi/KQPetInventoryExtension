@@ -1,5 +1,6 @@
 #include "pet_power_calculator.h"
 #include "checked_json_numbers.h"
+#include "pet_astrolabe_record.h"
 #include <QMap>
 #include <QRegularExpression>
 #include <QSet>
@@ -235,16 +236,14 @@ void astrolabe(const QJsonObject& pet, const PetPowerMetadata& m, PetBattlePower
   if (!out.astrolabeApplicable) { out.astrolabePowerKnown = true; return; }
   int senior = 0,nodes = 0; bool known = true;
   for (const auto& chain : raw.toString().split(QLatin1Char('|'))) for (const auto& text : chain.split(QLatin1Char('#'))) {
-    const auto fields = text.split(QLatin1Char(':')); int id = 0,light = 0,selected = 0,value = 0,located = 0;
-    if (++nodes > 128 || fields.size() < 2 || fields.size() > 3 || !integer(fields[0],&id) ||
-        !integer(fields[1],&light) || light > 1 || (fields.size() == 3 && (!integer(fields[2],&selected) || selected > 1)) ||
-        (selected && !light)) { known = false; continue; }
-    const auto node = m.astrolabe.value(QString::number(id)).toObject();
+    const auto record = readPetAstrolabeRecord(text); int value = 0,located = 0;
+    if (++nodes > 128 || !record.usableForAnalysis()) { known = false; continue; }
+    const auto node = m.astrolabe.value(QString::number(record.id)).toObject();
     if (!integer(node.value(QStringLiteral("battlePower")),&value) || !integer(node.value(QStringLiteral("locatedType")),&located) || located > 2) { known = false; continue; }
     if (located == 2) ++senior;
-    if (!light) ++out.astrolabeUnlitNodes;
-    if (light && selected) ++out.astrolabeSelectedNodes;
-    if (!add(out.astrolabeMaximum,value) || (light && !add(out.astrolabeCurrent,value))) known = false;
+    if (!record.lighted) ++out.astrolabeUnlitNodes;
+    if (record.lighted && record.selected) ++out.astrolabeSelectedNodes;
+    if (!add(out.astrolabeMaximum,value) || (record.lighted && !add(out.astrolabeCurrent,value))) known = false;
   }
   out.astrolabeTargetBonus = out.breakthroughApplicable && senior >= 3 ? 150 : 0;
   out.astrolabeBonus = out.breakthroughApplicable && out.breakthrough && out.astrolabeSelectedNodes >= 3 ? 150 : 0;

@@ -2,16 +2,21 @@
 #include "pet_derivation_types.h"
 #include "domain/pet_cultivation_requirements.h"
 #include "domain/catalog_types.h"
+#include "contracts/public_dataset.h"
 #include <QJsonObject>
 #include <QVector>
 #include <QStringList>
 #include <memory>
 
 enum class DetailKnowledge { Known, Unknown, Invalid };
-// Where a related pet sits in this account. Missing means the account's own
-// backpack/warehouse rosters do not list it at all, so nothing but its name is
-// known; Unknown means the rosters were not consulted for this entry.
-enum class DetailOwnership { Unknown, Missing, Backpack, WarehouseNormal, WarehouseElite, WarehouseGoodbye };
+// Missing means absent from the currently loaded rosters, not proof that the
+// account does not own the pet. Unknown has no consulted instance identity;
+// OwnedLocationUnknown is a present roster entry whose location is unavailable.
+enum class DetailOwnership { Unknown, Missing, Backpack, WarehouseNormal, WarehouseElite, WarehouseGoodbye,
+                             OwnedLocationUnknown, WarehouseUnknown };
+// Exact official PetDictionaryDataItem sign tags, never inferred from a pet's
+// name. They identify the mechanism, not whether a candidate is selected.
+enum class DetailCarryKind { Unknown, Carrier, Almighty, Swallower };
 // Independent detail slots the preparation service serves at once:
 // 0 = the selected pet, 1 = the shop preview, 2 = the related-pet popup.
 inline constexpr int kDetailConsumerCount = 3;
@@ -29,15 +34,20 @@ struct DetailSelection {
 struct DetailRelatedRevision { qint64 instanceId = 0; quint64 revision = 0; bool present = false; };
 struct DetailVersion {
   PetDerivationKey facts;
+  QString publicDatasetRevision;
   quint64 summaryRevision = 0;
   quint64 relatedSummaryRevision = 0;
+  quint64 relationRosterRevision = 0;
   QVector<DetailRelatedRevision> related;
 };
+enum class DetailDefinitionKind { None, Proficient, SourceBeast, LegendStone, SacredEquipment };
 struct DetailField {
   std::shared_ptr<void> memoryRetention;
   QString label;
   QString text;
   DetailKnowledge state = DetailKnowledge::Unknown;
+  DetailDefinitionKind definitionKind = DetailDefinitionKind::None;
+  int definitionId = -1;
 };
 struct DetailEntry {
   std::shared_ptr<void> memoryRetention;
@@ -48,6 +58,9 @@ struct DetailEntry {
   QString problem;
   int quality = 0;
   int imageDefineId = 0;
+  // Exact IDs already decoded by Domain; names are never reverse-matched to
+  // construct public-data links. -1 distinguishes an absent ID from node 0.
+  int definitionId = -1, exclusiveDefinitionId = -1;
   bool changeable = false, selected = false, activated = false;
   bool emptySlot = false;
   // Relation entries only: the related pet's own instance, its original name
@@ -55,6 +68,7 @@ struct DetailEntry {
   qint64 relatedInstanceId = 0;
   QString originalName;
   DetailOwnership ownership = DetailOwnership::Unknown;
+  DetailCarryKind carryKind = DetailCarryKind::Unknown;
 };
 struct DetailPage {
   std::shared_ptr<void> memoryRetention;
@@ -66,6 +80,10 @@ struct DetailPage {
   QString problem;
   QVector<DetailEntry> entries;
   bool carryCandidatesExpanded = false, hasCarryCandidates = false, carryCandidatesKnown = false;
+  bool summonCandidatesKnown = false, hasSummonCandidates = false;
+  int summonCandidateCount = -1;
+  bool relationCatalogLoading = false;
+  QString relationCatalogProblem;
   // Number of entries the client reported in the candidate list, or -1 when the
   // field was absent or not a list. Counted without resolving each candidate.
   int carryCandidateCount = -1;
@@ -79,6 +97,7 @@ struct DetailPage {
   // side the client actually reported is offered to the reader.
   bool contractCarrierRole = false;
   bool contractEnvoyRole = false;
+  DetailCarryKind carryKind = DetailCarryKind::Unknown;
   bool hasPrevious() const { return pageIndex > 0; }
   bool hasNext() const { return pageIndex >= 0 && pageSize > 0 && (quint64(pageIndex) + 1) * quint64(pageSize) < totalItems; }
 };
@@ -122,19 +141,29 @@ inline QString summoner() { return QStringLiteral("召唤者"); }
 
 // Values are frozen by Core. The large payload and facts retain their original
 // owners' leases; this service charges only its additional allocations.
+struct DetailRelatedSummary {
+  qint64 instanceId = 0;
+  quint64 revision = 0;
+  bool present = false;
+  QJsonObject fields; // Identity/location scalars only, never a nested pet detail.
+};
+struct DetailRelationRoster {
+  QString account;
+  quint64 epoch = 0;
+  quint64 revision = 0;
+  QHash<int, QVector<DetailRelatedSummary>> byRace;
+};
 struct FrozenDetailInputs {
   RawPetRecordHandle raw;
   PetDerivedFactsHandle facts;
   QJsonObject brief;
   quint64 summaryRevision = 0;
   std::shared_ptr<const PetDetailCatalogSnapshot> metadata;
+  PublicDatasetSnapshotHandle publicDataset;
+  std::shared_ptr<const DetailRelationRoster> relationRoster;
+  bool relationCatalogLoading = false;
+  QString relationCatalogProblem;
   bool sourceVerified = false;
-};
-struct DetailRelatedSummary {
-  qint64 instanceId = 0;
-  quint64 revision = 0;
-  bool present = false;
-  QJsonObject fields; // only id/r/ri/fr/n/customName/lv/zdl/xzdl and _meta* identity fields
 };
 struct DetailSubmission {
   quint64 requestId = 0;

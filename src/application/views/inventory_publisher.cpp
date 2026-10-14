@@ -5,11 +5,48 @@
 #include "application/catalog/pet_skill_catalog.h"
 #include "application/pet/pet_detail_preparation_service.h"
 #include "application/pet/pet_derivation_cache.h"
+#include "domain/pet_identity.h"
 #include <QFileInfo>
 #include <QTimer>
 #include <QThread>
 #include <atomic>
 #include <algorithm>
+
+namespace {
+QJsonObject relationSummaryFields(const QJsonObject& brief) {
+  static const QStringList keys{"id","r","ri","fr","n","customName","lv","zdl","xzdl","rt",
+    "_metaOriginalName","_metaAttributes","_metaJobs","_metaEra","_metaRaceId","_location","_warehouseGroup"};
+  QJsonObject fields;
+  for (const auto& key : keys) if (brief.contains(key)) fields.insert(key,brief.value(key));
+  return fields;
+}
+bool needsRelationRules(const RawPetRecordHandle& raw, const QJsonObject& brief,
+                        const PublicDatasetSnapshotHandle& dataset) {
+  if (!raw || !dataset || !dataset->detail) return false;
+  const int race = petRaceId(brief) > 0 ? petRaceId(brief) : petRaceId(raw->object());
+  const auto definition = dataset->detail->root.value("pets").toObject().value(QString::number(race)).toObject();
+  const auto signs = definition.value("sign").toString().split(',');
+  if (signs.contains(QStringLiteral("携同技")) || signs.contains(QStringLiteral("吞噬技")) ||
+      signs.contains(QStringLiteral("天觉者"))) return true;
+  // The four official summoner jobs are documented in the existing PetUtil audit.
+  const auto jobs = definition.value("jobs").toString().split('-');
+  for (const auto* job : {"9","10","26","36"}) if (jobs.contains(QLatin1String(job))) return true;
+  if (dataset->skill) {
+    const auto skill = dataset->skill->root.value("pets").toObject().value(QString::number(race)).toObject();
+    if (!skill.value("summons").toArray().isEmpty() || !skill.value("carry").toArray().isEmpty()) return true;
+  }
+  const auto record = raw->object();
+  for (const auto* key : {"sppl","cppl","asps","acps","crpis"}) {
+    const auto value = record.value(QLatin1String(key));
+    if (!value.toObject().isEmpty() || !value.toArray().isEmpty()) return true;
+  }
+  for (const auto* key : {"sepi","sdpi","srpi","cepi"}) {
+    const auto value = brief.contains(QLatin1String(key)) ? brief.value(QLatin1String(key)) : record.value(QLatin1String(key));
+    if (value.toDouble() > 0 || value.toString().toLongLong() > 0) return true;
+  }
+  return false;
+}
+}
 
 InventoryPublisher::InventoryPublisher(PetRepository* repository, InventoryProjection* projection,
                                        QObject* parent)
@@ -26,6 +63,7 @@ InventoryPublisher::InventoryPublisher(PetRepository* repository, InventoryProje
   connect(repository_, &PetRepository::accountSessionChanged, this, [this] {
     facts_.clear(); factFailures_.clear(); detailInterests_.clear(); detailSelections_.clear(); detailRecordVersions_.clear(); detailRequests_.clear(); waitingDetails_.clear();
     requestedDetailReads_.clear(); preparedDetails_.clear(); detailErrors_.clear(); summaryStamps_.clear();
+    relationRoster_.reset();
     if (detailService_) detailService_->bindSession(repository_->accountKey(), repository_->sessionGeneration());
     requestPublication();
   });
@@ -83,6 +121,7 @@ InventoryPublisher::InventoryPublisher(PetRepository* repository, InventoryProje
 
 void InventoryPublisher::metadataUpdated(std::shared_ptr<const PetDetailCatalogSnapshot> metadata) {
   Q_ASSERT(thread() == QThread::currentThread());
+  if (publicDataset_ && metadata != publicDataset_->detail) return;
   if (!metadata || (metadata_ && metadata->revision < metadata_->revision) || metadata == metadata_) return;
   metadata_ = std::move(metadata);
   facts_.clear();
@@ -94,8 +133,61 @@ void InventoryPublisher::metadataUpdated(std::shared_ptr<const PetDetailCatalogS
   requestPublication();
 }
 
+void InventoryPublisher::setPublicDataset(PublicDatasetSnapshotHandle dataset) {
+  Q_ASSERT(thread() == QThread::currentThread());
+  if (!dataset || !dataset->detail || !dataset->skill || dataset == publicDataset_) return;
+  const bool detailChanged = metadata_ != dataset->detail;
+  const bool relationsChanged = !publicDataset_ || publicDataset_->replay != dataset->replay ||
+      publicDataset_->replayObject.sha256 != dataset->replayObject.sha256 || publicDataset_->skill != dataset->skill;
+  // Publish both references before invalidation can synchronously request more
+  // input. A consumer must never observe one half of a public-data switch.
+  publicDataset_ = std::move(dataset);
+  metadata_ = publicDataset_->detail;
+  skills_ = publicDataset_->skill;
+  if (relationsChanged) { relationCatalogPending_ = false; relationCatalogProblem_.clear(); }
+  if (detailChanged) {
+    facts_.clear(); factFailures_.clear(); preparedDetails_.clear();
+    if (detailService_) detailService_->invalidateMetadata(metadata_->revision, metadata_->contentDigest);
+  }
+  else if (relationsChanged) refreshRelationDetails();
+  requestPublication(detailChanged);
+}
+
+void InventoryPublisher::refreshRelationDetails() {
+  if (!detailService_) return;
+  QSet<qint64> selected;
+  for (const auto& value : detailSelections_) selected.insert(value.instanceId);
+  preparedDetails_.clear();
+  detailService_->summariesChanged(selected);
+  requestPublication(false);
+}
+
+void InventoryPublisher::relationCatalogLoadFinished(bool loaded, const QString& error) {
+  if (!relationCatalogPending_) return;
+  relationCatalogPending_ = false;
+  relationCatalogProblem_ = loaded ? QString() : (error.isEmpty() ? QStringLiteral("关联资料暂不可用") : error);
+  refreshRelationDetails();
+}
+
+std::shared_ptr<const DetailRelationRoster> InventoryPublisher::relationRoster() {
+  const quint64 revision = repository_->inventoryRevision() + 1;
+  if (relationRoster_ && relationRoster_->revision == revision) return relationRoster_;
+  auto roster = std::make_shared<DetailRelationRoster>(); roster->revision = revision;
+  roster->account = repository_->accountKey(); roster->epoch = repository_->sessionGeneration();
+  for (auto id : repository_->currentInstanceIds()) {
+    const auto brief = repository_->briefFor(id); const int race = petRaceId(brief);
+    if (id > 0 && race > 0)
+      roster->byRace[race].append({id,revision,true,relationSummaryFields(brief)});
+  }
+  for (auto it=roster->byRace.begin(); it!=roster->byRace.end(); ++it)
+    std::sort(it->begin(),it->end(),[](const auto& a,const auto& b) { return a.instanceId < b.instanceId; });
+  relationRoster_ = roster;
+  return relationRoster_;
+}
+
 void InventoryPublisher::skillMetadataUpdated(std::shared_ptr<const PetSkillCatalogSnapshot> skills) {
   Q_ASSERT(thread() == QThread::currentThread());
+  if (publicDataset_ && skills != publicDataset_->skill) return;
   if (!skills || (skills_ && skills->revision < skills_->revision) || skills == skills_) return;
   skills_ = std::move(skills);
   requestPublication(false);
@@ -139,13 +231,7 @@ void InventoryPublisher::setDetailService(PetDetailPreparationService* service, 
     QVector<DetailRelatedSummary> values; values.reserve(ids.size());
     for (auto id : ids) {
       QJsonObject brief = repository_->briefFor(id);
-      QJsonObject fields;
-      for (auto it = brief.constBegin(); it != brief.constEnd(); ++it)
-        // The roster location fields say whether this account holds the related
-        // pet and where, which its own relation rows report to the reader.
-        if (it.key().startsWith("_meta") ||
-            QStringList{"id","r","ri","fr","n","customName","lv","zdl","xzdl","_location","_warehouseGroup"}.contains(it.key()))
-          fields.insert(it.key(), it.value());
+      const auto fields = relationSummaryFields(brief);
       values.append({id, brief.isEmpty() ? 0 : summaryRevision(id, brief), !brief.isEmpty(), fields});
     }
     if (detailService_) detailService_->provideRelatedSummaries(request, std::move(values));
@@ -155,6 +241,7 @@ void InventoryPublisher::setDetailService(PetDetailPreparationService* service, 
     if (!value || detailRequests_.value(consumer) != request || !metadata_ || detailSelections_.value(consumer).instanceId != value->identity.instanceId ||
         !(value->version.facts.record == repository_->recordVersion(value->identity.instanceId).key) ||
         value->version.facts.metadataRevision != metadata_->revision || value->version.facts.metadataDigest != metadata_->contentDigest) return;
+    if (value->version.relationRosterRevision && value->version.relationRosterRevision != repository_->inventoryRevision()+1) return;
     preparedDetails_[consumer] = value; detailErrors_.remove(consumer);
     requestPublication(false, value->identity.instanceId);
   });
@@ -170,6 +257,7 @@ void InventoryPublisher::selectDetail(int consumer, qint64 id) {
   if (!detailService_ || consumer < 0 || consumer >= kDetailConsumerCount) return;
   const DetailSelection selection{repository_->accountKey(), repository_->sessionGeneration(), id};
   if (id > 0 && detailSelections_.value(consumer) == selection && !detailErrors_.contains(consumer)) return;
+  relationCatalogProblem_.clear();
   for (auto it = waitingDetails_.begin(); it != waitingDetails_.end();) {
     if (it.value() == consumer) { requestedDetailReads_.remove(it.key()); it = waitingDetails_.erase(it); }
     else ++it;
@@ -188,6 +276,7 @@ void InventoryPublisher::selectDetail(int consumer, qint64 id) {
 }
 void InventoryPublisher::requestDetailPage(int consumer, DetailSection section, int pageIndex) {
   if (detailService_ && detailSelections_.contains(consumer)) {
+    relationCatalogProblem_.clear();
     const auto submitted = detailService_->requestPage(consumer, section, pageIndex);
     if (submitted.accepted) detailRequests_[consumer] = submitted.requestId;
     else detailErrors_[consumer] = submitted.error;
@@ -232,7 +321,18 @@ void InventoryPublisher::provideWaitingDetails() {
     }
     FrozenDetailInputs inputs;
     inputs.raw = raw; inputs.facts = facts; inputs.metadata = metadata_;
+    inputs.publicDataset = publicDataset_;
     inputs.brief = repository_->briefFor(selection.instanceId);
+    if (needsRelationRules(raw, inputs.brief, publicDataset_)) {
+      if (!publicDataset_->replay && !relationCatalogPending_ && relationCatalogProblem_.isEmpty()) {
+        relationCatalogPending_ = true;
+        emit relationCatalogNeeded();
+      }
+      inputs.publicDataset = publicDataset_;
+      inputs.relationRoster = relationRoster();
+      inputs.relationCatalogLoading = relationCatalogPending_;
+      inputs.relationCatalogProblem = relationCatalogProblem_;
+    }
     inputs.summaryRevision = summaryRevision(selection.instanceId, inputs.brief);
     inputs.sourceVerified = repository_->sessionContext().canPersist();
     waitingDetails_.remove(it.key()); requestedDetailReads_.remove(it.key());
@@ -253,6 +353,12 @@ QSet<qint64> InventoryPublisher::changedSelectedRecords() {
 void InventoryPublisher::detailDependenciesChanged(const QSet<qint64>& ids) {
   if (!detailService_) return;
   QSet<qint64> changed = ids | changedSelectedRecords();
+  // A newly acquired matching pet is not in the old candidate dependencies.
+  // Rebuild against the new complete roster even when the selected pet did not change.
+  if (relationRoster_ && relationRoster_->revision != repository_->inventoryRevision()+1) {
+    relationRoster_.reset();
+    for (const auto& value : detailSelections_) changed.insert(value.instanceId);
+  }
   if (ids.isEmpty()) {
     for (auto it = summaryStamps_.cbegin(); it != summaryStamps_.cend(); ++it)
       if (repository_->briefFor(it.key()) != it->value) changed.insert(it.key());
@@ -296,6 +402,7 @@ void InventoryPublisher::publish() {
   snapshot->inventoryRevision = repository_->inventoryRevision();
   snapshot->metadata = metadata_;
   snapshot->skills = skills_;
+  snapshot->publicDataset = publicDataset_;
   snapshot->preparedDetails = preparedDetails_;
   snapshot->detailErrors = detailErrors_;
   snapshot->account = repository_->accountKey();

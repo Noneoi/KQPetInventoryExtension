@@ -26,7 +26,7 @@ from activity_periods import (period_hints, period_metadata, entry_opening, load
                              panel_periods_reusable, apply_graph_periods, table_deadlines)
 from activity_trade_facts import table_contracts, enrich_reward_facts
 
-PARSER_VERSION = 18
+PARSER_VERSION = 19
 FILENAME = "activity-exchange-data.json"
 CONFIG_RESOURCE = "config/config"
 EMERGENCY_RESOURCE = "configinemergency/configinemergency"
@@ -39,6 +39,27 @@ STATIC_DECLARATION = re.compile(r"\bstatic\s+(?:const|var)\s+(\w+)\s*:\s*[\w.*<>
 
 PACKAGE_RESOURCES = (("library/materialdata", "mmo.materialdata.OpenablePackageData"),
                      ("library/materialdataupdate", "mmo.materialdata.update.OpenablePackageData_Update"))
+
+
+def dependency_hashes(versions, keys=None):
+    """Only hashes actually observed by this run's shared input session.
+
+    Ordinary version dictionaries retain the legacy version-only contract.
+    Never copy historical/dynamic resource hashes into a fresh observation.
+    """
+    observed = dict(getattr(versions, 'source_hashes', {}))
+    bootstrap = getattr(versions, 'bootstrap_loader', {})
+    if bootstrap.get('sha256'):
+        # Activity fallback uses the bootstrap loader (start.v), while replay
+        # separately audits the module loader named by the version map.
+        observed['loader'] = bootstrap['sha256']
+    return {key: value for key, value in observed.items() if keys is None or key in keys}
+
+
+def hashes_changed(previous, versions, keys=None):
+    observed = dependency_hashes(versions, keys)
+    previous = previous if isinstance(previous, dict) else {}
+    return any(previous.get(key) != value for key, value in observed.items())
 
 
 def parse_selectable_packages(text):
@@ -66,7 +87,8 @@ def load_selectable_packages(updater, versions):
     previous = _read(updater.root / "catalog" / FILENAME).get("source", {}).get("selectablePackages", {})
     if len(dependency) != len(PACKAGE_RESOURCES):
         return {"versions": {}, "packages": {}}
-    if previous.get("versions") == dependency and isinstance(previous.get("packages"), dict):
+    if 'shop' not in getattr(updater, 'force_components', ()) and previous.get("versions") == dependency and isinstance(previous.get("packages"), dict) \
+            and not hashes_changed(previous.get('dependencyHashes', {}), versions, dependency):
         return previous
     packages, resources = {}, {}
     for key, cls in PACKAGE_RESOURCES:
@@ -75,6 +97,7 @@ def load_selectable_packages(updater, versions):
         packages.update(parse_selectable_packages(path.read_text(encoding="utf-8-sig")))
         resources[key] = source
     return {"versions": dependency, "resources": resources,
+            "dependencyHashes": dependency_hashes(versions, dependency),
             "packages": {key: row for key, row in packages.items() if row["selectable"]}}
 
 
@@ -85,9 +108,11 @@ def load_reward_support(updater, versions):
                  ('strengthencombo/strengthencomboservice', 'mmo.strengthencombo.util.StrengthenComboDescUtil'))
     dependency = {key: versions[key] for key, _ in resources if key in versions}
     previous = _read(updater.root / 'catalog' / FILENAME).get('source', {}).get('rewardSupport', {})
-    if previous.get('versions') == dependency and previous.get('schema') == 2 and not previous.get('error'):
+    if 'shop' not in getattr(updater, 'force_components', ()) and previous.get('versions') == dependency and previous.get('schema') == 2 and not previous.get('error') \
+            and not hashes_changed(previous.get('dependencyHashes', {}), versions, dependency):
         return previous
-    result = {'schema': 2, 'versions': dependency, 'basicTypes': {}, 'prices': {}, 'pets': {}, 'descriptions': {}, 'descriptionParameters': {}}
+    result = {'schema': 2, 'versions': dependency, 'dependencyHashes': dependency_hashes(versions, dependency),
+              'basicTypes': {}, 'prices': {}, 'pets': {}, 'descriptions': {}, 'descriptionParameters': {}}
     if len(dependency) < 2:
         return result
     try:
@@ -122,6 +147,10 @@ def load_reward_support(updater, versions):
         # Independent event tables can still update if a shared dependency
         # fails. Never reuse stale public package contents as current facts.
         result.update(error=str(error), prices={}, pets={})
+        if not hasattr(updater, 'shared_dependency_failures'):
+            updater.shared_dependency_failures = {}
+        updater.shared_dependency_failures['shop'] = {'kind': 'reward-definition-consumer',
+            'resources': sorted(dependency), 'error': str(error)}
         updater.activity_exchange_failures.append('公共养成奖励配置读取失败：' + str(error))
     return result
 
@@ -1338,7 +1367,8 @@ def export_scripts(updater, swf: Path, target: Path) -> dict[str, str]:
         return updater.activity_exporter(swf, target)
     from public_data_updater import runtime_entry
     if updater.runtimes is None:
-        updater.runtimes = (runtime_entry(updater.tools, "java", updater.scratch), runtime_entry(updater.tools, "ffdec", updater.scratch))
+        runtime_tools = getattr(updater, 'runtime_tools', updater.tools)
+        updater.runtimes = (runtime_entry(runtime_tools, "java", updater.scratch), runtime_entry(runtime_tools, "ffdec", updater.scratch))
     java, ffdec = updater.runtimes
     result = subprocess.run([str(java), "-Xmx512m", "-Djava.awt.headless=true", "-jar", str(ffdec),
                              "-export", "script", str(target), str(swf)], stdout=subprocess.PIPE,
@@ -1386,6 +1416,8 @@ def update_activity_exchanges(updater, versions: dict) -> bool:
     cache_path = updater.root / "catalog" / FILENAME
     on_disk = _read(cache_path)
     current = on_disk
+    if 'shop' in getattr(updater, 'force_components', ()):
+        current = {**current, 'parserVersion': -1}
     if not cache_path.exists():
         baseline = _read(updater.baseline / FILENAME)
         if (baseline.get("schema") == 1 and baseline.get("parserVersion") == PARSER_VERSION and
@@ -1399,7 +1431,8 @@ def update_activity_exchanges(updater, versions: dict) -> bool:
     previous_source = current.get("source", {})
     previous_modules = current.get("modules", {})
     packages = getattr(updater, "selectable_package_source", None)
-    if packages is None:
+    if packages is None or hashes_changed(packages.get('dependencyHashes', {}), versions,
+                                         {key for key, _ in PACKAGE_RESOURCES}):
         packages = load_selectable_packages(updater, versions)
     reward_support = load_reward_support(updater, versions)
     config_version = versions.get(CONFIG_RESOURCE)
@@ -1408,7 +1441,9 @@ def update_activity_exchanges(updater, versions: dict) -> bool:
     discovery = previous_source.get("discovery", {})
     discovery_versions = {key: versions[key] for key in (CONFIG_RESOURCE, EMERGENCY_RESOURCE, BLOCK_RESOURCE) if key in versions}
     reward_dependencies = {key: versions[key] for key in ('library/interfaces', 'library/gameconst', 'library/common', 'library/util', 'strengthencombo/strengthencomboservice') if key in versions}
-    if previous_source.get("discoveryVersions") != discovery_versions or not discovery.get("entries") or current.get("parserVersion") != PARSER_VERSION:
+    if previous_source.get("discoveryVersions") != discovery_versions or not discovery.get("entries") \
+            or current.get("parserVersion") != PARSER_VERSION \
+            or hashes_changed(previous_source.get('dependencyHashes', {}), versions, discovery_versions):
         emit("更新官方活动入口与当前发布目录")
         swf, config_source = updater.resource(CONFIG_RESOURCE, versions)
         hud = updater.export(swf, updater.scratch / "activity-hud", "mmo.config.CommonHudConfig")
@@ -1418,6 +1453,8 @@ def update_activity_exchanges(updater, versions: dict) -> bool:
         config_source = previous_source.get("configResource", {})
         override_resources = previous_source.get("overrideResources", {})
     default = previous_source.get("loaderDefault", {})
+    if hashes_changed(previous_source.get('dependencyHashes', {}), versions, {'loader'}):
+        default = {}
     queue = [(alias, 0) for alias in discovery["roots"]]
     visited, modules, pending, shops = set(), {}, [], []
     checked = 0
@@ -1443,8 +1480,15 @@ def update_activity_exchanges(updater, versions: dict) -> bool:
         token = version if module in versions else version + "@" + json.dumps(discovery_versions, sort_keys=True, separators=(",", ":"))
         previous = previous_modules.get(module, {})
         evo_version = dependency_revision(versions)
+        module_dependencies = set(reward_dependencies) | {module}
+        if previous.get('hasSelectablePackage'):
+            module_dependencies.update(key for key, _ in PACKAGE_RESOURCES)
+        if module not in versions:
+            module_dependencies.update(discovery_versions)
+            module_dependencies.add('loader')
         reusable = (current.get("parserVersion") == PARSER_VERSION and previous.get("versionToken") == token and
                     not reward_support.get('error') and
+                    not hashes_changed(previous.get('dependencyHashes', {}), versions, module_dependencies) and
                     panel_periods_reusable(previous, versions, activity) and
                     previous.get('rewardDependencies', {}) == reward_dependencies and
                     (not previous.get("hasSelectablePackage") or previous.get("packageVersions") == packages["versions"]) and
@@ -1515,7 +1559,15 @@ def update_activity_exchanges(updater, versions: dict) -> bool:
                     for panel in panels:
                         if panel.get('error'):
                             updater.activity_exchange_failures.append(activity.get('activityName', alias) + '：有效期面板读取失败，保留已确认的截止时间：' + panel['error'])
+                has_package = any(re.search(r'(?:^|[,#])139:', value) for value in strings)
+                parsed_dependencies = set(reward_dependencies) | {module}
+                if has_package:
+                    parsed_dependencies.update(key for key, _ in PACKAGE_RESOURCES)
+                if module not in versions:
+                    parsed_dependencies.update(discovery_versions)
+                    parsed_dependencies.add('loader')
                 record = {"versionToken": token, "version": version, "source": resource,
+                          "dependencyHashes": dependency_hashes(versions, parsed_dependencies),
                           "status": "partial" if module_shops and unsupported else "supported" if module_shops else "pending" if unsupported else "no-relevant-rewards",
                           "diagnostic": ("已解析部分相关奖励，仍有未支持结构，原因见 pending" if module_shops and unsupported else
                                          "已解析指定精灵养成奖励，包含明确的养成或材料分支" if module_shops else
@@ -1523,7 +1575,7 @@ def update_activity_exchanges(updater, versions: dict) -> bool:
                                          "未发现非自选的指定精灵养成奖励；自选、普通奖励和仅导航/宣传的页面不列入手动添加"),
                           "shops": module_shops, "pending": unsupported, "references": sorted(references),
                           'periodMetadata': timing, 'panelPeriods': panels,
-                          "hasSelectablePackage": any(re.search(r'(?:^|[,#])139:', value) for value in strings),
+                          "hasSelectablePackage": has_package,
                           "packageVersions": packages["versions"],
                           "rewardDependencies": reward_dependencies,
                           "hasEvolutionSelector": has_evolution, "evolutionVersion": evo_version}
@@ -1546,6 +1598,7 @@ def update_activity_exchanges(updater, versions: dict) -> bool:
     result = {"schema": 1, "parserVersion": PARSER_VERSION,
               "selection": "designated-pet cultivation, including a verified cultivation-or-material alternative; exclude pet/material choices and selectable packages",
               "source": {"kind": "aoqi-official-activity-registry", "configVersion": config_version,
+                         "dependencyHashes": dependency_hashes(versions),
                          "configResource": config_source, "discoveryVersions": discovery_versions,
                          "selectablePackages": packages,
                          "rewardSupport": reward_support,

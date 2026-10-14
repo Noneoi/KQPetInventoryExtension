@@ -8,6 +8,7 @@ class ShopExchangeController;
 class RoutineOverviewController;
 class PetMetadataView;
 struct PetDetailCatalogSnapshot;
+struct RoutineCatalogSnapshot;
 
 class AssetAnalyzer final {
 public:
@@ -20,10 +21,11 @@ public:
   AccountAssetOverview analyze() const;
   // Core capture only: identity/location, required cultivation fields and
   // frozen metadata. No power/cultivation/product-pair analysis occurs here.
-  AccountAssetOverview captureInput(std::shared_ptr<const PetDetailCatalogSnapshot> metadata = {}) const;
+  AccountAssetOverview captureInput(std::shared_ptr<const PetDetailCatalogSnapshot> metadata = {},
+                                   std::shared_ptr<const RoutineCatalogSnapshot> routines = {}) const;
   quint64 analysisRunCount() const { return analysisRunCount_; }
-  AccountAssetOverview routineSummary() const;
-  void updateRoutineSummary(AccountAssetOverview* overview) const;
+  AccountAssetOverview routineSummary(std::shared_ptr<const RoutineCatalogSnapshot> routines = {}) const;
+  void updateRoutineSummary(AccountAssetOverview* overview, std::shared_ptr<const RoutineCatalogSnapshot> routines = {}) const;
   static PetAssetRecord summarySeed(const QJsonObject& brief, bool complete,
                                     bool sourceKnown, const PetMetadataView& metadata);
 

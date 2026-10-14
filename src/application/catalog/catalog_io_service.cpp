@@ -1,8 +1,12 @@
 #include "catalog_io_service.h"
+#include "catalog_legacy_compatibility.h"
+#include "battle_replay_catalog_pack.h"
+#include "battle_replay_catalog_validation.h"
 #include "pet_detail_catalog.h"
 #include "pet_skill_catalog.h"
 #include "routine_overview_catalog.h"
 #include "shop_exchange_catalog.h"
+#include "public_dataset_store.h"
 #include "protocol/protocol_transport.h"
 
 #include <QDateTime>
@@ -33,10 +37,13 @@
 #endif
 
 namespace CatalogIoInternal {
+enum PublicOperation { Legacy = 0, ReloadDataset, ApplyDataset, RollbackDataset, LoadDatasetReplay };
 struct Request {
   quint64 id = 0;
   CatalogKind kind = CatalogKind::Shop;
   CatalogRequestMode mode = CatalogRequestMode::Reload;
+  int operation = Legacy;
+  QString attempt;
   std::shared_ptr<std::atomic_bool> cancelled = std::make_shared<std::atomic_bool>(false);
 };
 struct Candidate {
@@ -48,6 +55,9 @@ struct Candidate {
   std::shared_ptr<const RoutineCatalogSnapshot> routine;
   std::shared_ptr<const PetDetailCatalogSnapshot> detail;
   std::shared_ptr<const PetSkillCatalogSnapshot> skill;
+  std::shared_ptr<BattleReplayCatalogSnapshot> replay;
+  PublicDatasetResult dataset;
+  bool acknowledgement = false;
   quint64 scanned = 0;
   qint64 maximumSliceUs = 0;
 };
@@ -65,6 +75,7 @@ struct State {
 
 namespace {
 QString relativePath(CatalogKind kind) {
+  if (kind == CatalogKind::BattleReplay) return QStringLiteral("catalog/battle-replay-catalog.json");
   if (kind == CatalogKind::Shop) return QStringLiteral("catalog/shop-exchange-data.json");
   if (kind == CatalogKind::Routine) return QStringLiteral("catalog/routine-overview.json");
   if (kind == CatalogKind::PetSkill) return QStringLiteral("catalog/pet-skill-data.json");
@@ -89,78 +100,27 @@ bool safeInput(const QString& path) {
   }
 }
 bool boundedObject(const QJsonValue& value, int* nodes, qint64* stringUnits, int depth = 0,
-                   int maximumNodes = 200000, qint64 maximumStringUnits = 4 * 1024 * 1024) {
+                   int maximumNodes = 200000, qint64 maximumStringUnits = 4 * 1024 * 1024,
+                   const std::atomic_bool* cancelled = nullptr) {
   if (depth > 64 || ++*nodes > maximumNodes) return false;
+  if (cancelled && ((*nodes & 4095) == 0) && cancelled->load()) return false;
   if (value.isString()) *stringUnits += value.toString().size();
   if (*stringUnits > maximumStringUnits) return false;
   if (value.isArray()) {
     const auto array = value.toArray();
     for (const auto& item : array)
-      if (!boundedObject(item, nodes, stringUnits, depth + 1, maximumNodes, maximumStringUnits)) return false;
+      if (!boundedObject(item, nodes, stringUnits, depth + 1, maximumNodes, maximumStringUnits, cancelled)) return false;
   } else if (value.isObject()) {
     const auto object = value.toObject();
     for (auto item = object.begin(); item != object.end(); ++item) {
       *stringUnits += item.key().size();
-      if (!boundedObject(item.value(), nodes, stringUnits, depth + 1, maximumNodes, maximumStringUnits)) return false;
+      if (!boundedObject(item.value(), nodes, stringUnits, depth + 1, maximumNodes, maximumStringUnits, cancelled)) return false;
     }
   }
   return true;
 }
 
-QString officialShopUrl(const QString& version) {
-  return QStringLiteral("https://aoqi.100bt.com/play/newactivityext/newact20260313/"
-                        "storeexchangeframework/storeexchangeframework~%1.swf").arg(version);
-}
-QDate shopVersionDate(const QString& version) {
-  static const QRegularExpression digits(QStringLiteral("^[0-9]{8,20}$"));
-  if (!digits.match(version).hasMatch()) return {};
-  return QDate::fromString(version.left(8), QStringLiteral("yyyyMMdd"));
-}
-QDate officialShopDate(const QJsonObject& root) {
-  const auto source = root.value(QStringLiteral("source")).toObject();
-  const QString version = source.value(QStringLiteral("shopVersion")).toString();
-  const QDate date = shopVersionDate(version);
-  const QString url = source.value(QStringLiteral("resources")).toObject()
-      .value(QStringLiteral("shop")).toObject().value(QStringLiteral("url")).toString();
-  if (date.isValid() && url == officialShopUrl(version)) return date;
-  // Two precisely identified pre-versioned official catalogs: the old
-  // description whitelist and the complete 2026-08-13 SEFConfig import.
-  // Metadata/JSON whitespace are irrelevant; a user's changed catalog does
-  // not match either hash and is not treated as an old official version.
-  const QJsonObject content{{QStringLiteral("protocol"), root.value(QStringLiteral("protocol"))},
-                            {QStringLiteral("shops"), root.value(QStringLiteral("shops"))}};
-  const QByteArray digest = QCryptographicHash::hash(QJsonDocument(content).toJson(QJsonDocument::Compact),
-      QCryptographicHash::Sha256).toHex();
-  if (digest == "fa48dbb5ef19ce72bbbc847ee9da53ace95b46d254144d905c1a629d1c517bb4" ||
-      digest == "dba434623f89630cf77d34e1a6e34ff853cfcc624bc476b5e83e66041bea41d8")
-    return QDate(2026, 8, 13);
-  return {};
-}
-QDate bundledShopDate() {
-  // Called on Storage I/O. Keep the baseline tied to the executable resource,
-  // not to whichever local overlay happened to be loaded most recently.
-  QFile file(QStringLiteral(":/kqpet/shop-exchange-data.json"));
-  if (!file.open(QIODevice::ReadOnly) || file.size() > 2 * 1024 * 1024) return {};
-  const auto root = QJsonDocument::fromJson(file.readAll()).object();
-  return officialShopDate(root);
-}
-
-QDate officialPetMetadataDate(const QJsonObject& root) {
-  const auto source = root.value(QStringLiteral("source")).toObject();
-  const QString version = source.value(QStringLiteral("petDictionaryVersion")).toString();
-  const QDate date = shopVersionDate(version);
-  const QString url = source.value(QStringLiteral("resources")).toObject()
-      .value(QStringLiteral("petDictionaryUpdate")).toObject().value(QStringLiteral("url")).toString();
-  if (date.isValid() && url == QStringLiteral("https://aoqi.100bt.com/play/pet/petdictionarydataupdate~%1.swf").arg(version))
-    return date;
-  // Exact pre-versioned 2026-08-13 pet table. Unrecognized user overlays stay
-  // loadable; an old official full cache must not replace updated identities.
-  const auto pets = root.value(QStringLiteral("pets")).toObject();
-  if (!pets.isEmpty() && QCryptographicHash::hash(QJsonDocument(pets).toJson(QJsonDocument::Compact),
-          QCryptographicHash::Sha256).toHex() == "3612ecf10ac6f21876770ee3ae1fa370d122889b96c675328ee25c82f6326613")
-    return QDate(2026, 8, 13);
-  return {};
-}
+using namespace CatalogLegacyCompatibility;
 
 // Created and destroyed only under the existing Storage I/O root. Directory
 // traversal enumerates every entry, so a name filter cannot hide an unbounded
@@ -172,17 +132,27 @@ public:
         std::shared_ptr<const PetDetailCatalogSnapshot> embedded,
         std::shared_ptr<const PetDetailCatalogSnapshot> currentDetail,
         std::shared_ptr<const PetSkillCatalogSnapshot> embeddedSkill,
-        std::shared_ptr<const PetSkillCatalogSnapshot> currentSkill, QObject* parent)
+        std::shared_ptr<const PetSkillCatalogSnapshot> currentSkill, bool replayFallbackAllowed, QObject* parent)
       : QObject(parent), state_(std::move(state)), request_(std::move(request)),
         options_(std::move(options)), dataRoot_(std::move(dataRoot)), protocol_(std::move(protocol)),
         embedded_(std::move(embedded)), currentDetail_(std::move(currentDetail)),
-        embeddedSkill_(std::move(embeddedSkill)), currentSkill_(std::move(currentSkill)), timer_(this) {
+        embeddedSkill_(std::move(embeddedSkill)), currentSkill_(std::move(currentSkill)), timer_(this),
+        replayFallbackAllowed_(replayFallbackAllowed) {
     timer_.setSingleShot(true);
     connect(&timer_, &QTimer::timeout, this, [this] { step(); });
     elapsed_.start();
     if (request_.mode == CatalogRequestMode::Reload) {
-      files_.append(request_.kind == CatalogKind::PetDetail ? options_.petOverlayPath
-          : QDir(dataRoot_).filePath(relativePath(request_.kind)));
+      QString path = request_.kind == CatalogKind::PetDetail ? options_.petOverlayPath
+          : QDir(dataRoot_).filePath(relativePath(request_.kind));
+      if (request_.kind == CatalogKind::BattleReplay) {
+        const QString packed = QDir(dataRoot_).filePath(QStringLiteral("catalog/battle-replay-catalog.brpack"));
+        const QFileInfo info(packed);
+        // A broken link/reparse point is still a present but invalid preferred
+        // package. Do not quietly fall back to a potentially stale JSON file.
+        packedReplay_ = info.exists() || info.isSymLink() || reparse(packed);
+        if (packedReplay_) path = packed;
+      }
+      files_.append(path);
       scanning_ = false;
     } else {
       directories_.append(options_.officialRoot);
@@ -193,9 +163,27 @@ public:
 private:
   bool cancelled() const { return state_->closing.load() || request_.cancelled->load(); }
   qint64 sourceLimit() const {
+    // The current complete replay catalog is 94 MB / 3.96M nodes / 58.66M
+    // UTF-16 units. Its own budget must not widen unrelated catalog limits.
+    if (request_.kind == CatalogKind::BattleReplay) return packedReplay_
+        ? BattleReplayCatalogPack::MaximumPackBytes : BattleReplayCatalogPack::MaximumJsonBytes;
     return request_.kind == CatalogKind::PetSkill ? 32 * 1024 * 1024 : options_.maximumSourceBytes;
   }
   void finish(StorageStatus status, const QString& error = {}, std::shared_ptr<Candidate> candidate = {}) {
+    if (request_.kind == CatalogKind::BattleReplay && replayFallbackAllowed_ && !embeddedReplay_ &&
+        !cancelled() && (status == StorageStatus::NotFound || status == StorageStatus::ReadFailed ||
+                         status == StorageStatus::PathRejected)) {
+      embeddedReplay_ = true;
+      if (status != StorageStatus::NotFound)
+        replayWarning_ = QStringLiteral("工作台回放资料读取失败，已改用内置资料：%1").arg(error);
+      file_.reset(); bytes_.clear(); contents_.clear(); fileIndex_ = 0;
+      replayDecoder_.reset(); replayHash_.reset(); replayDigest_.clear();
+      packedReplay_ = false; replayDecoded_ = false;
+      files_ = {QStringLiteral(":/kqpet/battle-replay-catalog.json")};
+      updatedAt_ = {}; openedModified_ = {}; openedSize_ = 0;
+      timer_.start(0);
+      return;
+    }
     if (!candidate) candidate = std::make_shared<Candidate>();
     candidate->request = request_;
     candidate->status = status;
@@ -262,10 +250,30 @@ private:
     return true;
   }
   bool readStep() {
-    if (fileIndex_ == files_.size()) { prepare(); return false; }
+    if (fileIndex_ == files_.size()) {
+      if (packedReplay_ && !replayDecoded_) {
+        if (!replayDecoder_) {
+          replayDecoder_ = std::make_unique<BattleReplayCatalogPack::Decoder>(contents_.takeFirst());
+          return true;
+        }
+        const auto result = replayDecoder_->step();
+        if (result == BattleReplayCatalogPack::StepResult::Failed) {
+          finish(StorageStatus::ReadFailed, replayDecoder_->error()); return false;
+        }
+        if (result == BattleReplayCatalogPack::StepResult::More) return true;
+        replayDigest_ = replayDecoder_->sha256();
+        contents_.append(replayDecoder_->takeJson());
+        replayDecoder_.reset();
+        replayDecoded_ = true;
+        return true;
+      }
+      prepare(); return false;
+    }
     if (!file_) {
       const QString path = files_.at(fileIndex_);
-      if (!safeInput(path)) { finish(StorageStatus::PathRejected, QStringLiteral("目录文件路径包含链接或越界形式")); return false; }
+      if (!(embeddedReplay_ && path == QStringLiteral(":/kqpet/battle-replay-catalog.json")) && !safeInput(path)) {
+        finish(StorageStatus::PathRejected, QStringLiteral("目录文件路径包含链接或越界形式")); return false;
+      }
       if (!QFileInfo::exists(path)) { finish(StorageStatus::NotFound, QStringLiteral("尚无本地目录覆盖文件")); return false; }
       file_ = std::make_unique<QFile>(path);
       if (!file_->open(QIODevice::ReadOnly) || file_->size() > sourceLimit()) {
@@ -275,9 +283,12 @@ private:
       openedModified_ = QFileInfo(path).lastModified().toUTC();
       updatedAt_ = std::max(updatedAt_, openedModified_);
       bytes_.clear();
+      if (request_.kind == CatalogKind::BattleReplay && !packedReplay_)
+        replayHash_ = std::make_unique<QCryptographicHash>(QCryptographicHash::Sha256);
     }
     const QByteArray part = file_->read(std::min<qint64>(64 * 1024, sourceLimit() + 1 - bytes_.size()));
     bytes_.append(part);
+    if (replayHash_) replayHash_->addData(part);
     if (file_->error() != QFileDevice::NoError || bytes_.size() > sourceLimit() ||
         (part.isEmpty() && !file_->atEnd())) {
       finish(StorageStatus::ReadFailed, QStringLiteral("目录文件读取失败或读取期间增长超限")); return false;
@@ -319,10 +330,33 @@ private:
     } else candidate->root = RoutineOverviewCatalog::parseOfficialTexts(QString::fromUtf8(contents_.value(0)),
         QString::fromUtf8(contents_.value(1)), QString::fromUtf8(contents_.value(2)), &error);
     int nodes = 0; qint64 strings = 0;
-    const int maximumNodes = request_.kind == CatalogKind::PetSkill ? 1000000 : 200000;
-    const qint64 maximumStrings = request_.kind == CatalogKind::PetSkill ? 16 * 1024 * 1024 : 4 * 1024 * 1024;
-    if (candidate->root.isEmpty() || !boundedObject(candidate->root, &nodes, &strings, 0, maximumNodes, maximumStrings)) {
+    const bool replay = request_.kind == CatalogKind::BattleReplay;
+    const int maximumNodes = replay ? 6000000 : request_.kind == CatalogKind::PetSkill ? 1000000 : 200000;
+    const qint64 maximumStrings = replay ? 96 * 1024 * 1024 : request_.kind == CatalogKind::PetSkill ? 16 * 1024 * 1024 : 4 * 1024 * 1024;
+    if (candidate->root.isEmpty() || !boundedObject(candidate->root, &nodes, &strings, 0, maximumNodes, maximumStrings,
+                                                   request_.cancelled.get())) {
+      if (cancelled()) { finish(StorageStatus::Cancelled); return; }
       finish(StorageStatus::ReadFailed, error.isEmpty() ? QStringLiteral("目录结构超过节点、深度或字符串预算") : error); return;
+    }
+    if (replay) {
+      error = validateBattleReplayCatalog(candidate->root);
+      if (!error.isEmpty()) { finish(StorageStatus::ReadFailed, error); return; }
+      if (cancelled()) { finish(StorageStatus::Cancelled); return; }
+      auto snapshot = std::make_shared<BattleReplayCatalogSnapshot>();
+      snapshot->root = candidate->root;
+      snapshot->sha256 = QString::fromLatin1((packedReplay_ ? replayDigest_ : replayHash_->result()).toHex());
+      snapshot->sourcePath = files_.first();
+      snapshot->sourceLabel = embeddedReplay_ ? QStringLiteral("程序内置回放资料")
+          : packedReplay_ ? QStringLiteral("工作台共享回放资料（压缩包）") : QStringLiteral("工作台共享回放资料");
+      snapshot->warning = replayWarning_;
+      snapshot->embedded = embeddedReplay_;
+      snapshot->loadedAt = QDateTime::currentDateTimeUtc();
+      candidate->replay = std::move(snapshot);
+      // Only the immutable parsed data crosses back to Core; release raw bytes
+      // on I/O before publication. Full JSON parsing remains one bounded stage.
+      contents_.clear();
+      finish(StorageStatus::Loaded, {}, candidate);
+      return;
     }
     if (request_.kind == CatalogKind::Shop) {
       const QDate incoming = officialShopDate(candidate->root);
@@ -397,6 +431,12 @@ private:
   qint64 directoryBytes_ = 0;
   qint64 openedSize_ = 0;
   QDateTime updatedAt_, openedModified_;
+  bool replayFallbackAllowed_ = false, embeddedReplay_ = false;
+  bool packedReplay_ = false, replayDecoded_ = false;
+  QString replayWarning_;
+  QByteArray replayDigest_;
+  std::unique_ptr<QCryptographicHash> replayHash_;
+  std::unique_ptr<BattleReplayCatalogPack::Decoder> replayDecoder_;
 };
 } // namespace
 } // namespace CatalogIoInternal
@@ -419,11 +459,18 @@ struct CatalogIoService::Impl {
   QSet<QString> selection, pendingSelection;
   QSet<QString> excludedAutomatic, pendingExcludedAutomatic;
   QString selectionMessage;
+  BattleReplayCatalogHandle replay;
+  PublicDatasetSnapshotHandle publicDataset;
+  std::shared_ptr<Candidate> pendingAcknowledgement;
+  bool sessionPublished = false;
+  int recoveryRetries = 0;
 };
 
 CatalogIoService::CatalogIoService(StorageService* storage, CatalogIoOptions options, QObject* parent)
     : QObject(parent), impl_(std::make_unique<Impl>()) {
   qRegisterMetaType<CatalogKind>();
+  qRegisterMetaType<BattleReplayCatalogHandle>();
+  qRegisterMetaType<PublicDatasetSnapshotHandle>();
   impl_->storage = storage;
   if (options.officialRoot.isEmpty()) options.officialRoot = qEnvironmentVariable("KQPET_OFFICIAL_UNPACK_ROOT", QStringLiteral("D:/奥奇工程/奥奇传说解包"));
   if (options.petOverlayPath.isEmpty()) options.petOverlayPath = qEnvironmentVariable("KQPET_CATALOG_PATH");
@@ -506,8 +553,23 @@ void CatalogIoService::close() {
   QMutexLocker guard(&impl_->state->mutex);
   impl_->state->receiver = nullptr;
 }
-quint64 CatalogIoService::requestReload(CatalogKind kind) { return request(kind, CatalogRequestMode::Reload); }
-quint64 CatalogIoService::requestOfficialUpdate(CatalogKind kind) { return request(kind, CatalogRequestMode::OfficialUpdate); }
+quint64 CatalogIoService::requestReload(CatalogKind kind) {
+  if (impl_->options.publicDatasetMode)
+    return requestPublic(kind == CatalogKind::BattleReplay ? LoadDatasetReplay : ReloadDataset);
+  return request(kind, CatalogRequestMode::Reload);
+}
+quint64 CatalogIoService::requestOfficialUpdate(CatalogKind kind) {
+  // No legacy AS importer may overwrite the compatibility catalog after the
+  // normal application has selected versioned public data.
+  return impl_->options.publicDatasetMode ? 0 : request(kind, CatalogRequestMode::OfficialUpdate);
+}
+BattleReplayCatalogHandle CatalogIoService::battleReplaySnapshot() const { return impl_->replay; }
+PublicDatasetSnapshotHandle CatalogIoService::publicDatasetSnapshot() const { return impl_->publicDataset; }
+quint64 CatalogIoService::requestPublicReload(const QString& acknowledgementAttempt) {
+  return requestPublic(ReloadDataset, acknowledgementAttempt);
+}
+quint64 CatalogIoService::requestPublicCandidate(const QString& attempt) { return requestPublic(ApplyDataset, attempt); }
+quint64 CatalogIoService::requestPublicRollback() { return requestPublic(RollbackDataset); }
 bool CatalogIoService::shopSelectionEditable() const {
   return impl_->selectionLoaded && !impl_->selectionReadId && !impl_->selectionWriteId && !impl_->state->closing.load();
 }
@@ -555,14 +617,39 @@ void CatalogIoService::publishShopSelection() {
   auto& catalog = ShopExchangeCatalog::instance();
   const auto next = ShopExchangeCatalog::withManualSelection(catalog.snapshot(), impl_->selection, impl_->excludedAutomatic);
   catalog.publish(next);
+  if (impl_->publicDataset) {
+    auto dataset = std::make_shared<PublicDatasetSnapshot>(*impl_->publicDataset);
+    dataset->shop = next;
+    impl_->publicDataset = dataset;
+    emit publicDatasetChanged(dataset);
+  }
   emit catalogUpdated(CatalogKind::Shop, next->revision);
+}
+quint64 CatalogIoService::requestPublic(int operation, const QString& attempt) {
+  if (!impl_->storage || impl_->state->closing.load() || operation < ReloadDataset || operation > LoadDatasetReplay)
+    return 0;
+  static const QRegularExpression identifier(QStringLiteral("^[a-f0-9]{32}$"));
+  if ((operation == ApplyDataset || !attempt.isEmpty()) && !identifier.match(attempt).hasMatch()) return 0;
+  if (impl_->waiting.size() >= 16) return 0;
+  impl_->options.publicDatasetMode = true;
+  Request next;
+  next.id = nextTransportTaskId();
+  next.operation = operation;
+  next.attempt = attempt;
+  next.kind = operation == LoadDatasetReplay ? CatalogKind::BattleReplay : CatalogKind::PublicDataset;
+  // Publication/rollback operations are ordered. They are never cancelled by
+  // a later reload after their disk commit may already have begun.
+  impl_->waiting.push_back(next);
+  if (!impl_->running) impl_->retry.start(0);
+  emit stateChanged();
+  return next.id;
 }
 quint64 CatalogIoService::request(CatalogKind kind, CatalogRequestMode mode) {
   if (!impl_->storage || impl_->state->closing.load() ||
       (kind != CatalogKind::Shop && kind != CatalogKind::Routine && kind != CatalogKind::PetDetail &&
-       kind != CatalogKind::PetSkill) ||
+       kind != CatalogKind::PetSkill && kind != CatalogKind::BattleReplay) ||
       (mode == CatalogRequestMode::OfficialUpdate &&
-       (kind == CatalogKind::PetDetail || kind == CatalogKind::PetSkill))) return 0;
+       (kind == CatalogKind::PetDetail || kind == CatalogKind::PetSkill || kind == CatalogKind::BattleReplay))) return 0;
   Request next; next.id = nextTransportTaskId(); next.kind = kind; next.mode = mode;
   QList<Request> superseded;
   for (auto it = impl_->waiting.begin(); it != impl_->waiting.end();) {
@@ -592,6 +679,56 @@ void CatalogIoService::pump() {
     if (impl_->waiting.empty()) return;
     impl_->active = impl_->waiting.front(); impl_->waiting.pop_front(); impl_->running = true;
   }
+  if (impl_->active.operation != Legacy) {
+    if (impl_->submitted) return;
+    const auto state = impl_->state;
+    const auto active = impl_->active;
+    const auto root = impl_->storage->dataRoot();
+    const auto snapshot = impl_->publicDataset;
+    const auto acknowledgement = impl_->pendingAcknowledgement;
+    impl_->submitted = impl_->storage->postAuxiliary([state, active, root, snapshot, acknowledgement](QObject*) {
+      auto candidate = std::make_shared<Candidate>();
+      candidate->request = active;
+      PublicDatasetStore store(root, {active.cancelled.get(), {}});
+      if (acknowledgement) {
+        candidate->acknowledgement = true;
+        const auto& prior = acknowledgement->dataset;
+        const QString attempt = !active.attempt.isEmpty() ? active.attempt : prior.prepared ? prior.prepared->attempt
+            : prior.receipt.value(QStringLiteral("attempt")).toString();
+        candidate->dataset = store.markSessionApplied(attempt, prior.snapshot->revision);
+      } else {
+        auto result = active.operation == ApplyDataset ? store.prepareCandidate(active.attempt)
+            : active.operation == RollbackDataset ? store.prepareRollback() : store.prepareCurrent(false);
+        if (result.status == PublicDatasetStatus::NotFound &&
+            (active.operation == ReloadDataset || active.operation == LoadDatasetReplay)) {
+          if (snapshot) {
+            result.status = PublicDatasetStatus::Invalid;
+            result.error = QStringLiteral("公共资料当前入口丢失，继续保留当前会话的完整资料");
+          } else result = store.prepareMigration();
+        }
+        if (result.ok() && result.prepared) result = store.commitPrepared(result.prepared);
+        if (result.ok() && active.operation == LoadDatasetReplay) {
+          const auto receipt = result.receipt;
+          // Explicit rereads notice another process's complete publication.
+          // Only reuse a loaded handle after checking the current revision.
+          result = store.loadReplay(snapshot && result.snapshot && snapshot->revision == result.snapshot->revision
+              ? snapshot : result.snapshot);
+          if (result.receipt.isEmpty()) result.receipt = receipt;
+        }
+        candidate->dataset = std::move(result);
+      }
+      candidate->status = candidate->dataset.ok() ? StorageStatus::Loaded
+          : candidate->dataset.status == PublicDatasetStatus::Cancelled ? StorageStatus::Cancelled : StorageStatus::ReadFailed;
+      candidate->error = candidate->dataset.error;
+      state->deliver(std::move(candidate));
+    });
+    if (!impl_->submitted) {
+      if (impl_->storage->state().closing) complete(StorageStatus::Closing, QStringLiteral("存储正在退出"));
+      else impl_->retry.start(10);
+    }
+    emit stateChanged();
+    return;
+  }
   if (impl_->candidate) {
     if (impl_->writeId) return;
     if (impl_->active.cancelled->load()) { complete(StorageStatus::Cancelled, {}); return; }
@@ -612,10 +749,11 @@ void CatalogIoService::pump() {
   const auto currentDetail = PetDetailCatalog::instance().snapshot();
   const auto embeddedSkill = PetSkillCatalog::instance().embeddedSnapshot();
   const auto currentSkill = PetSkillCatalog::instance().snapshot();
+  const bool replayFallbackAllowed = !impl_->replay;
   impl_->submitted = impl_->storage->postAuxiliary(
-      [state, active, options, dataRoot, protocol, embedded, currentDetail, embeddedSkill, currentSkill](QObject* ioRoot) {
+      [state, active, options, dataRoot, protocol, embedded, currentDetail, embeddedSkill, currentSkill, replayFallbackAllowed](QObject* ioRoot) {
     new IoJob(state, active, options, dataRoot, protocol, embedded, currentDetail,
-              embeddedSkill, currentSkill, ioRoot);
+              embeddedSkill, currentSkill, replayFallbackAllowed, ioRoot);
   });
   if (!impl_->submitted) {
     if (impl_->storage->state().closing) complete(StorageStatus::Closing, QStringLiteral("存储正在退出"));
@@ -627,6 +765,62 @@ void CatalogIoService::receive(std::shared_ptr<Candidate> candidate) {
   if (!impl_->running || candidate->request.id != impl_->active.id || impl_->state->closing.load()) return;
   impl_->stats.scannedEntries = candidate->scanned;
   impl_->stats.maximumSliceMicroseconds = std::max(impl_->stats.maximumSliceMicroseconds, candidate->maximumSliceUs);
+  if (impl_->active.operation != Legacy) {
+    impl_->submitted = false;
+    const QPointer<CatalogIoService> guard(this);
+    if (candidate->acknowledgement) {
+      const bool recorded = candidate->dataset.ok();
+      const auto receipt = recorded ? candidate->dataset.receipt : impl_->pendingAcknowledgement->dataset.receipt;
+      const bool recoveryNeeded = !recorded && (candidate->dataset.status == PublicDatasetStatus::Conflict ||
+                                               candidate->dataset.status == PublicDatasetStatus::Busy);
+      if (recoveryNeeded) {
+        const bool retry = impl_->recoveryRetries < 3;
+        const QString message = retry ? QStringLiteral("资料已保存，正在重新载入当前完整版本")
+            : QStringLiteral("资料已保存，当前会话尚未确认最新版本；请重新读取资料");
+        if (retry) {
+          const int delay = 200 * (1 << impl_->recoveryRetries++);
+          // A lock retry still belongs to the same application receipt,
+          // including a no-change restore whose pointer keeps an older attempt.
+          // A conflict instead reloads whoever actually won publication.
+          const auto& prior = impl_->pendingAcknowledgement->dataset;
+          const QString acknowledgementAttempt = candidate->dataset.status != PublicDatasetStatus::Busy ? QString{}
+              : !candidate->request.attempt.isEmpty() ? candidate->request.attempt
+              : prior.prepared ? prior.prepared->attempt : prior.receipt.value(QStringLiteral("attempt")).toString();
+          QTimer::singleShot(delay, this, [this, acknowledgementAttempt] { requestPublicReload(acknowledgementAttempt); });
+        }
+        emit publicDatasetFinished(candidate->request.id, false, message, receipt);
+        if (guard) complete(StorageStatus::ReadFailed, message);
+        return;
+      }
+      if (recorded) impl_->recoveryRetries = 0;
+      const QString message = recorded ? QStringLiteral("共享资料已在当前会话应用")
+          : QStringLiteral("共享资料已在当前会话应用，应用状态记录暂未保存：%1").arg(candidate->error);
+      emit publicDatasetFinished(candidate->request.id, true, message, receipt);
+      if (!guard) return;
+      complete(StorageStatus::Loaded, message);
+      return;
+    }
+    if (!candidate->dataset.ok() || !candidate->dataset.snapshot || !candidate->dataset.snapshot->detail ||
+        !candidate->dataset.snapshot->skill || !candidate->dataset.snapshot->shop || !candidate->dataset.snapshot->routine) {
+      const QString message = candidate->error.isEmpty() ? QStringLiteral("共享资料未应用，继续使用原有完整版本") : candidate->error;
+      emit publicDatasetFinished(candidate->request.id, false, message, candidate->dataset.receipt);
+      if (guard) complete(candidate->status, message);
+      return;
+    }
+    publishPublicDataset(candidate->dataset.snapshot);
+    if (!guard) return;
+    impl_->sessionPublished = true;
+    const QString attempt = !candidate->request.attempt.isEmpty() ? candidate->request.attempt : candidate->dataset.prepared ? candidate->dataset.prepared->attempt
+        : candidate->dataset.receipt.value(QStringLiteral("attempt")).toString();
+    if (!attempt.isEmpty()) {
+      impl_->pendingAcknowledgement = candidate;
+      pump();
+    } else {
+      emit publicDatasetFinished(candidate->request.id, true, QStringLiteral("共享资料已在当前会话应用"), candidate->dataset.receipt);
+      if (guard) complete(StorageStatus::Loaded, {});
+    }
+    return;
+  }
   if (impl_->active.cancelled->load()) { complete(StorageStatus::Cancelled, QStringLiteral("目录请求已被新请求替代")); return; }
   if (candidate->status != StorageStatus::Loaded) { complete(candidate->status, candidate->error); return; }
   if (impl_->active.mode == CatalogRequestMode::OfficialUpdate) { impl_->candidate = std::move(candidate); pump(); return; }
@@ -644,11 +838,85 @@ void CatalogIoService::publish(const std::shared_ptr<Candidate>& candidate) {
   else if (candidate->routine) { revision = candidate->routine->revision; RoutineOverviewCatalog::instance().publish(candidate->routine); }
   else if (candidate->detail) { revision = candidate->detail->revision; PetDetailCatalog::instance().publish(candidate->detail); }
   else if (candidate->skill) { revision = candidate->skill->revision; PetSkillCatalog::instance().publish(candidate->skill); }
+  else if (candidate->replay) {
+    if (impl_->replay && impl_->replay->sha256 == candidate->replay->sha256 &&
+        impl_->replay->sourcePath == candidate->replay->sourcePath) return;
+    candidate->replay->revision = impl_->replay ? impl_->replay->revision + 1 : 1;
+    impl_->replay = candidate->replay;
+    revision = impl_->replay->revision;
+  }
   emit catalogUpdated(candidate->request.kind, revision);
+}
+void CatalogIoService::publishPublicDataset(PublicDatasetSnapshotHandle snapshot) {
+  if (!snapshot || !snapshot->detail || !snapshot->skill || !snapshot->shop || !snapshot->routine) return;
+  const auto before = impl_->publicDataset;
+  auto next = std::make_shared<PublicDatasetSnapshot>(*snapshot);
+  const auto changed = [&](const QString& component) {
+    return !before || before->components.value(component).sha256 != next->components.value(component).sha256;
+  };
+  const bool detailChanged = changed(QStringLiteral("pets"));
+  const bool skillChanged = changed(QStringLiteral("skills"));
+  const bool shopChanged = changed(QStringLiteral("shop"));
+  const bool routineChanged = changed(QStringLiteral("routines"));
+  const bool replayChanged = changed(QStringLiteral("battleReplay"));
+  if (!detailChanged) next->detail = before->detail;
+  else {
+    auto value = std::make_shared<PetDetailCatalogSnapshot>(*next->detail);
+    value->revision = PetDetailCatalog::instance().snapshot()->revision + 1;
+    next->detail = value;
+  }
+  if (!skillChanged) next->skill = before->skill;
+  else {
+    auto value = std::make_shared<PetSkillCatalogSnapshot>(*next->skill);
+    value->revision = PetSkillCatalog::instance().snapshot()->revision + 1;
+    next->skill = value;
+  }
+  if (!shopChanged) next->shop = before->shop;
+  else {
+    auto selected = ShopExchangeCatalog::withManualSelection(next->shop, impl_->selection, impl_->excludedAutomatic);
+    auto value = std::make_shared<ShopCatalogSnapshot>(*selected);
+    value->revision = ShopExchangeCatalog::instance().snapshot()->revision + 1;
+    next->shop = value;
+  }
+  if (!routineChanged) next->routine = before->routine;
+  else {
+    auto value = std::make_shared<RoutineCatalogSnapshot>(*next->routine);
+    value->revision = RoutineOverviewCatalog::instance().snapshot()->revision + 1;
+    next->routine = value;
+  }
+  if (!replayChanged && before && before->replay) next->replay = before->replay;
+  else if (next->replay) {
+    auto value = std::make_shared<BattleReplayCatalogSnapshot>(*next->replay);
+    value->revision = impl_->replay ? impl_->replay->revision + 1 : 1;
+    next->replay = value;
+  }
+  // All compatibility accessors are changed within one Core callback before
+  // observers run. Normal operations receive this single complete handle.
+  PetDetailCatalog::instance().publish(next->detail);
+  PetSkillCatalog::instance().publish(next->skill);
+  ShopExchangeCatalog::instance().publish(next->shop);
+  RoutineOverviewCatalog::instance().publish(next->routine);
+  impl_->publicDataset = next;
+  impl_->replay = next->replay;
+  const QPointer<CatalogIoService> guard(this);
+  emit publicDatasetChanged(next);
+  if (!guard) return;
+  const std::pair<CatalogKind, quint64> changes[] = {
+    {CatalogKind::PetDetail, detailChanged ? next->detail->revision : 0},
+    {CatalogKind::PetSkill, skillChanged ? next->skill->revision : 0},
+    {CatalogKind::Shop, shopChanged ? next->shop->revision : 0},
+    {CatalogKind::Routine, routineChanged ? next->routine->revision : 0}};
+  for (const auto& item : changes) {
+    if (item.second) emit catalogUpdated(item.first, item.second);
+    if (!guard) return;
+  }
+  if (next->replay && (!before || before->replay != next->replay))
+    emit catalogUpdated(CatalogKind::BattleReplay, next->replay->revision);
 }
 void CatalogIoService::complete(StorageStatus status, const QString& error) {
   const auto completed = impl_->active;
   impl_->candidate.reset(); impl_->running = false; impl_->submitted = false; impl_->writeId = 0;
+  impl_->pendingAcknowledgement.reset(); impl_->sessionPublished = false;
   if (!impl_->waiting.empty()) impl_->retry.start(0);
   const QPointer<CatalogIoService> guard(this);
   emit finished(completed.id, completed.kind, status, error);

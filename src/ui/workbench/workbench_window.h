@@ -74,10 +74,10 @@ private:
   WorkbenchSession session_;
   quint64 sessionRevision_ = 0;
   WorkbenchPage currentPage_ = WorkbenchPage::Pets;
-  std::array<QPointer<QWidget>, 4> pages_;
-  std::array<QScrollArea*, 4> holders_{};
-  std::array<int, 4> creations_{};
-  std::array<QPushButton*, 4> navigation_{};
+  std::array<QPointer<QWidget>, 5> pages_;
+  std::array<QScrollArea*, 5> holders_{};
+  std::array<int, 5> creations_{};
+  std::array<QPushButton*, 5> navigation_{};
   QWidget* sidebar_ = nullptr;
   QStackedWidget* stack_ = nullptr;
   QLabel* account_ = nullptr;

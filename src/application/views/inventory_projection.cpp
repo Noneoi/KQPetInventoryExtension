@@ -12,6 +12,7 @@ InventoryProjection::InventoryProjection(const QString& dataRoot, QObject* paren
 
 void InventoryProjection::publish(std::shared_ptr<const InventoryViewSnapshot> next) {
   if (!next || !next->publication) return;
+  if (next->publicDataset && (next->metadata != next->publicDataset->detail || next->skills != next->publicDataset->skill)) return;
   std::lock_guard<std::mutex> lock(mailboxMutex_);
   if (next->publication <= highestPublication_) return;
   highestPublication_ = next->publication;

@@ -27,6 +27,7 @@ public:
   static std::shared_ptr<const RoutineCatalogSnapshot> prepare(
       const QJsonObject& root, const QString& source, const QDateTime& updatedAt,
       QString* error = nullptr);
+  static QJsonObject embeddedRoot();
   static QJsonObject parseOfficialTexts(QString taskText, const QString& hudText,
                                        const QString& redText, QString* error = nullptr);
 

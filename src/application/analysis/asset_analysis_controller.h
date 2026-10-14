@@ -8,6 +8,7 @@
 #include "analysis_worker.h"
 #include "analysis_environment.h"
 #include "contracts/pet_derivation_types.h"
+#include "contracts/public_dataset.h"
 
 #include <QHash>
 #include <QObject>
@@ -49,6 +50,7 @@ public:
   bool postPriorityCompute(std::function<void()> job) { return worker_.postPriority(std::move(job)); }
   void setCompatibilityIdentity(const QString& build, const QString& profile, bool verified);
   void metadataChanged();
+  void setPublicDataset(PublicDatasetSnapshotHandle dataset);
   void checkInputFreshness();
   void setDerivationCache(PetDerivationCache* cache);
   void setDetailRefreshController(PetRefreshController* refresh);
@@ -117,6 +119,7 @@ private:
   QDate businessDate() const;
   std::shared_ptr<const PetDetailCatalogSnapshot> petMetadataSnapshot() const;
   std::shared_ptr<const ShopCatalogSnapshot> shopCatalogSnapshot() const;
+  std::shared_ptr<const RoutineCatalogSnapshot> routineCatalogSnapshot() const;
 
   AccountAnalysisState& currentState();
   const AccountAnalysisState* currentStateIfPresent() const;
@@ -125,6 +128,7 @@ private:
   ShopExchangeController* shopController_ = nullptr;
   RoutineOverviewController* routineController_ = nullptr;
   AnalysisEnvironment environment_;
+  PublicDatasetSnapshotHandle publicDataset_;
   AssetAnalyzer analyzer_;
   AssetSnapshotStore snapshotStore_;
   AssetAnalysisSettings settings_;

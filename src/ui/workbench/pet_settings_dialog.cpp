@@ -1,4 +1,5 @@
 #include "pet_settings_dialog.h"
+#include "public_update_panel.h"
 
 #include "diagnostics/build_info.h"
 #include "ui/shop/shop_selection_dialog.h"
@@ -30,6 +31,7 @@
 #include <QPushButton>
 #include <QRegularExpressionValidator>
 #include <QSet>
+#include <QScrollArea>
 #include <QSpinBox>
 #include <QTabWidget>
 #include <QTextBrowser>
@@ -279,49 +281,30 @@ QWidget* PetSettingsDialog::createCachePage() {
 QWidget* PetSettingsDialog::createDataPage() {
   auto* page = new QWidget(this);
   auto* layout = new QVBoxLayout(page);
-  auto* catalogs = new QGroupBox(QStringLiteral("官方公共数据"), page);
-  auto* catalogLayout = new QVBoxLayout(catalogs);
-  catalogLayout->addWidget(explanation(QStringLiteral(
-      "游戏更新后，点击“全部检查更新”即可；只有官方版本变化的部分才会重新下载和解析。"
-      "也可以只更新某一类数据，其余数据保持不变。首次检查需要准备解析工具，可能需要几分钟。"), catalogs));
-  dataUpdateButton_ = button(QStringLiteral("全部检查更新"), catalogs);
-  dataUpdateButton_->setObjectName(QStringLiteral("KQCheckDataUpdate"));
-  dataUpdateButton_->setToolTip(QStringLiteral("依次检查下面全部六类数据"));
-  catalogLayout->addWidget(dataUpdateButton_, 0, Qt::AlignLeft);
-  auto* partial = new QGridLayout;
-  partial->addWidget(new QLabel(QStringLiteral("单独更新："), catalogs), 0, 0);
-  const QList<std::tuple<QString, QString, QString>> parts{
-      {QStringLiteral("pets"), QStringLiteral("精灵与养成资料"),
-       QStringLiteral("精灵字典、星神、星轮、元魂、源兽规则，以及属性/职业/货币名称")},
-      {QStringLiteral("skills"), QStringLiteral("精灵技能资料"),
-       QStringLiteral("普通技、超杀技、神运/灵初技能、英雄/通灵/元素技、词条、召唤与契约关系")},
-      {QStringLiteral("shop"), QStringLiteral("兑换商店"), QStringLiteral("常驻商店、活动商店与钻石兑换活动")},
-      {QStringLiteral("images"), QStringLiteral("精灵图片索引"),
-       QStringLiteral("新精灵的图片来源；已缓存图片版本变化时一并更新")},
-      {QStringLiteral("icons"), QStringLiteral("星神与属性图标"), QStringLiteral("星神和属性的小图标")},
-      {QStringLiteral("routines"), QStringLiteral("日常与活动"), QStringLiteral("日常/周常任务目录和当前活动列表")}};
-  for (int index = 0; index < parts.size(); ++index) {
-    const auto& [component, title, tip] = parts[index];
-    auto* part = button(title, catalogs);
-    part->setObjectName(QStringLiteral("KQDataUpdate-%1").arg(component));
-    part->setToolTip(tip);
-    partial->addWidget(part, index / 3, index % 3 + 1);
-    connect(part, &QPushButton::clicked, this, [this, component = component, title = title] {
-      setDataUpdateStatus(QStringLiteral("正在检查%1…").arg(title), true);
-      emit dataUpdateRequested({component});
-    });
-    partialUpdateButtons_.append(part);
-  }
-  partial->setColumnStretch(4, 1);
-  catalogLayout->addLayout(partial);
-  dataUpdateStatus_ = explanation(QStringLiteral("尚未检查。更新失败时保留现有本地数据。"), catalogs);
-  dataUpdateStatus_->setTextInteractionFlags(Qt::TextSelectableByMouse);
-  catalogLayout->addWidget(dataUpdateStatus_);
-  connect(dataUpdateButton_, &QPushButton::clicked, this, [this] {
-    setDataUpdateStatus(QStringLiteral("正在检查全部官方数据…"), true);
-    emit dataUpdateRequested({});
+  publicUpdatePanel_ = new PublicUpdatePanel(page);
+  connect(publicUpdatePanel_, &PublicUpdatePanel::checkRequested, this, [this](const QStringList& parts) {
+    setDataUpdateStatus(QStringLiteral("正在准备检查官方资料…"), true);
+    emit dataUpdateRequested(parts);
   });
-  layout->addWidget(catalogs);
+  connect(publicUpdatePanel_, &PublicUpdatePanel::restoreRequested, this, [this] {
+    setDataUpdateStatus(QStringLiteral("正在检查并恢复上一份资料…"), true);
+    emit publicDataRollbackRequested();
+  });
+  connect(publicUpdatePanel_, &PublicUpdatePanel::retryRequested, this, [this] {
+    setDataUpdateStatus(QStringLiteral("正在重新检查未完成的资料…"), true);
+    emit publicDataRetryRequested();
+  });
+  connect(publicUpdatePanel_, &PublicUpdatePanel::reloadRequested, this, [this] {
+    setDataUpdateStatus(QStringLiteral("正在载入已提交的资料…"), true);
+    emit publicDataReloadRequested();
+  });
+  connect(publicUpdatePanel_, &PublicUpdatePanel::cancelRequested, this, &PetSettingsDialog::publicDataCancelRequested);
+  connect(publicUpdatePanel_, &PublicUpdatePanel::diagnosticsRequested, this, [this] {
+    const QString path = QFileDialog::getSaveFileName(this, QStringLiteral("导出公共资料诊断"),
+        QStringLiteral("公共资料诊断.json"), QStringLiteral("JSON 文件 (*.json)"));
+    if (!path.isEmpty()) emit publicDiagnosticsExportRequested(path);
+  });
+  layout->addWidget(publicUpdatePanel_);
   auto* shops = new QGroupBox(QStringLiteral("兑换商店：自动添加 + 手动补充"), page);
   auto* shopLayout = new QVBoxLayout(shops);
   shopLayout->addWidget(explanation(QStringLiteral("识别出的精灵培养兑换默认勾选，可在下方按商店或项目取消；保存后会记住选择，更新不会重新勾选已取消的项目。其他奖励可手动补充。"), shops));
@@ -344,6 +327,7 @@ QWidget* PetSettingsDialog::createDataPage() {
   imageProgress_->setRange(0, 1); imageProgress_->setValue(0);
   imageProgress_->setFormat(QStringLiteral("%v / %m"));
   imageLayout->addWidget(imageProgress_);
+  imageProgress_->hide();
   imageStatus_ = explanation(QStringLiteral("尚未开始。可以暂停、继续或取消；已保存的图片保留。"), images);
   imageLayout->addWidget(imageStatus_);
   imagePause_->setEnabled(false); imageCancel_->setEnabled(false);
@@ -360,7 +344,12 @@ QWidget* PetSettingsDialog::createDataPage() {
   });
   layout->addWidget(images);
   layout->addStretch();
-  return page;
+  auto* scroll = new QScrollArea(this);
+  scroll->setObjectName(QStringLiteral("KQPublicDataScroll"));
+  scroll->setWidgetResizable(true);
+  scroll->setFrameShape(QFrame::NoFrame);
+  scroll->setWidget(page);
+  return scroll;
 }
 
 QWidget* PetSettingsDialog::createSoftwareUpdatePage() {
@@ -760,9 +749,10 @@ void PetSettingsDialog::applyCacheResult(const QString& action, const QJsonObjec
 }
 void PetSettingsDialog::setDataUpdateStatus(const QString& message, bool busy) {
   dataUpdateBusy_ = busy;
-  dataUpdateStatus_->setText(message);
-  dataUpdateButton_->setEnabled(!busy && !imageBatchRunning_);
-  for (QPushButton* part : partialUpdateButtons_) part->setEnabled(!busy && !imageBatchRunning_);
+  publicUpdatePanel_->setLegacyStatus(message, busy);
+  publicUpdatePanel_->setExternalBusy(busy, imageBatchRunning_);
+
+
   missingImagesButton_->setEnabled(!busy && !imageBatchRunning_);
   if (shopSelectionDialog_) shopSelectionDialog_->setUpdateBusy(busy || imageBatchRunning_);
 }
@@ -771,6 +761,21 @@ void PetSettingsDialog::setShopSelection(std::shared_ptr<const ShopCatalogSnapsh
   if (catalog) shopCatalog_ = std::move(catalog);
   shopSelectionEditable_ = editable; shopSelectionMessage_ = message;
   if (shopSelectionDialog_) shopSelectionDialog_->setCatalog(shopCatalog_, editable, message);
+}
+void PetSettingsDialog::setPublicUpdateState(const PublicUpdateState& state) {
+  dataUpdateBusy_ = state.busy;
+  publicUpdatePanel_->setState(state);
+  publicUpdatePanel_->setExternalBusy(state.busy, imageBatchRunning_);
+  missingImagesButton_->setEnabled(!state.busy && !imageBatchRunning_);
+  if (shopSelectionDialog_) shopSelectionDialog_->setUpdateBusy(state.busy || imageBatchRunning_);
+}
+void PetSettingsDialog::setPublicDiagnosticsResult(bool success, const QString& path, const QString& message) {
+  auto* notice = new QMessageBox(success ? QMessageBox::Information : QMessageBox::Warning,
+      QStringLiteral("公共资料诊断"), message, QMessageBox::Ok, this);
+  notice->setTextFormat(Qt::PlainText);
+  if (success) notice->setDetailedText(path);
+  notice->setAttribute(Qt::WA_DeleteOnClose);
+  notice->open();
 }
 void PetSettingsDialog::openShopSelection() {
   if (!shopSelectionDialog_) {
@@ -790,22 +795,29 @@ void PetSettingsDialog::openShopSelection() {
 }
 void PetSettingsDialog::setImageBatchProgress(int completed, int total, int failed) {
   imageBatchRunning_ = true;
+  imageProgress_->show();
   if (shopSelectionDialog_) shopSelectionDialog_->setUpdateBusy(true);
-  dataUpdateButton_->setEnabled(false);
-  for (QPushButton* part : partialUpdateButtons_) part->setEnabled(false);
+  publicUpdatePanel_->setExternalBusy(dataUpdateBusy_, true);
+
+
   missingImagesButton_->setEnabled(false);
   imagePause_->setEnabled(true); imageCancel_->setEnabled(true);
-  imageProgress_->setRange(0, qMax(1, total)); imageProgress_->setValue(qBound(0, completed, qMax(1, total)));
-  imageStatus_->setText(QStringLiteral("已处理 %1 / %2 张；失败 %3 张。").arg(completed).arg(total).arg(failed));
+  imageProgress_->setRange(0, qMax(0, total));
+  imageProgress_->setFormat(QStringLiteral("%v / %m"));
+  if (total > 0) imageProgress_->setValue(qBound(0, completed, total));
+  imageStatus_->setText(total > 0 ? QStringLiteral("已处理 %1 / %2 张；失败 %3 张。").arg(completed).arg(total).arg(failed)
+      : QStringLiteral("正在整理需要补齐的图片…"));
 }
 void PetSettingsDialog::finishImageBatch(bool cancelled, int failed) {
   imageBatchRunning_ = false;
   if (shopSelectionDialog_) shopSelectionDialog_->setUpdateBusy(dataUpdateBusy_);
-  dataUpdateButton_->setEnabled(!dataUpdateBusy_);
-  for (QPushButton* part : partialUpdateButtons_) part->setEnabled(!dataUpdateBusy_);
+  publicUpdatePanel_->setExternalBusy(dataUpdateBusy_, false);
+
+
   imagePause_->setChecked(false); imagePause_->setText(QStringLiteral("暂停"));
   imagePause_->setEnabled(false); imageCancel_->setEnabled(false);
   missingImagesButton_->setEnabled(!dataUpdateBusy_);
+  if (imageProgress_->maximum() == 0) { imageProgress_->setRange(0, 1); imageProgress_->setValue(0); imageProgress_->setFormat(cancelled ? QStringLiteral("已停止") : QStringLiteral("已结束")); }
   imageStatus_->setText(cancelled ? QStringLiteral("已取消，成功保存的图片保留。")
       : failed ? QStringLiteral("补图结束；%1 张未完成，可稍后重试。").arg(failed) : QStringLiteral("补图完成，图片已保存到本地。"));
 }

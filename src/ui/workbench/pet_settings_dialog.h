@@ -1,6 +1,7 @@
 #pragma once
 
 #include "contracts/refresh_timings.h"
+#include "contracts/public_update_state.h"
 
 #include <QDialog>
 #include <QJsonObject>
@@ -20,6 +21,7 @@ class QNetworkReply;
 class QProcess;
 class QDialogButtonBox;
 class ShopSelectionDialog;
+class PublicUpdatePanel;
 struct ShopCatalogSnapshot;
 struct PetDetailCatalogSnapshot;
 
@@ -34,6 +36,8 @@ public:
   void setCacheRoot(const QString& root);
   void applyCacheResult(const QString& action, const QJsonObject& result);
   void setDataUpdateStatus(const QString& message, bool busy);
+  void setPublicUpdateState(const PublicUpdateState& state);
+  void setPublicDiagnosticsResult(bool success, const QString& path, const QString& message);
   void setShopSelection(std::shared_ptr<const ShopCatalogSnapshot> catalog, bool editable, const QString& message);
   void setImageBatchProgress(int completed, int total, int failed);
   void finishImageBatch(bool cancelled, int failed);
@@ -42,6 +46,11 @@ signals:
   void cacheActionRequested(const QString& action, const QJsonObject& options);
   // Empty: update everything. Otherwise the selected public data parts.
   void dataUpdateRequested(const QStringList& components);
+  void publicDataRollbackRequested();
+  void publicDataRetryRequested();
+  void publicDataReloadRequested();
+  void publicDataCancelRequested();
+  void publicDiagnosticsExportRequested(const QString& path);
   void shopSelectionRequested();
   void shopSelectionSaveRequested(const QStringList& selected, const QStringList& excludedAutomatic);
   void missingImagesRequested();
@@ -85,9 +94,7 @@ private:
   QLineEdit* instanceId_ = nullptr;
   QLineEdit* imageFile_ = nullptr;
   QCheckBox* restoreOverwrite_ = nullptr;
-  QLabel* dataUpdateStatus_ = nullptr;
-  QPushButton* dataUpdateButton_ = nullptr;
-  QList<QPushButton*> partialUpdateButtons_;
+  PublicUpdatePanel* publicUpdatePanel_ = nullptr;
   QPointer<ShopSelectionDialog> shopSelectionDialog_;
   std::shared_ptr<const ShopCatalogSnapshot> shopCatalog_;
   std::shared_ptr<const PetDetailCatalogSnapshot> shopMetadata_;

@@ -1,4 +1,5 @@
 #include "routine_overview_catalog.h"
+#include "domain/routine_opportunity_rules.h"
 #include "protocol/packet_contract.h"
 
 #include <QHash>
@@ -193,6 +194,8 @@ RoutineOverviewCatalog::RoutineOverviewCatalog() {
   if (!snapshot_) snapshot_ = std::make_shared<RoutineCatalogSnapshot>();
 }
 
+QJsonObject RoutineOverviewCatalog::embeddedRoot() { return builtInRoot(); }
+
 std::shared_ptr<const RoutineCatalogSnapshot> RoutineOverviewCatalog::prepare(const QJsonObject& root, const QString& source,
                                         const QDateTime& updatedAt, QString* error) {
   const auto invalid = [error]() -> std::shared_ptr<const RoutineCatalogSnapshot> {
@@ -204,6 +207,9 @@ std::shared_ptr<const RoutineCatalogSnapshot> RoutineOverviewCatalog::prepare(co
   };
   if (!integer(root.value(QStringLiteral("schema")), 1) || root.value(QStringLiteral("schema")).toInt() != 1)
     return invalid();
+  bool rulesValid = true;
+  RoutineOpportunityRules::read(root, &rulesValid);
+  if (!rulesValid) return invalid();
   for (const QString& array : {QStringLiteral("tasks"), QStringLiteral("activities"),
            QStringLiteral("dayPrizeThresholds"), QStringLiteral("weekPrizeThresholds")})
     if (!root.value(array).isArray()) return invalid();
