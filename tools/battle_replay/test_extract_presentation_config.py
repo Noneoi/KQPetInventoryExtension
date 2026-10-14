@@ -1,18 +1,37 @@
 """Check client display extraction against the pinned official source snapshot."""
 from pathlib import Path
+import tempfile
 import unittest
 from unittest.mock import patch
 
 import extract_presentation_config as extraction
 from extract_presentation_config import extract_presentation_config, parse_formation_names, parse_string_constant_array
+from update_source_bundle import extract_bundle
 
 
 class PresentationConfigTest(unittest.TestCase):
     @classmethod
     def setUpClass(cls):
-        cls.root = Path(__file__).resolve().parents[2] / 'build-battle-reference'
-        cls.result = extract_presentation_config(cls.root / 'latest-tables', cls.root)
+        project = Path(__file__).resolve().parents[2]
+        cls.temporary = tempfile.TemporaryDirectory(prefix='replay-presentation-test-')
+        cls.addClassCleanup(cls.temporary.cleanup)
+        restored = extract_bundle(project / 'assets/battle-replay-update-sources.zip',
+                                  Path(cls.temporary.name) / 'official-inputs')
+        # Use the bundle's verified, relocated build inputs. A fresh checkout
+        # has no developer research tree and must not silently depend on one.
+        cls.source = restored['arguments']['source']
+        cls.root = restored['arguments']['auxiliary']
+        cls.result = extract_presentation_config(cls.source, cls.root)
         cls.config = cls.result['config']
+
+    def test_inputs_and_evidence_stay_inside_the_temporary_restore(self):
+        temporary = Path(self.temporary.name).resolve()
+        self.assertTrue(self.source.resolve().is_relative_to(temporary))
+        self.assertTrue(self.root.resolve().is_relative_to(temporary))
+        for evidence in self.config['sourceEvidence'].values():
+            for key in ('file', 'extractionManifest'):
+                if key in evidence:
+                    self.assertTrue(Path(evidence[key]).resolve().is_relative_to(temporary), key)
 
     def test_current_thresholds_override_as_defaults(self):
         self.assertEqual(self.config['weakThreshold'], 0.8)
@@ -94,7 +113,7 @@ class PresentationConfigTest(unittest.TestCase):
                 return result
             with self.subTest(folder=folder), patch.object(extraction, 'read_json', side_effect=mismatched_proof):
                 with self.assertRaisesRegex(ValueError, 'pinned .* export'):
-                    extract_presentation_config(self.root / 'latest-tables', self.root)
+                    extract_presentation_config(self.source, self.root)
 
 
 if __name__ == '__main__':

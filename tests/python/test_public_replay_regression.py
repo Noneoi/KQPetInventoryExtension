@@ -27,7 +27,9 @@ class RegressionTransportTests(unittest.TestCase):
     def setUp(self):
         self.temporary = tempfile.TemporaryDirectory()
         self.addCleanup(self.temporary.cleanup)
-        self.root = Path(self.temporary.name)
+        # Keep exact subprocess-argument assertions even when Windows TEMP
+        # contains an 8.3 alias that the production checker path resolves.
+        self.root = Path(self.temporary.name).resolve()
         self.file_patch = mock.patch.object(subject, '__file__', str(self.root / 'public_replay_regression.py'))
         self.file_patch.start(); self.addCleanup(self.file_patch.stop)
         (self.root / 'KQBattleReplayUpdateCheck.exe').write_bytes(b'synthetic checker; never executed')
@@ -114,7 +116,7 @@ class RegressionTransportTests(unittest.TestCase):
 class FidelityGateTests(unittest.TestCase):
     def setUp(self):
         self.temporary = tempfile.TemporaryDirectory(); self.addCleanup(self.temporary.cleanup)
-        self.root = Path(self.temporary.name)
+        self.root = Path(self.temporary.name).resolve()
         self.old = {'pets': {'1': {'huan': ['wrong suffix skill'], 'slots': {}}}, 'skills': {}, 'buffs': {}}
         self.new = copy.deepcopy(self.old); del self.new['pets']['1']['huan']
         self.audit = {'schemaVersion': 1, 'passed': True, 'candidateContentSha256': quality._digest(self.new),

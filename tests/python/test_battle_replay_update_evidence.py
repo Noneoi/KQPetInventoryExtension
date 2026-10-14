@@ -109,7 +109,9 @@ def sha(data):
 class GeneratedEvidenceTest(unittest.TestCase):
     def setUp(self):
         self.temporary = tempfile.TemporaryDirectory(prefix='kq-replay-evidence-test-')
-        self.root = Path(self.temporary.name)
+        # Windows TEMP may use an 8.3 alias; production evidence paths resolve
+        # it, so fixture paths must use the same canonical root from the start.
+        self.root = Path(self.temporary.name).resolve()
         self.addCleanup(self.temporary.cleanup)
 
     def file(self, name, value):
