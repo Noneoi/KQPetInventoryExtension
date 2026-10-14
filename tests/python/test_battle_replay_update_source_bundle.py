@@ -17,7 +17,9 @@ class SourceBundleTests(unittest.TestCase):
     def setUp(self):
         self.temporary = tempfile.TemporaryDirectory(prefix='replay-source-bundle-')
         self.addCleanup(self.temporary.cleanup)
-        self.work = Path(self.temporary.name)
+        # Windows CI may spell TEMP with an 8.3 alias. Build the synthetic
+        # source trace in the same canonical form as the real input tracer.
+        self.work = Path(self.temporary.name).resolve()
         self.project = self.work / 'original project'
         self.project.mkdir()
         self.rows = []

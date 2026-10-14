@@ -26,8 +26,11 @@ class CandidateStoreTests(unittest.TestCase):
     def setUp(self):
         temporary = tempfile.TemporaryDirectory()
         self.addCleanup(temporary.cleanup)
-        self.root = Path(temporary.name) / "shared"
-        self.baseline = Path(temporary.name) / "baseline"
+        # prepare_candidate resolves its root; use that same canonical spelling
+        # before constructing strict mock expectations under a Windows 8.3 TEMP.
+        temporary_root = Path(temporary.name).resolve()
+        self.root = temporary_root / "shared"
+        self.baseline = temporary_root / "baseline"
         self.baseline.mkdir()
         self.root.mkdir()
         self.replay = pack_bytes(store.canonical(synthetic_catalog()))
