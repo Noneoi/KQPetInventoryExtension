@@ -13,6 +13,10 @@ The complete implementation set is:
 account_resource_view.cpp
 asset_derivation.cpp
 asset_snapshot_comparator.cpp
+battle_replay.cpp
+battle_replay_state.cpp
+battle_replay_presentation.cpp
+battle_replay_dragon.cpp
 catalog_types.cpp
 checked_json_numbers.cpp
 compiled_shop_catalog.cpp

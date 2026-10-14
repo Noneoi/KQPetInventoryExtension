@@ -3,6 +3,10 @@
 #include "protocol/protocol_transport.h"
 #include "runtime_types.h"
 #include "contracts/local_stargod_statistics.h"
+#include "contracts/battle_replay_catalog.h"
+#include "contracts/public_dataset.h"
+#include "contracts/public_update_state.h"
+#include "contracts/refresh_timings.h"
 
 #include <QObject>
 #include <QJsonObject>
@@ -25,6 +29,7 @@ class CatalogIoService;
 class PetDerivationCache;
 class PetDetailPreparationService;
 class DataUpdateService;
+class PublicUpdateService;
 class CacheManagementService;
 class LocalStargodStatisticsService;
 
@@ -44,6 +49,7 @@ struct CoreServices {
   PetDerivationCache* derivations = nullptr;
   PetDetailPreparationService* details = nullptr;
   DataUpdateService* dataUpdater = nullptr;
+  PublicUpdateService* publicUpdates = nullptr;
   CacheManagementService* cacheManager = nullptr;
   LocalStargodStatisticsService* starStatistics = nullptr;
 };
@@ -85,7 +91,20 @@ public:
   bool deliverReceipt(const SendReceipt& receipt);
   bool closing() const;
   // Empty updates every public data part; otherwise only the named parts.
+  // Public files do not require a live game input channel or authenticated account.
   void requestDataUpdate(const QStringList& components = {});
+  void requestPublicDataRollback();
+  void requestPublicUpdateState();
+  void requestPublicDataRetry();
+  void requestPublicDataReload();
+  void cancelDataUpdate();
+  void exportPublicDataDiagnostics(const QString& path);
+  void requestPublicDatasetState();
+  void requestSettingsState();
+  void saveRefreshTimings(const RefreshTimings& timings);
+  // Local public catalog only. Loading is lazy; reload requests reread disk.
+  // Official downloading/unpacking is deliberately not part of this command.
+  void requestBattleReplayCatalog(bool reload = false);
   void requestShopSelection();
   void saveShopSelection(const QStringList& selected, const QStringList& excludedAutomatic);
   void requestCacheAction(const QString& action, const QJsonObject& options = {});
@@ -104,6 +123,11 @@ signals:
   // Only a queued image request/result capability is exposed to the GUI proxy.
   void imageServiceReady(ImageService* service);
   void dataUpdateStatusChanged(const QString& message, bool busy);
+  void publicUpdateStateChanged(const PublicUpdateState& state);
+  void publicDiagnosticsExported(bool success, const QString& path, const QString& message);
+  void publicDatasetChanged(PublicDatasetSnapshotHandle snapshot);
+  void settingsStateReady(const RefreshTimings& timings, bool ready, const QString& error);
+  void battleReplayCatalogChanged(BattleReplayCatalogHandle snapshot, const QString& message, bool busy);
   void shopSelectionChanged(std::shared_ptr<const ShopCatalogSnapshot> catalog,
                             bool editable, const QString& message);
   void cacheActionFinished(const QString& action, const QJsonObject& result);
@@ -128,7 +152,7 @@ signals:
 
 private:
   bool enqueue(const QString& expectedAccount, quint64 epoch, bool scoped,
-               CoreAction action, qint64 bytes = 256, bool packet = false);
+               CoreAction action, qint64 bytes = 256, bool packet = false, bool publicDataTask = false);
   std::shared_ptr<ApplicationRuntimeInternal::State> state_;
   QPointer<QThread> thread_;
 };

@@ -1,6 +1,7 @@
 #include "support/catalog_test_support.h"
 #include "application/catalog/shop_exchange_catalog.h"
 #include "application/catalog/pet_detail_catalog.h"
+#include "application/runtime/data_update_service.h"
 #include "ui/shop/shop_selection_dialog.h"
 #include "ui/workbench/pet_settings_dialog.h"
 
@@ -10,6 +11,7 @@
 #include <QFontDatabase>
 #include <QJsonArray>
 #include <QJsonDocument>
+#include <QLabel>
 #include <QLineEdit>
 #include <QPushButton>
 #include <QTemporaryDir>
@@ -208,25 +210,35 @@ int main(int argc, char** argv) {
     choice.insert(QStringLiteral("manualSelectionRequired"), false);
     choice.insert(QStringLiteral("acquisitionKind"), QStringLiteral("exchange"));
     choice.insert(QStringLiteral("rewardRaw"), QStringLiteral("!Choice,|") + good.rewardRaw + QStringLiteral("|Material,4:1359:38,1"));
-    auto namedChoice = passGood;
-    namedChoice.insert(QStringLiteral("itemServerId"), 999);
-    namedChoice.insert(QStringLiteral("description"), QStringLiteral("任选3颗红色星神"));
-    passShop.insert(QStringLiteral("goods"), QJsonArray{passGood,choice,namedChoice});
+    auto promotionalFixed = passGood;
+    promotionalFixed.insert(QStringLiteral("itemServerId"), 999);
+    promotionalFixed.insert(QStringLiteral("description"), QStringLiteral("任选3颗红色星神"));
+    auto actualChoice = passGood;
+    actualChoice.insert(QStringLiteral("itemServerId"), 1000);
+    actualChoice.insert(QStringLiteral("rewardRaw"), QStringLiteral("SelectPrizes,4:55:1#4:56:1,1"));
+    auto options = passGood;
+    options.insert(QStringLiteral("itemServerId"), 1001);
+    options.insert(QStringLiteral("rewardOptions"), QJsonArray{QJsonObject{{QStringLiteral("id"),1}},QJsonObject{{QStringLiteral("id"),2}}});
+    passShop.insert(QStringLiteral("goods"), QJsonArray{passGood,choice,promotionalFixed,actualChoice,options});
     passRoot.insert(QStringLiteral("shops"), QJsonArray{passShop});
     auto selectedChoice = good;
     selectedChoice.itemServerId = 998;
     selectedChoice.rewardRaw = choice.value(QStringLiteral("rewardRaw")).toString();
-    auto selectedNamedChoice = good;
-    selectedNamedChoice.itemServerId = 999;
+    auto selectedPromotionalFixed = good;
+    selectedPromotionalFixed.itemServerId = 999;
     const auto filtered = ShopExchangeCatalog::withManualSelection(
-        ShopExchangeCatalog::prepare(passRoot,QStringLiteral("exclude legacy choices"),{}),
-        {good.stableKey(), selectedChoice.stableKey(), selectedNamedChoice.stableKey()});
-    require(filtered && filtered->discoveredShops.first().goods.size() == 2 && filtered->allShops.first().goods.size() == 2,
-        "designated pass alternative was hidden or named pet/material choice leaked");
-    require(filtered && filtered->discoveredShops.first().goods.last().manualSelectionRequired &&
-        filtered->discoveredShops.first().goods.last().description.contains(expected) &&
-        filtered->discoveredShops.first().goods.last().description.contains(QStringLiteral("与材料奖励二选一")),
+        ShopExchangeCatalog::prepare(passRoot,QStringLiteral("structural reward choices"),{}),
+        {good.stableKey(), selectedChoice.stableKey(), selectedPromotionalFixed.stableKey()});
+    require(filtered && filtered->discoveredShops.first().goods.size() == 3 && filtered->allShops.first().goods.size() == 3,
+        "fixed reward was hidden by promotional wording or a structural choice leaked");
+    require(filtered && filtered->discoveredShops.first().goods.at(1).manualSelectionRequired &&
+        filtered->discoveredShops.first().goods.at(1).description.contains(expected) &&
+        filtered->discoveredShops.first().goods.at(1).description.contains(QStringLiteral("与材料奖励二选一")),
         "cultivation alternative became compulsory or lost its concrete effect/condition");
+    require(filtered && filtered->discoveredShops.first().goods.last().description == QStringLiteral("任选3颗红色星神") &&
+        filtered->discoveredShops.first().goods.last().rewardRaw == good.rewardRaw &&
+        filtered->discoveredShops.first().goods.last().manualSelectionRequired,
+        "promotional wording changed the fixed payload or promoted a manual reward");
     const auto unselected = ShopExchangeCatalog::withManualSelection(filtered, {good.stableKey()});
     require(unselected && unselected->allShops.first().goods.size() == 1,
         "unselected pass alternative leaked into default automatic mode");
@@ -326,6 +338,38 @@ int main(int argc, char** argv) {
   settings.findChild<QTabWidget*>(QStringLiteral("KQSettingsTabs"))->setCurrentIndex(1);
   settings.setShopSelection(base, true, QStringLiteral("测试"));
   settings.show(); application.processEvents();
+  QList<QStringList> requestedUpdates;
+  QObject::connect(&settings, &PetSettingsDialog::dataUpdateRequested, &settings,
+      [&](const QStringList& components) { requestedUpdates.append(components); });
+  const auto replayUpdate = settings.findChild<QPushButton*>(QStringLiteral("KQDataUpdate-battleReplay"));
+  const auto allUpdates = settings.findChild<QPushButton*>(QStringLiteral("KQCheckDataUpdate"));
+  const auto updateStatus = settings.findChild<QLabel*>(QStringLiteral("KQDataUpdateStatus"));
+  require(replayUpdate && !replayUpdate->isVisible(), "advanced update actions were not initially collapsed");
+  settings.findChild<QPushButton*>(QStringLiteral("KQAdvancedPublicData"))->click();
+  application.processEvents();
+  require(DataUpdateService::componentNames().count(QStringLiteral("battleReplay")) == 1 &&
+      replayUpdate && replayUpdate->isVisible() && replayUpdate->text() == QStringLiteral("回放资料") &&
+      allUpdates && updateStatus, "settings did not expose the replay data component");
+  for (const auto& component : DataUpdateService::componentNames()) {
+    const auto part = settings.findChild<QPushButton*>(QStringLiteral("KQDataUpdate-%1").arg(component));
+    require(part && part->isVisible() && part->isEnabled(), "an available public data component has no usable settings entry");
+  }
+  if (replayUpdate && allUpdates && updateStatus) {
+    replayUpdate->click();
+    require(requestedUpdates.size() == 1 && requestedUpdates.last() == QStringList{QStringLiteral("battleReplay")} &&
+        !replayUpdate->isEnabled() && !allUpdates->isEnabled() && updateStatus->text().contains(QStringLiteral("准备")),
+        "replay update did not select only its own component or allowed duplicate submissions");
+    settings.setDataUpdateStatus(QStringLiteral("更新失败，原有资料已保留"), false);
+    require(replayUpdate->isEnabled() && allUpdates->isEnabled() && updateStatus->text().contains(QStringLiteral("失败")),
+        "failed data update did not restore controls and retain its status");
+    settings.setImageBatchProgress(0, 1, 0);
+    require(!replayUpdate->isEnabled() && !allUpdates->isEnabled(), "replay update bypassed the existing image-batch exclusion");
+    settings.finishImageBatch(false, 0);
+    allUpdates->click();
+    require(requestedUpdates.size() == 2 && requestedUpdates.last().isEmpty() && !replayUpdate->isEnabled(),
+        "all-data update no longer used the complete component selection");
+    settings.setDataUpdateStatus(QStringLiteral("测试：未启动网络更新"), false);
+  }
   settings.grab().save(QStringLiteral("shop-settings-preview.png"));
   require(settings.findChild<QPushButton*>(QStringLiteral("KQShopSelection"))->isVisible(), "settings lost the manual-selection entry");
   settings.hide();

@@ -1,6 +1,7 @@
 #include "application/catalog/routine_overview_catalog.h"
 #include "ui/routine/routine_overview_window.h"
 #include "support/catalog_test_support.h"
+#include "support/routine_rules_test_support.h"
 
 #include <QApplication>
 #include <QJsonArray>
@@ -25,7 +26,11 @@ int main(int argc, char* argv[]) {
   if (!runCatalogRequest(&catalogIo, CatalogKind::Routine, CatalogRequestMode::OfficialUpdate)) return 1;
 
   auto* window = new RoutineOverviewWindow();
-  window->setCatalogSnapshot(RoutineOverviewCatalog::instance().snapshot());
+  const auto legacyCatalog = RoutineOverviewCatalog::instance().snapshot();
+  const auto publicRoot = withOfficialRoutineRuleFixture(legacyCatalog->root);
+  const auto publicCatalog = RoutineOverviewCatalog::prepare(publicRoot, QStringLiteral("official rule fixture"), {});
+  if (!publicCatalog) return 1;
+  window->setCatalogSnapshot(publicCatalog);
   window->setData(
       {{QStringLiteral("av"), 85}, {QStringLiteral("wav"), 574},
        {QStringLiteral("bi"), QJsonArray{true, true, false, false, false}},
@@ -41,7 +46,7 @@ int main(int argc, char* argv[]) {
         QJsonObject{{QStringLiteral("rwwt"), 18}, {QStringLiteral("wwt"), 2},
                     {QStringLiteral("rdt"), 4}, {QStringLiteral("rdb"), 0}}},
        {QStringLiteral("1008_20260522_nf_0"),
-        QJsonObject{{QStringLiteral("pt"), 8}, {QStringLiteral("rft"), 16}}},
+        QJsonObject{{QStringLiteral("pt"), 8}, {QStringLiteral("rft"), 16}, {QStringLiteral("inviteCount"), 3}}},
        {QStringLiteral("16_24_A"),
         QJsonObject{{QStringLiteral("zao1"),
                      QJsonObject{{QStringLiteral("ct"), 2}, {QStringLiteral("bct"), 0}}},
@@ -77,6 +82,24 @@ int main(int argc, char* argv[]) {
         valid = valid && condition;
       };
       if (!valid) { application.exit(2); return; }
+      check(opportunity->item(7, 1)->text() == QStringLiteral("储存") &&
+            opportunity->item(7, 3)->text() == QStringLiteral("20") &&
+            opportunity->item(7, 4)->text() == QStringLiteral("—") &&
+            opportunity->item(0, 4)->text() == QStringLiteral("—"),
+            "storage headroom or declaration-only limits were incorrectly counted as daily use");
+      window->setCatalogSnapshot(RoutineOverviewCatalog::prepare(legacyCatalog->root, QStringLiteral("legacy offline fixture"), {}));
+      check(opportunity->item(0, 2)->text() == QStringLiteral("2") &&
+            opportunity->item(5, 2)->text() == QStringLiteral("18") &&
+            opportunity->item(7, 2)->text() == QStringLiteral("16") &&
+            opportunity->item(0, 3)->text() == QStringLiteral("—") &&
+            opportunity->item(1, 2)->text() == QStringLiteral("—") &&
+            opportunity->item(4, 2)->text() == QStringLiteral("—") &&
+            opportunity->item(9, 2)->text() == QStringLiteral("—"),
+            "legacy catalogs invented limits or erased server-supplied counts");
+      const auto changedRoot = withSyntheticRoutineRuleValue(publicRoot, QStringLiteral("nationalCompetition"), QStringLiteral("dailyBase"), 43);
+      window->setCatalogSnapshot(RoutineOverviewCatalog::prepare(changedRoot, QStringLiteral("synthetic changed rule"), {}));
+      check(opportunity->item(4, 2)->text() == QStringLiteral("39"), "UI ignored a changed public daily allowance");
+      window->setCatalogSnapshot(RoutineOverviewCatalog::prepare(publicRoot, QStringLiteral("restored official rule fixture"), {}));
       check(daily->item(0, 1)->text().contains(QStringLiteral("周期未确认")) &&
             daily->item(0, 1)->foreground().style() == Qt::NoBrush &&
             opportunity->item(0, 2)->foreground().style() == Qt::NoBrush,

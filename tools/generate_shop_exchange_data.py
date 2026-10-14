@@ -103,8 +103,7 @@ def excluded_choice(row: dict) -> bool:
     if cultivation_alternative(row):
         return False
     return (selectable_reward(row.get('rewardRaw'), row.get('selectablePackageIds', ())) or
-            bool(row.get('rewardOptions')) or
-            bool(re.search(r'自选|任选|[二三四五六七八九十0-9]+选[一二三四五六七八九十0-9]+', str(row.get('description', '')))))
+            bool(row.get('rewardOptions')))
 
 
 def relevant_good(row: dict) -> bool:
@@ -122,7 +121,9 @@ def relevant_shops(shops: list) -> list:
     # Also migrate older broad scans and last-known-good fallback records.
     return [{**shop, "goods": goods} for shop in shops
             if not excluded_activity(shop.get('sourceKey', '')) and
-            (goods := [{**good, 'manualSelectionRequired': True} if cultivation_alternative(good) else good
+            (goods := [{**good, 'manualSelectionRequired': True} if (
+                           cultivation_alternative(good) or
+                           not str(good.get('rewardRaw', '')).lstrip('!').startswith(('CommonEnhancePrize,', 'Strengthen,'))) else good
                        for good in shop.get("goods", []) if relevant_good(good)])]
 
 

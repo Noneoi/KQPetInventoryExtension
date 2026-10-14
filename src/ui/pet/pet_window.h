@@ -7,6 +7,7 @@
 #include <QPointer>
 #include <memory>
 #include "contracts/cultivation_material_inventory.h"
+#include "contracts/public_data_detail.h"
 
 class QLabel;
 class QLineEdit;
@@ -170,6 +171,7 @@ private:
   QLabel* relatedTitle_ = nullptr;
   qint64 relatedId_ = 0;
   std::shared_ptr<const PreparedPetDetail> renderedRelatedDetail_;
+  PublicDataDetailContext renderedDetailData_, renderedSkillData_, renderedRelatedData_;
   qint64 currentId_ = 0;
   qint64 pendingFocusId_ = 0;
   qint64 renderedDetailId_ = 0;

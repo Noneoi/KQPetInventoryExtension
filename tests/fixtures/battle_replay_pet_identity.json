@@ -1,0 +1,346 @@
+{
+  "pets": {
+    "6528": {
+      "raceId": "6528",
+      "name": "慵懒浮梦·奈非利塔",
+      "sign": "神职,超神,神属,传说,天启,启元,2025年费,元魂觉醒,六星神,星迹,神运,皮肤",
+      "groupRaceId": "5990",
+      "source": {
+        "file": "build-battle-reference\\petdictionarydata\\scripts\\mmo\\pet\\petdictionarydata\\PetDictionaryDataContents.as",
+        "sha256": "f2a32d1823a07c7faad9cb6686a0e985f219b8b21ab28e33fbfe258395e446d4",
+        "createRow": 6287
+      }
+    },
+    "5990": {
+      "raceId": "5990",
+      "name": "[神运]虚构之神·奈非利塔",
+      "sign": "神职,超神,神属,传说,天启,启元,2025年费,元魂觉醒,六星神,星迹,神运",
+      "groupRaceId": "0",
+      "source": {
+        "file": "build-battle-reference\\petdictionarydataupdate\\scripts\\mmo\\pet\\petdictionarydata\\PetDictionaryDataContentsUpdate.as",
+        "sha256": "54af4cbe28446aec9019db951446a224f35cc08327b2384f47b4b4cec2d68de4",
+        "createRow": 37
+      }
+    },
+    "7405": {
+      "raceId": "7405",
+      "name": "慵懒浮梦·奈非利塔",
+      "sign": "神职,超神,神属,传说,天启,启元,星迹,神运,灵初,七星神,元魂觉醒,皮肤",
+      "groupRaceId": "7403",
+      "source": {
+        "file": "build-battle-reference\\petdictionarydataupdate\\scripts\\mmo\\pet\\petdictionarydata\\PetDictionaryDataContentsUpdate.as",
+        "sha256": "54af4cbe28446aec9019db951446a224f35cc08327b2384f47b4b4cec2d68de4",
+        "createRow": 70
+      }
+    },
+    "7403": {
+      "raceId": "7403",
+      "name": "[灵初]虚构神权·奈非利塔",
+      "sign": "神职,超神,神属,传说,天启,启元,星迹,神运,灵初,七星神,元魂觉醒",
+      "groupRaceId": "0",
+      "source": {
+        "file": "build-battle-reference\\petdictionarydataupdate\\scripts\\mmo\\pet\\petdictionarydata\\PetDictionaryDataContentsUpdate.as",
+        "sha256": "54af4cbe28446aec9019db951446a224f35cc08327b2384f47b4b4cec2d68de4",
+        "createRow": 68
+      }
+    },
+    "7383": {
+      "raceId": "7383",
+      "name": "[炫彩]鹤舞仙踪·秩序",
+      "sign": "神职,超神,神属,传说,天启,启元,星迹,神运,灵初,七星神,元魂觉醒,皮肤",
+      "groupRaceId": "7355",
+      "source": {
+        "file": "build-battle-reference\\petdictionarydata\\scripts\\mmo\\pet\\petdictionarydata\\PetDictionaryDataContents.as",
+        "sha256": "f2a32d1823a07c7faad9cb6686a0e985f219b8b21ab28e33fbfe258395e446d4",
+        "createRow": 7092
+      }
+    },
+    "7384": {
+      "raceId": "7384",
+      "name": "鹤隐异灵",
+      "sign": "神职,超神,神属,传说,天启,启元,星迹,神运,灵初,七星神,元魂觉醒,皮肤",
+      "groupRaceId": "7355",
+      "source": {
+        "file": "build-battle-reference\\petdictionarydata\\scripts\\mmo\\pet\\petdictionarydata\\PetDictionaryDataContents.as",
+        "sha256": "f2a32d1823a07c7faad9cb6686a0e985f219b8b21ab28e33fbfe258395e446d4",
+        "createRow": 7093
+      }
+    },
+    "7355": {
+      "raceId": "7355",
+      "name": "[灵初]恒规秩序·龙尊",
+      "sign": "神职,超神,神属,传说,天启,启元,星迹,神运,灵初,七星神,元魂觉醒",
+      "groupRaceId": "0",
+      "source": {
+        "file": "build-battle-reference\\petdictionarydata\\scripts\\mmo\\pet\\petdictionarydata\\PetDictionaryDataContents.as",
+        "sha256": "f2a32d1823a07c7faad9cb6686a0e985f219b8b21ab28e33fbfe258395e446d4",
+        "createRow": 7064
+      }
+    },
+    "7356": {
+      "raceId": "7356",
+      "name": "灵初秩序追击者",
+      "sign": "神职,超神,神属,传说,天启,启元,星迹,神运,灵初,七星神,元魂觉醒",
+      "groupRaceId": "7355",
+      "source": {
+        "file": "build-battle-reference\\petdictionarydata\\scripts\\mmo\\pet\\petdictionarydata\\PetDictionaryDataContents.as",
+        "sha256": "f2a32d1823a07c7faad9cb6686a0e985f219b8b21ab28e33fbfe258395e446d4",
+        "createRow": 7065
+      }
+    },
+    "6779": {
+      "raceId": "6779",
+      "name": "桂树邀月·以撒",
+      "sign": "神职,超神,神属,传说,天启,启元,星迹,神运,灵初,七星神,元魂觉醒,皮肤",
+      "groupRaceId": "6777",
+      "source": {
+        "file": "build-battle-reference\\petdictionarydata\\scripts\\mmo\\pet\\petdictionarydata\\PetDictionaryDataContents.as",
+        "sha256": "f2a32d1823a07c7faad9cb6686a0e985f219b8b21ab28e33fbfe258395e446d4",
+        "createRow": 6503
+      }
+    },
+    "6777": {
+      "raceId": "6777",
+      "name": "[灵初]造物铸生·以撒",
+      "sign": "神职,超神,神属,传说,天启,启元,星迹,神运,灵初,七星神,元魂觉醒",
+      "groupRaceId": "0",
+      "source": {
+        "file": "build-battle-reference\\petdictionarydata\\scripts\\mmo\\pet\\petdictionarydata\\PetDictionaryDataContents.as",
+        "sha256": "f2a32d1823a07c7faad9cb6686a0e985f219b8b21ab28e33fbfe258395e446d4",
+        "createRow": 6501
+      }
+    },
+    "2488": {
+      "raceId": "2488",
+      "name": "武皇·红莲末炎",
+      "sign": "神职,超神,神属,皮肤",
+      "groupRaceId": "2280",
+      "source": {
+        "file": "build-battle-reference\\petdictionarydata\\scripts\\mmo\\pet\\petdictionarydata\\PetDictionaryDataContents.as",
+        "sha256": "f2a32d1823a07c7faad9cb6686a0e985f219b8b21ab28e33fbfe258395e446d4",
+        "createRow": 2472
+      }
+    },
+    "2487": {
+      "raceId": "2487",
+      "name": "傲世红莲·末炎",
+      "sign": "神职,超神,神属",
+      "groupRaceId": "2215",
+      "source": {
+        "file": "build-battle-reference\\petdictionarydata\\scripts\\mmo\\pet\\petdictionarydata\\PetDictionaryDataContents.as",
+        "sha256": "f2a32d1823a07c7faad9cb6686a0e985f219b8b21ab28e33fbfe258395e446d4",
+        "createRow": 2471
+      }
+    },
+    "2280": {
+      "raceId": "2280",
+      "name": "武皇·红莲末炎",
+      "sign": "神职,超神,神属,皮肤",
+      "groupRaceId": "2215",
+      "source": {
+        "file": "build-battle-reference\\petdictionarydata\\scripts\\mmo\\pet\\petdictionarydata\\PetDictionaryDataContents.as",
+        "sha256": "f2a32d1823a07c7faad9cb6686a0e985f219b8b21ab28e33fbfe258395e446d4",
+        "createRow": 2264
+      }
+    }
+  },
+  "skins": [
+    {
+      "id": 9,
+      "name": "武皇· 红莲末炎",
+      "sale": true,
+      "price": 388,
+      "show": true,
+      "new": false,
+      "voice": 0,
+      "poster": false,
+      "fuse": null,
+      "fuseFix": false,
+      "fuseAtLeast": -1,
+      "xPosterRes": false,
+      "xInteractivePosterRes": false,
+      "interactive": false,
+      "tryingCardId": -1,
+      "xChangeableInfo": null,
+      "exchangingMaterialStr": null,
+      "exchangingWeight": 0,
+      "changeableRaceIds": null,
+      "changeableNames": null,
+      "changeableVoiceDiv": null,
+      "changeableWithMovie": false,
+      "confTag": "",
+      "availablePets": [
+        {
+          "no": 12,
+          "raceId": 2280,
+          "raceIdNeed": 2215
+        },
+        {
+          "no": 13,
+          "raceId": 2645,
+          "raceIdNeed": 2644
+        },
+        {
+          "no": 14,
+          "raceId": 2488,
+          "raceIdNeed": 2487
+        },
+        {
+          "no": 15,
+          "raceId": 2761,
+          "raceIdNeed": 2760
+        },
+        {
+          "no": 16,
+          "raceId": 3064,
+          "raceIdNeed": 3062
+        },
+        {
+          "no": 17,
+          "raceId": 3617,
+          "raceIdNeed": 3616
+        },
+        {
+          "no": 18,
+          "raceId": 3217,
+          "raceIdNeed": 3216
+        },
+        {
+          "no": 18,
+          "raceId": 4454,
+          "raceIdNeed": 4453
+        },
+        {
+          "no": 18,
+          "raceId": 5398,
+          "raceIdNeed": 5397
+        },
+        {
+          "no": 18,
+          "raceId": 7137,
+          "raceIdNeed": 7136
+        },
+        {
+          "no": 19,
+          "raceId": 3879,
+          "raceIdNeed": 3878
+        }
+      ]
+    },
+    {
+      "id": 523,
+      "name": "[炫彩]鹤舞仙踪·秩序",
+      "sale": false,
+      "price": 488,
+      "show": true,
+      "new": false,
+      "voice": 7,
+      "poster": true,
+      "fuse": null,
+      "fuseFix": false,
+      "fuseAtLeast": -1,
+      "xPosterRes": false,
+      "xInteractivePosterRes": false,
+      "interactive": false,
+      "tryingCardId": -1,
+      "xChangeableInfo": "鹤舞仙踪@522",
+      "exchangingMaterialStr": null,
+      "exchangingWeight": 0,
+      "changeableRaceIds": null,
+      "changeableNames": null,
+      "changeableVoiceDiv": null,
+      "changeableWithMovie": false,
+      "confTag": "",
+      "availablePets": [
+        {
+          "no": 822,
+          "raceId": 6187,
+          "raceIdNeed": 5057
+        },
+        {
+          "no": 822,
+          "raceId": 7383,
+          "raceIdNeed": 7355
+        },
+        {
+          "no": 822,
+          "raceId": 6193,
+          "raceIdNeed": 6025
+        }
+      ]
+    },
+    {
+      "id": 561,
+      "name": "慵懒浮梦·奈非利塔",
+      "sale": false,
+      "price": 488,
+      "show": true,
+      "new": false,
+      "voice": 5,
+      "poster": true,
+      "fuse": null,
+      "fuseFix": false,
+      "fuseAtLeast": -1,
+      "xPosterRes": false,
+      "xInteractivePosterRes": false,
+      "interactive": false,
+      "tryingCardId": 3271,
+      "xChangeableInfo": null,
+      "exchangingMaterialStr": null,
+      "exchangingWeight": 0,
+      "changeableRaceIds": null,
+      "changeableNames": null,
+      "changeableVoiceDiv": null,
+      "changeableWithMovie": false,
+      "confTag": "",
+      "availablePets": [
+        {
+          "no": 822,
+          "raceId": 7405,
+          "raceIdNeed": 7403
+        },
+        {
+          "no": 822,
+          "raceId": 6528,
+          "raceIdNeed": 5990
+        }
+      ]
+    },
+    {
+      "id": 595,
+      "name": "桂树邀月·以撒",
+      "sale": false,
+      "price": 488,
+      "show": true,
+      "new": false,
+      "voice": 0,
+      "poster": false,
+      "fuse": null,
+      "fuseFix": false,
+      "fuseAtLeast": -1,
+      "xPosterRes": false,
+      "xInteractivePosterRes": false,
+      "interactive": false,
+      "tryingCardId": -1,
+      "xChangeableInfo": null,
+      "exchangingMaterialStr": "4:3063:118",
+      "exchangingWeight": 41,
+      "changeableRaceIds": null,
+      "changeableNames": null,
+      "changeableVoiceDiv": null,
+      "changeableWithMovie": false,
+      "confTag": "",
+      "availablePets": [
+        {
+          "no": 822,
+          "raceId": 6779,
+          "raceIdNeed": 6777
+        }
+      ]
+    }
+  ],
+  "skinSource": {
+    "file": "build-battle-reference\\pet-identity-20261009\\skin\\scripts\\mmo\\changepetskinv3\\other\\Cpsv3SkinConfig.as",
+    "sha256": "9affcea5cf5cf2eccaf2e7b1c8838c2c1ead893549cfe0f9b892d35bb8182f47"
+  }
+}

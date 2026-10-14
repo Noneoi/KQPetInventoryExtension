@@ -129,12 +129,14 @@ def attribute_mapping(package: dict[str, bytes]) -> dict[int, str]:
 def loader_default(updater, current: dict) -> dict:
     previous = current.get("source", {}).get("loaderDefault", {})
     version = updater.start_version
-    if previous.get("version") == version and re.fullmatch(r"\d{1,20}", previous.get("defaultVersion", "")):
-        return previous
     if not re.fullmatch(r"\d{8,20}", version):
         raise ValueError("官方加载器版本无效")
     path = updater.scratch / "icon-loader.swf"
     source = updater.fetch(OFFICIAL + f"loader~{version}.swf", path)
+    if (not getattr(updater, 'force_components', set()).intersection({'images', 'icons', 'shop'}) and
+            previous.get("version") == version and previous.get("sha256") == source.get("sha256") and
+            re.fullmatch(r"\d{1,20}", previous.get("defaultVersion", ""))):
+        return previous
     script = updater.export(path, updater.scratch / "icon-loader", "mmo.loader.scheduler.VersManager")
     text = script.read_text(encoding="utf-8-sig")
     match = re.search(r'const DEFAULT_VERSION:String\s*=\s*"(\d+)"', text)
@@ -195,7 +197,11 @@ def update_icons(updater, versions: dict) -> bool:
         signature = attr_version + ":" + res_version
         all_valid = attributes and all(same_icon(updater.root / f"images/attributes/{key}.png", value, signature)
                                        for key, value in attributes.items())
-        if source.get("attributeVersion") != signature or not all_valid:
+        hashes = getattr(versions, 'source_hashes', {})
+        content_changed = any(hashes.get(resource) and hashes[resource] != source.get(label, {}).get('sha256')
+                              for resource, label in ((ATTRIBUTE_RESOURCE, 'attributePackage'),
+                                                      (ATTRIBUTE_RESOURCE + '@res', 'attributeImages')))
+        if 'icons' in getattr(updater, 'force_components', ()) or source.get("attributeVersion") != signature or content_changed or not all_valid:
             metadata, payload = updater.scratch / "attributes.fui", updater.scratch / "attributes-res.fui"
             meta_source = updater.fetch(OFFICIAL + f"{ATTRIBUTE_RESOURCE}~{attr_version}.fui", metadata)
             data_source = updater.fetch(OFFICIAL + f"{ATTRIBUTE_RESOURCE}@res~{res_version}.fui", payload)
@@ -238,20 +244,28 @@ def update_icons(updater, versions: dict) -> bool:
             resource = f"stargodres/stargod{key}"
             version = versions.get(resource, default.get("defaultVersion", ""))
             target = updater.root / f"images/stargods/{key}.png"
-            if same_icon(target, stars.get(str(key), {}), version):
+            recorded = stars.get(str(key), {})
+            observed = getattr(versions, 'source_hashes', {}).get(resource)
+            source_changed = bool(observed and observed != recorded.get('source', {}).get('sha256'))
+            force = 'icons' in getattr(updater, 'force_components', ())
+            if not force and not source_changed and same_icon(target, recorded, version):
                 continue
             record = bundled.get(str(key), {})
             embedded = baseline / f"{key}.png"
-            if same_icon(embedded, record, version):
+            bundled_source_matches = not observed or observed == record.get('source', {}).get('sha256')
+            if not force and bundled_source_matches and same_icon(embedded, record, version):
                 copy_icon(embedded, target)
                 stars[str(key)] = {**record, "file": f"images/stargods/{key}.png"}
                 changed = True
             else:
                 downloads.append((key, version, "versiondata" if resource in versions else "loader-default"))
         if downloads:
+            if hasattr(updater, 'stage'):
+                updater.stage('parsing', 'icons', 0, len(downloads))
             if updater.runtimes is None:
-                updater.runtimes = (runtime_entry(updater.tools, "java", updater.scratch),
-                                    runtime_entry(updater.tools, "ffdec", updater.scratch))
+                runtime_tools = getattr(updater, 'runtime_tools', updater.tools)
+                updater.runtimes = (runtime_entry(runtime_tools, "java", updater.scratch),
+                                    runtime_entry(runtime_tools, "ffdec", updater.scratch))
             with ThreadPoolExecutor(max_workers=3) as pool:
                 pending = {pool.submit(export_star, updater, *item): item[0] for item in downloads}
                 for completed, future in enumerate(as_completed(pending), 1):
@@ -264,6 +278,8 @@ def update_icons(updater, versions: dict) -> bool:
                     except Exception as error:
                         updater.icon_failures.append(f"星神 {key}：{error}")
                     emit("progress", message=f"更新星神图标 {completed}/{len(downloads)}")
+                    if hasattr(updater, 'stage'):
+                        updater.stage('parsing', 'icons', completed, len(downloads))
     except Exception as error:
         updater.icon_failures.append("星神图标：" + str(error))
 

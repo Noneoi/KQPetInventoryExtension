@@ -163,7 +163,8 @@ void PetDetailPreparationService::provideInputs(quint64 requestId, FrozenDetailI
   const auto work = impl_->active;
   if (!impl_->current(work) || work->id != requestId || !work->waitingInput || work->posted) return;
   if (!inputs.raw || !inputs.facts || inputs.raw->key.account != work->selection.account || inputs.raw->key.epoch != work->selection.epoch ||
-      inputs.raw->key.instanceId != work->selection.instanceId || !inputs.metadata ||
+        inputs.raw->key.instanceId != work->selection.instanceId || !inputs.metadata ||
+        (inputs.publicDataset && inputs.publicDataset->detail != inputs.metadata) ||
       (impl_->metadataRevision && (inputs.metadata->revision != impl_->metadataRevision || inputs.metadata->contentDigest != impl_->metadataDigest))) {
     work->cancelled->store(true); impl_->active.reset(); impl_->retry.start(0);
     emit failed(work->consumer,work->id,DetailPreparationStatus::InvalidRequest,QStringLiteral("provider supplied incompatible selected-detail inputs")); return;

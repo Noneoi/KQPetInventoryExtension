@@ -12,6 +12,9 @@ jobs:
     name: Windows x64 / Qt 6.6.3 / Release
     runs-on: windows-latest
     timeout-minutes: 30
+    env:
+      CMAKE_BUILD_PARALLEL_LEVEL: 2
+      CTEST_PARALLEL_LEVEL: 2
 
     steps:
       - name: Check out source

@@ -77,6 +77,9 @@ int main(int argc, char** argv) {
         model->pages[1].entries[1].selected && !model->pages[1].entries[1].activated && model->pages[1].entries[2].activated &&
         model->pages[1].entries[0].fields[1].text == QStringLiteral("1"),"astrolabe selected/activated or independent breakthrough known state was lost");
     ok &= check(model->pages[2].entries.size() == 3 && model->pages[2].entries[0].changeable,"special changeable/empty equipped slots were discarded");
+    ok &= check(model->pages[0].entries[0].definitionId==101 && model->pages[0].entries[0].exclusiveDefinitionId==201 &&
+        model->pages[2].entries[0].definitionId==-1 && model->pages[2].entries[1].definitionId==80,
+        "public detail keys were not retained from decoded badge/star records or empty slots became definitions");
     ok &= check(model->pages[3].totalItems == 140 && model->pages[3].entries.size() == 64 && model->pages[3].hasNext(),"backpack overview is not naturally paged");
   }
   for (const auto& era : {QStringLiteral("神运"),QStringLiteral("星迹")}) {
@@ -90,6 +93,24 @@ int main(int argc, char** argv) {
         joined(earlierDetail->pages[0].entries[0].fields).contains(QStringLiteral("点亮数量=2")) &&
         joined(earlierDetail->pages[0].entries[0].fields).contains(QStringLiteral("选中数量=1")),
         "non-Lingchu details exposed breakthrough or lost node counters after omitting its status field");
+  }
+  {
+    auto input = fixture({{QStringLiteral("astrolabe"),QStringLiteral("0:1|350:1:1#351:0")}});
+    auto metadata = std::make_shared<PetDetailCatalogSnapshot>(*input.metadata);
+    metadata->root.insert(QStringLiteral("astrolabe"), QJsonObject{
+        {QStringLiteral("0"),QJsonObject{{QStringLiteral("name"),QStringLiteral("星迹·核心")}}},
+        {QStringLiteral("350"),QJsonObject{{QStringLiteral("name"),QStringLiteral("已选节点")}}},
+        {QStringLiteral("351"),QJsonObject{{QStringLiteral("name"),QStringLiteral("未点亮节点")}}}});
+    input.metadata = metadata;
+    PetDetailPreparation task(input, DetailSection::Astrolabe); const auto detail = finish(task);
+    ok &= check(detail && detail->pages[0].entries.size()==4 &&
+        detail->pages[0].entries[1].name==QStringLiteral("星迹·核心") && detail->pages[0].entries[1].activated &&
+        detail->pages[0].entries[1].definitionId==0 && detail->pages[0].entries[2].definitionId==350 &&
+        !detail->pages[0].entries[1].selected && detail->pages[0].entries[2].selected &&
+        detail->pages[0].entries[3].state==DetailKnowledge::Known &&
+        joined(detail->pages[0].entries[0].fields).contains(QStringLiteral("点亮数量=2")) &&
+        joined(detail->pages[0].entries[0].fields).contains(QStringLiteral("选中数量=1")),
+        "detail disagrees with the shared zero-ID/two-token astrolabe contract");
   }
   PetDetailPreparation qiyuanAstrolabe(fixture({}, QStringLiteral("启元")), DetailSection::Astrolabe);
   const auto qiyuanDetail = finish(qiyuanAstrolabe);
@@ -229,6 +250,47 @@ int main(int argc, char** argv) {
   QJsonArray relations; for (int i = 0; i < 70; ++i) relations.append(QString::number(1000 + i)); relations.append(QStringLiteral("1000")); relations.append(1.5); relations.append(9e20);
   QJsonArray carryRelations; for (int i = 0; i < 140; ++i) carryRelations.append(QString::number(2000 + i));
   carryRelations.append(QStringLiteral("2000")); carryRelations.append(1.5); carryRelations.append(9e20);
+  const auto carryFixture = [&](const QString& signs, QJsonObject raw) {
+    auto input = fixture(raw);
+    auto metadata = std::make_shared<PetDetailCatalogSnapshot>(*input.metadata);
+    auto pets = metadata->root.value(QStringLiteral("pets")).toObject();
+    auto pet = pets.value(QStringLiteral("7001")).toObject();
+    pet.insert(QStringLiteral("sign"), signs);
+    // A misleading display name must never decide the actual carry mechanism.
+    pet.insert(QStringLiteral("name"),QStringLiteral("[灵初]神使召唤吞噬测试"));
+    pets.insert(QStringLiteral("7001"),pet); metadata->root.insert(QStringLiteral("pets"),pets);
+    input.metadata = metadata; return input;
+  };
+  for (const auto& test : QVector<QPair<QString,DetailCarryKind>>{
+      {QStringLiteral("灵初,吞噬技"),DetailCarryKind::Swallower},
+      {QStringLiteral("灵初,携同技"),DetailCarryKind::Carrier},
+      {QStringLiteral("灵初,天觉者"),DetailCarryKind::Almighty},
+      {QStringLiteral("灵初,吞噬技附加"),DetailCarryKind::Unknown},
+      {QStringLiteral("灵初,吞噬技,携同技"),DetailCarryKind::Unknown}}) {
+    PetDetailPreparation typed(carryFixture(test.first,{{QStringLiteral("cepi"),QStringLiteral("9001")},
+        {QStringLiteral("acps"),QJsonArray{QStringLiteral("9002")}}}),DetailSection::CarryRelations);
+    const auto value = finish(typed,nullptr,{{QStringLiteral("_location"),QStringLiteral("backpack")}});
+    ok &= check(value && value->pages[0].carryKind==test.second && value->pages[0].entries.size()==2 &&
+        value->pages[0].entries[0].carryKind==test.second && value->pages[0].entries[1].carryKind==test.second &&
+        value->pages[0].entries[0].group==DetailRelationGroup::carriedEnvoy() &&
+        value->pages[0].entries[1].group==DetailRelationGroup::carryCandidate() &&
+        value->pages[0].entries[1].ownership==DetailOwnership::Backpack,
+        "exact official carry tags, current/candidate distinction or backpack membership was lost");
+  }
+  PetDetailPreparation reverseTyped(carryFixture(QStringLiteral("灵初,吞噬技"),
+      {{QStringLiteral("crpis"),QJsonArray{QStringLiteral("9100")}}}),DetailSection::CarryRelations);
+  const auto reverseTypedDetail = finish(reverseTyped,nullptr,{{QStringLiteral("r"),7001}});
+  ok &= check(reverseTypedDetail && reverseTypedDetail->pages[0].entries[0].carryKind==DetailCarryKind::Swallower &&
+      reverseTypedDetail->pages[0].entries[0].ownership==DetailOwnership::OwnedLocationUnknown,
+      "reverse carry relation did not use its recorded carrier race or guessed a location");
+  PetDetailPreparation ungroupedCarry(fixture({{QStringLiteral("cepi"),QStringLiteral("9001")}}),DetailSection::CarryRelations);
+  const auto ungrouped = finish(ungroupedCarry,nullptr,{{QStringLiteral("_location"),QStringLiteral("warehouse")}});
+  ok &= check(ungrouped && ungrouped->pages[0].entries[0].ownership==DetailOwnership::WarehouseUnknown,
+      "warehouse with unrecorded group was relabeled as a normal warehouse");
+  PetDetailPreparation raceOnlySummoner(fixture({{QStringLiteral("srri"),7001}}),DetailSection::SummonRelations);
+  const auto raceOnly = finish(raceOnlySummoner);
+  ok &= check(raceOnly && raceOnly->pages[0].entries[0].ownership==DetailOwnership::Unknown &&
+      raceOnly->version.related.isEmpty(),"race-only relation claimed a missing or owned account instance");
   PetDetailPreparation foldedCarry(fixture({{QStringLiteral("cepi"),QStringLiteral("9001")},{QStringLiteral("acps"),carryRelations}}));
   const auto folded = finish(foldedCarry);
   ok &= check(folded && folded->pages.last().hasCarryCandidates && !folded->pages.last().carryCandidatesExpanded &&

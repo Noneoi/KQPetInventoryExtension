@@ -1,4 +1,6 @@
 #include "extension_context.h"
+#include "ui/battle/battle_replay_page.h"
+#include "ui/battle/battle_replay_source.h"
 #include "application/views/analysis_projection.h"
 #include "application/analysis/asset_analysis_controller.h"
 #include "ui/analysis/asset_analysis_window.h"
@@ -88,7 +90,14 @@ ExtensionContext::ExtensionContext(QObject* parent) : QObject(parent) {
   connect(runtime_, &ApplicationRuntime::initializationFailed, this,
           [this](const QString& error) { finishCoreInitialization(false, error); });
   connect(bridge_, &OriginalBridge::packetCaptured, this, [this](const InboundEnvelope& envelope) {
-    if (!runtime_->deliverPacket(envelope)) outbound_->revokeAll();
+    if (!runtime_->deliverPacket(envelope)) {
+      outbound_->revokeAll();
+      if (replaySource_) replaySource_->invalidateSession(QStringLiteral("本次入站数据未能送达会话处理队列，昵称与待阅上下文已失效"));
+      return;
+    }
+    // Reuse the already captured payload only after Core accepted its queue
+    // delivery. No extra hook, network request or game action is installed.
+    if (replaySource_) replaySource_->observeInbound(envelope.method, envelope.payload);
   });
   connect(bridge_, &OriginalBridge::captureUncertain, this, [this](const QString& reason) {
     outbound_->revokeAll();
@@ -180,6 +189,9 @@ ExtensionContext::ExtensionContext(QObject* parent) : QObject(parent) {
   locator_ = new OriginalWindowLocator(this);
   connect(locator_, &OriginalWindowLocator::windowChanged, this, [this] { attachToOriginalWindow(); });
   connect(locator_, &OriginalWindowLocator::layoutNeeded, this, [this] { attachToOriginalWindow(); });
+  // Login can arrive long before the user first opens the workbench. Keep the
+  // passive source alive from startup; the replay page itself remains lazy.
+  ensureReplaySource();
   if (!runtime_->start()) finishCoreInitialization(false, QStringLiteral("Core线程未能启动"));
 }
 
@@ -264,9 +276,35 @@ void ExtensionContext::positionButton() {
   entry_->show(); entry_->raise();
 }
 
+void ExtensionContext::ensureReplaySource() {
+  if (replaySource_) return;
+  replaySource_ = new BattleReplaySource(this);
+  const auto refreshReplaySession = [this] {
+    const auto state = inventory_->snapshot();
+    if (state) replaySource_->updateSession(state->account, state->sessionEpoch, state->authenticated);
+  };
+  connect(inventory_, &InventoryReadView::accountSessionChanged, replaySource_, refreshReplaySession);
+  connect(inventory_, &InventoryReadView::dataChanged, replaySource_, refreshReplaySession);
+  connect(bridge_, &OriginalBridge::captureUncertain, replaySource_, [this](const QString& reason) {
+    replaySource_->invalidateSession(reason);
+  });
+  refreshReplaySession();
+  replaySource_->startDirectory(BattleReplaySource::authorizedDirectory());
+}
+
 void ExtensionContext::ensureWorkbench() {
   if (workbench_) return;
+  ensureReplaySource();
   workbench_ = new WorkbenchWindow([this](WorkbenchPage page, QWidget* parent) { return createPage(page, parent); });
+  const auto showBufferedCount = [window = workbench_](int count) {
+    if (window && count > 0)
+      window->setPageStatus(QStringLiteral("收到 %1 份新战报，可在战斗回放中查看；当前页面继续保留").arg(count));
+  };
+  connect(replaySource_, &BattleReplaySource::bufferedCountChanged, workbench_, showBufferedCount);
+  showBufferedCount(replaySource_->bufferedCount());
+  connect(replaySource_, &BattleReplaySource::sourceIssue, workbench_, [window = workbench_](const QString& label, const QString& reason) {
+    if (window) window->setPageStatus(QStringLiteral("战报接入：%1（%2）").arg(reason, label));
+  });
   workbench_->setTargetValidator([this](const NavigationTarget& target) {
     if (!matches(target.account, target.epoch)) return false;
     if (target.petInstanceId > 0 && inventory_->backpackPet(target.petInstanceId).isEmpty() &&
@@ -307,6 +345,25 @@ void ExtensionContext::openPage(WorkbenchPage page) {
   if (workbench_) workbench_->showPage(page);
 }
 QWidget* ExtensionContext::createPage(WorkbenchPage page, QWidget* parent) {
+  if (page == WorkbenchPage::BattleReplay) {
+    auto* widget = new BattleReplayPage(parent);
+    connect(runtime_, &ApplicationRuntime::battleReplayCatalogChanged, widget, &BattleReplayPage::setCatalogState);
+    connect(widget, &BattleReplayPage::catalogReloadRequested, runtime_, [runtime = runtime_] {
+      runtime->requestBattleReplayCatalog(true);
+    });
+    runtime_->requestBattleReplayCatalog();
+    if (replaySource_) {
+      connect(replaySource_, &BattleReplaySource::replayReady, widget, &BattleReplayPage::enqueueReplay);
+      connect(replaySource_, &BattleReplaySource::identityChanged, widget, &BattleReplayPage::setAccountIdentity);
+      connect(replaySource_, &BattleReplaySource::deliveryContextReset, widget, &BattleReplayPage::resetSessionContext);
+      connect(widget, &QObject::destroyed, replaySource_, &BattleReplaySource::suspendDelivery);
+      widget->setAccountIdentity(replaySource_->identityName(), replaySource_->identityReliable(), replaySource_->identityEvidence());
+      widget->setReplaySourceStatus(replaySource_->status());
+      connect(replaySource_, &BattleReplaySource::sourceStatusChanged, widget, &BattleReplayPage::setReplaySourceStatus);
+      replaySource_->replayPending();
+    }
+    return widget;
+  }
   if (page == WorkbenchPage::Pets) {
     auto* widget = new PetWindow(inventory_, parent, images_); petPage_ = widget;
     connect(widget, &PetWindow::sidebarStatusChanged, workbench_, &WorkbenchWindow::setPageStatus);
@@ -330,6 +387,8 @@ QWidget* ExtensionContext::createPage(WorkbenchPage page, QWidget* parent) {
   }
   if (page == WorkbenchPage::Shop) {
     auto* widget = new ShopWindow(inventory_, parent, images_); shopPage_ = widget;
+    connect(runtime_, &ApplicationRuntime::publicDatasetChanged, widget, &ShopWindow::setPublicDataset);
+    runtime_->requestPublicDatasetState();
     connect(widget, &ShopWindow::refreshRequested, this, [this] { postCurrent([](const CoreServices& c) { c.shop->requestInfo(); }); });
     // The shop button only needs the exchange catalog, not every public data part.
     connect(widget, &ShopWindow::catalogRefreshRequested, runtime_,
@@ -499,11 +558,8 @@ void ExtensionContext::showReplacement() {
 void ExtensionContext::showSettings() {
   if (!workbench_ || !workbench_->isVisible() || settingsPending_) return;
   settingsPending_ = true;
-  if (!runtime_->postUnscoped([this](const CoreServices& c) {
-    const auto timings = c.refresh->timings();
-    const bool ready = c.refresh->timingsKnown() && !c.refresh->timingsPending();
-    const QString error = c.refresh->timingsStorageError();
-    QMetaObject::invokeMethod(this, [this, timings, ready, error] {
+  connect(runtime_, &ApplicationRuntime::settingsStateReady, this,
+      [this](const RefreshTimings& timings, bool ready, const QString& error) {
       settingsPending_ = false;
       if (!workbench_ || !workbench_->isVisible() || runtime_->closing()) return;
       if (!ready) {
@@ -516,6 +572,13 @@ void ExtensionContext::showSettings() {
       dialog->setCacheRoot(inventory_->dataRoot());
       connect(dialog, &PetSettingsDialog::cacheActionRequested, runtime_, &ApplicationRuntime::requestCacheAction);
       connect(dialog, &PetSettingsDialog::dataUpdateRequested, runtime_, &ApplicationRuntime::requestDataUpdate);
+      connect(dialog, &PetSettingsDialog::publicDataRollbackRequested, runtime_, &ApplicationRuntime::requestPublicDataRollback);
+      connect(dialog, &PetSettingsDialog::publicDataRetryRequested, runtime_, &ApplicationRuntime::requestPublicDataRetry);
+      connect(dialog, &PetSettingsDialog::publicDataReloadRequested, runtime_, &ApplicationRuntime::requestPublicDataReload);
+      connect(dialog, &PetSettingsDialog::publicDataCancelRequested, runtime_, &ApplicationRuntime::cancelDataUpdate);
+      connect(dialog, &PetSettingsDialog::publicDiagnosticsExportRequested, runtime_, &ApplicationRuntime::exportPublicDataDiagnostics);
+      connect(runtime_, &ApplicationRuntime::publicUpdateStateChanged, dialog, &PetSettingsDialog::setPublicUpdateState);
+      connect(runtime_, &ApplicationRuntime::publicDiagnosticsExported, dialog, &PetSettingsDialog::setPublicDiagnosticsResult);
       connect(dialog, &PetSettingsDialog::shopSelectionRequested, runtime_, &ApplicationRuntime::requestShopSelection);
       connect(dialog, &PetSettingsDialog::shopSelectionSaveRequested, runtime_, &ApplicationRuntime::saveShopSelection);
       connect(runtime_, &ApplicationRuntime::shopSelectionChanged, dialog, &PetSettingsDialog::setShopSelection);
@@ -528,13 +591,14 @@ void ExtensionContext::showSettings() {
       connect(runtime_, &ApplicationRuntime::imageBatchFinished, dialog, &PetSettingsDialog::finishImageBatch);
       connect(dialog, &QDialog::accepted, this, [this, dialog] {
         const auto selected = dialog->timings();
-        runtime_->postUnscoped([selected](const CoreServices& core) { core.refresh->setTimings(selected); });
+        runtime_->saveRefreshTimings(selected);
       });
       dialog->open();
+      runtime_->requestPublicUpdateState();
       runtime_->requestShopSelection();
       runtime_->requestCacheAction(QStringLiteral("inspect"));
-    }, Qt::QueuedConnection);
-  })) settingsPending_ = false;
+  }, Qt::SingleShotConnection);
+  runtime_->requestSettingsState();
 }
 void ExtensionContext::copyDiagnostics() {
   QApplication::clipboard()->setText(DiagnosticLogger::diagnosticText());

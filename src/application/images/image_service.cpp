@@ -24,6 +24,7 @@
 #include <QSaveFile>
 #include <QSet>
 #include <QThread>
+#include <QTemporaryFile>
 #include <QTimer>
 #include <QUrl>
 #include <algorithm>
@@ -31,6 +32,7 @@
 #include <cmath>
 #include <chrono>
 #include <limits>
+#include <filesystem>
 #include <utility>
 #ifdef Q_OS_WIN
 #define NOMINMAX
@@ -146,10 +148,58 @@ bool safeExistingChain(const QString& absolutePath) {  const QString clean = QDi
   }
   return true;
 }
-QString cachePath(const QString& root, const QString& key) {
+QString sourceIdentity(const QString& url, const QString& symbol, const QString& revision) {
+  const QByteArray bytes = QJsonDocument(QJsonArray{url, symbol, revision}).toJson(QJsonDocument::Compact);
+  return QString::fromLatin1(QCryptographicHash::hash(bytes, QCryptographicHash::Sha256).toHex());
+}
+bool validSourceIdentity(const QString& identity) {
+  static const QRegularExpression pattern(QStringLiteral("^[0-9a-f]{64}$"));
+  return pattern.match(identity).hasMatch();
+}
+
+QString indexIdentity(const ImageRequest& request) {
+  if (!request.catalog) return {};
+  return request.attributeId >= 0 || request.stargodId > 0
+      ? request.catalog->iconIndexObject : request.catalog->imageIndexObject;
+}
+QJsonObject pinnedImageEntry(const ImageRequest& request) {
+  if (!request.catalog || request.catalog->imageIndex.value(QStringLiteral("schemaVersion")).toInt() != 1) return {};
+  const auto& root = request.catalog->imageIndex;
+  const QString storage = ImageService::storageKey(request.visualKey);
+  static const QRegularExpression exact(QStringLiteral("^([1-9][0-9]*)_([0-9]+)$"));
+  const auto match = exact.match(storage);
+  if (!match.hasMatch()) return {};
+  QString face = match.captured(2) == QStringLiteral("0") ? match.captured(1) : match.captured(2);
+  bool parsed = false; qint64 actual = face.toLongLong(&parsed);
+  if (!parsed || actual <= 0) return {};
+  bool exception = false;
+  for (const auto& value : root.value(QStringLiteral("faceIdExceptions")).toArray())
+    if (value.toInteger() == actual) { exception = true; break; }
+  if (actual >= 10000 && !exception) actual %= 10000;
+  const auto faces = root.value(QStringLiteral("faces")).toObject();
+  const QList<QJsonObject> candidates{root.value(QStringLiteral("images")).toObject().value(storage).toObject(),
+      faces.value(face).toObject(), faces.value(QString::number(actual)).toObject()};
+  static const QRegularExpression official(QStringLiteral("^https://aoqi\\.100bt\\.com/play/peticon/peticon([1-9][0-9]*)~([0-9]{1,20})\\.swf$"));
+  for (auto entry : candidates) {
+    const auto url = entry.value(QStringLiteral("swfUrl")).toString();
+    const auto symbol = entry.value(QStringLiteral("symbol")).toString();
+    const auto revision = entry.value(QStringLiteral("revision")).toString();
+    const auto resource = official.match(url);
+    const auto identity = sourceIdentity(url, symbol, revision);
+    if (!resource.hasMatch() || resource.captured(1) != QString::number(actual) || resource.captured(2) != revision ||
+        symbol != QStringLiteral("mmo.pet.peticon%1_L").arg(actual) ||
+        entry.value(QStringLiteral("sourceIdentity")).toString(identity) != identity) continue;
+    entry.insert(QStringLiteral("sourceIdentity"), identity); return entry;
+  }
+  return {};
+}
+QString cachePath(const QString& root, const QString& key, const QString& identity = {}) {
   if (root.isEmpty() || !QDir::isAbsolutePath(root) || !safeVisualKey(key)) return {};
+  if (!identity.isEmpty() && !validSourceIdentity(identity)) return {};
   const QString base = QDir::cleanPath(QDir(root).absolutePath());
-  const QString relative = QStringLiteral("images/pets/%1.png").arg(ImageService::storageKey(key));
+  const QString relative = identity.isEmpty()
+      ? QStringLiteral("images/pets/%1.png").arg(ImageService::storageKey(key))
+      : QStringLiteral("images/pets/sources/%1/%2.png").arg(identity, ImageService::storageKey(key));
   const QString path = QDir(base).filePath(relative);
   if (!path.startsWith(base + QLatin1Char('/'), Qt::CaseInsensitive) ||
       !safeExistingChain(path)) return {};
@@ -170,6 +220,9 @@ struct Job {
   QString key;
   QString url;
   QString sourceRevision;
+  QString sourceIdentity;
+  QString sourceSymbol;
+  QString contentSha256;
   QString message;
   QStringList localCandidates;
   int localCandidate = 0;
@@ -211,6 +264,9 @@ struct SourceTask {
   ImageRequest request; // identity, candidate names and refresh flags
   QString url;
   QString sourceRevision;
+  QString sourceIdentity;
+  QString sourceSymbol;
+  QString contentSha256;
   QString message;
   QStringList localCandidates;
   int localCandidate = 0;
@@ -254,17 +310,14 @@ public:
     for (auto* process : processes) process->kill();
   }
   QHash<QString, QString> readDirectory() {
+    // This injection is exact-key test/verified input. The historical embedded
+    // name directory is retained as an asset, but cannot authorize a download.
     QHash<QString, QString> values = options_.verifiedUrls;
-    if (values.isEmpty()) {
-      QFile file(QStringLiteral(":/kqpet/pet-image-urls.json"));
-      if (file.open(QIODevice::ReadOnly) && file.size() <= 16 * 1024 * 1024) {
-        const auto object = QJsonDocument::fromJson(file.readAll()).object();
-        for (auto entry = object.begin(); entry != object.end(); ++entry)
-          if (entry.value().isString()) values.insert(entry.key(), entry.value().toString());
-      }
-    }
     for (auto it = values.begin(); it != values.end();)
-      if (!allowedUrl(it.value())) it = values.erase(it); else ++it;
+      if (!it.key().startsWith(QStringLiteral("id:")) || !allowedUrl(it.value())) it = values.erase(it); else ++it;
+    // Once the versioned store is active only CatalogIo's verified bundle may
+    // supply indexes. A constructor-time read must not revive legacy content.
+    if (QFileInfo::exists(QDir(options_.dataRoot).filePath(QStringLiteral("public/current.json")))) return values;
     const QString indexPath = QDir(options_.dataRoot).filePath(QStringLiteral("catalog/pet-image-index.json"));
     QFile index(indexPath);
     if (safeExistingChain(indexPath) && index.open(QIODevice::ReadOnly) && index.size() <= 16 * 1024 * 1024) {
@@ -278,13 +331,29 @@ public:
           const auto images = root.value(section).toObject();
           for (auto entry = images.begin(); entry != images.end(); ++entry) {
             const auto item = entry->toObject();
-            const QString url = entry->isString() ? entry->toString()
-                : item.value(QStringLiteral("url")).toString(item.value(QStringLiteral("swfUrl")).toString());
-            if (safeVisualKey(entry.key()) && allowedUrl(url))
-            {
+            const QString url = item.value(QStringLiteral("swfUrl")).toString();
+            const QString symbol = item.value(QStringLiteral("symbol")).toString();
+            const QString revision = item.value(QStringLiteral("revision")).toString();
+            static const QRegularExpression official(QStringLiteral("^https://aoqi\\.100bt\\.com/play/peticon/peticon([1-9][0-9]*)~([0-9]{1,20})\\.swf$"));
+            static const QRegularExpression numeric(QStringLiteral("^[1-9][0-9]*$"));
+            static const QRegularExpression exact(QStringLiteral("^[1-9][0-9]*_[0-9]+$"));
+            const auto match = official.match(url);
+            const bool direct = section == QStringLiteral("images");
+            if (!match.hasMatch() || !(direct ? exact : numeric).match(entry.key()).hasMatch()) continue;
+            QString face = direct ? entry.key().section(QLatin1Char('_'),1,1) : entry.key();
+            if (face == QStringLiteral("0")) face = entry.key().section(QLatin1Char('_'),0,0);
+            bool parsed = false; qint64 actual = face.toLongLong(&parsed);
+            if (!parsed || actual <= 0) continue;
+            if (actual >= 10000 && !values.contains(QStringLiteral("exception:") + face)) actual %= 10000;
+            const QString identity = sourceIdentity(url, symbol, revision);
+            if (match.captured(1) == QString::number(actual) && revision == match.captured(2) &&
+                symbol == QStringLiteral("mmo.pet.peticon%1_L").arg(actual) &&
+                item.value(QStringLiteral("sourceIdentity")).toString(identity) == identity) {
               const QString key = (section == QStringLiteral("images") ? QStringLiteral("id:") : QStringLiteral("face:")) + entry.key();
               values.insert(key, url);
-              values.insert(QStringLiteral("revision:") + key, item.value(QStringLiteral("revision")).toString(item.value(QStringLiteral("version")).toString()));
+              values.insert(QStringLiteral("revision:") + key, revision);
+              values.insert(QStringLiteral("symbol:") + key, symbol);
+              values.insert(QStringLiteral("identity:") + key, identity);
             }
           }
         }
@@ -323,13 +392,57 @@ public:
     }
     return paths;
   }
+  QString recordedFingerprint(const QString& path, const QString& identity) const {
+    QFile metadata(QFileInfo(path).absolutePath() + QLatin1Char('/') + QFileInfo(path).completeBaseName() + QStringLiteral(".json"));
+    if (!safeExistingChain(metadata.fileName()) || !metadata.open(QIODevice::ReadOnly) || metadata.size()>65536) return {};
+    const auto proof=QJsonDocument::fromJson(metadata.readAll()).object();
+    const QString hash=proof.value(QStringLiteral("pngSha256")).toString();
+    return validSourceIdentity(hash) && sourceIdentity(proof.value(QStringLiteral("url")).toString(),
+        proof.value(QStringLiteral("symbol")).toString(),proof.value(QStringLiteral("revision")).toString())==identity ? hash : QString();
+  }
+  QString fileFingerprint(const QString& path) const {
+    QFile file(path);
+    if (!safeExistingChain(path) || !file.open(QIODevice::ReadOnly) || file.size()<0 || quint64(file.size())>options_.encodedImageBytes) return {};
+    QCryptographicHash hash(QCryptographicHash::Sha256);
+    return hash.addData(&file) ? QString::fromLatin1(hash.result().toHex()) : QString();
+  }
+  bool matchingCache(const QString& path, const SourcePtr& source, const QByteArray& bytes) const {
+    const QString hash=QString::fromLatin1(QCryptographicHash::hash(bytes,QCryptographicHash::Sha256).toHex());
+    if (!source->request.contentSha256.isEmpty() && source->request.contentSha256!=hash) return false;
+    // Generic injected fixtures are not official pet requests. Numeric pets
+    // always require an exact, content-checked source proof, even when offline.
+    if (source->sourceIdentity.isEmpty()) {
+      static const QRegularExpression numeric(QStringLiteral("^[1-9][0-9]*_[0-9]+$"));
+      const bool allowed=options_.verifiedUrls.contains(QStringLiteral("id:") + ImageService::storageKey(source->request.visualKey)) ||
+          !numeric.match(ImageService::storageKey(source->request.visualKey)).hasMatch();
+      if (allowed) source->contentSha256=hash;
+      return allowed;
+    }
+    QFile metadata(QFileInfo(path).absolutePath() + QLatin1Char('/') + QFileInfo(path).completeBaseName() + QStringLiteral(".json"));
+    if (!safeExistingChain(metadata.fileName()) || !metadata.open(QIODevice::ReadOnly) || metadata.size() > 65536) return false;
+    const auto proof = QJsonDocument::fromJson(metadata.readAll()).object();
+    const QString url = proof.value(QStringLiteral("url")).toString();
+    const QString symbol = proof.value(QStringLiteral("symbol")).toString();
+    const QString revision = proof.value(QStringLiteral("revision")).toString();
+    if (sourceIdentity(url, symbol, revision) != source->sourceIdentity ||
+        proof.value(QStringLiteral("pngSha256")).toString() != hash) return false;
+    const QString bound=cachePath(options_.dataRoot,source->request.visualKey,source->sourceIdentity);
+    if (path!=bound) {
+      QString expected=recordedFingerprint(bound,source->sourceIdentity);
+      if (expected.isEmpty()) expected=fileFingerprint(bound);
+      if (!expected.isEmpty() && expected!=hash) return false;
+    }
+    source->url = url; source->sourceSymbol = symbol; source->sourceRevision = revision;
+    source->contentSha256=hash;
+    return true;
+  }
   // force records a failure whose consumer side has already gone away: the
   // bytes were fetched and are unusable, so the on-disk backoff must still be
   // written even though the shared task was released before this I/O job ran.
   void rememberFailure(const SourcePtr& source, bool force = false) {
     if (closing_ || (!force && source->cancelled.load()) || !source->networkAttempted ||
         source->request.attributeId >= 0 || source->request.stargodId > 0) return;
-    const QString path = cachePath(options_.dataRoot, source->request.visualKey) + QStringLiteral(".failure.json");
+    const QString path = cachePath(options_.dataRoot, source->request.visualKey, source->sourceIdentity) + QStringLiteral(".failure.json");
     if (!safeExistingChain(path) || !QDir().mkpath(QFileInfo(path).absolutePath())) return;
     const QByteArray data = QJsonDocument(QJsonObject{{QStringLiteral("url"), source->url},
         {QStringLiteral("message"), source->message}, {QStringLiteral("attemptedAt"), QDateTime::currentDateTimeUtc().toString(Qt::ISODate)}}).toJson(QJsonDocument::Compact);
@@ -341,9 +454,16 @@ public:
     if (closing_ || source->cancelled.load()) { done(source, false); return; }
     const bool attribute = source->request.attributeId >= 0;
     const bool stargod = source->request.stargodId > 0;
+    QJsonObject pinnedIcon;
+    if ((attribute || stargod) && source->request.catalog) {
+      const auto& root = source->request.catalog->iconIndex;
+      pinnedIcon = root.value(attribute ? QStringLiteral("attributes") : QStringLiteral("stargods")).toObject()
+          .value(QString::number(attribute ? source->request.attributeId : source->request.stargodId)).toObject();
+    }
     const QString path = attribute ? QStringLiteral(":/kqpet/attribute-icons.png")
                                    : stargod ? QStringLiteral(":/kqpet/stargod-icons/%1.png").arg(source->request.stargodId)
-                                   : cachePath(options_.dataRoot, source->request.visualKey);
+                                   : cachePath(options_.dataRoot, source->request.visualKey, source->sourceIdentity);
+    if (!attribute && !stargod && path.isEmpty()) { source->message = QStringLiteral("此前图片来源未确认，请重新打开资料后重试"); done(source,false); return; }
     if (source->request.refreshChangedSource && !source->refreshChecked && !attribute && !stargod) {
       source->refreshChecked = true;
       QFile metadata(QFileInfo(path).absolutePath() + QLatin1Char('/') + ImageService::storageKey(source->request.visualKey) + QStringLiteral(".json"));
@@ -357,14 +477,21 @@ public:
     }
     if (source->localCandidates.isEmpty() && !source->forceNetwork) {
       if (attribute || stargod) {
-        const QString disk = QDir(options_.dataRoot).filePath(attribute
-            ? QStringLiteral("images/attributes/%1.png").arg(source->request.attributeId)
-            : QStringLiteral("images/stargods/%1.png").arg(source->request.stargodId));
-        if (safeExistingChain(disk)) source->localCandidates.append(disk);
+        QString relative = pinnedIcon.value(QStringLiteral("file")).toString();
+        if (!source->request.catalog && !QFileInfo::exists(QDir(options_.dataRoot).filePath(QStringLiteral("public/current.json")))) relative = attribute ? QStringLiteral("images/attributes/%1.png").arg(source->request.attributeId)
+            : QStringLiteral("images/stargods/%1.png").arg(source->request.stargodId);
+        static const QRegularExpression safeIcon(QStringLiteral("^images/(?:public-icons/[0-9a-f]{64}|attributes/[0-9]+|stargods/[0-9]+)\\.png$"));
+        const QString disk = QDir(options_.dataRoot).filePath(relative);
+        const QString digest = pinnedIcon.value(QStringLiteral("png")).toObject().value(QStringLiteral("sha256")).toString();
+        if (safeIcon.match(relative).hasMatch() && (!source->request.catalog || validSourceIdentity(digest)) && safeExistingChain(disk))
+          source->localCandidates.append(disk);
         // The bundled attribute sprite has a fixed, known set. An unknown ID
         // must not silently inherit the normal attribute's picture.
         if (stargod || source->request.attributeId <= 28) source->localCandidates.append(path);
-      } else source->localCandidates = localPaths(source->request.visualKey);
+      } else {
+        source->localCandidates = localPaths(source->request.visualKey);
+        if (!source->sourceIdentity.isEmpty()) source->localCandidates.prepend(path);
+      }
     }
     while (!source->forceNetwork && source->localCandidate < source->localCandidates.size()) {
       const QString candidate = source->localCandidates.at(source->localCandidate++);
@@ -375,7 +502,11 @@ public:
         source->bytes = file.read(qint64(options_.encodedImageBytes) + 1);
         source->cached = true;
         source->migrate = candidate != path;
-        if (!source->bytes.isEmpty() && quint64(source->bytes.size()) <= options_.encodedImageBytes) {
+        const bool validPinnedIcon = !(attribute || stargod) || !source->request.catalog || candidate.startsWith(QStringLiteral(":")) ||
+            pinnedIcon.value(QStringLiteral("png")).toObject().value(QStringLiteral("sha256")).toString() ==
+                QString::fromLatin1(QCryptographicHash::hash(source->bytes,QCryptographicHash::Sha256).toHex());
+        if (!source->bytes.isEmpty() && quint64(source->bytes.size()) <= options_.encodedImageBytes &&
+            ((attribute || stargod) ? validPinnedIcon : matchingCache(candidate,source,source->bytes))) {
           done(source, true);
           return;
         }
@@ -431,11 +562,17 @@ public:
       drain();
       replies_.remove(reply);
       const int status = reply->attribute(QNetworkRequest::HttpStatusCodeAttribute).toInt();
-      const bool success = !closing_ && !source->cancelled.load() &&
+      bool success = !closing_ && !source->cancelled.load() &&
           reply->error() == QNetworkReply::NoError && status >= 200 && status < 300 &&
           !reply->property("kqOversize").toBool() && !source->bytes.isEmpty();
+      if (success) {
+        source->contentSha256=QString::fromLatin1(QCryptographicHash::hash(source->bytes,QCryptographicHash::Sha256).toHex());
+        if (!source->request.contentSha256.isEmpty() && source->request.contentSha256!=source->contentSha256) {
+          success=false; source->message=QStringLiteral("图片内容与请求快照不同，保留原图片");
+        }
+      }
       if (!success) {
-        source->message = status ? QStringLiteral("图片下载失败（HTTP %1）；可右键重试").arg(status)
+        if (source->message.isEmpty()) source->message = status ? QStringLiteral("图片下载失败（HTTP %1）；可右键重试").arg(status)
                              : QStringLiteral("图片下载失败或超时；可右键重试");
         rememberFailure(source);
       }
@@ -470,11 +607,11 @@ public:
       processes_.remove(process);
       process->deleteLater();
       if (success && !closing_ && !source->cancelled.load()) {
-        const QString path = cachePath(options_.dataRoot, source->request.visualKey);
+        const QString path = cachePath(options_.dataRoot, source->request.visualKey, source->sourceIdentity);
         QFile file(path);
         if (safeExistingChain(path) && file.open(QIODevice::ReadOnly) && file.size() > 0 && quint64(file.size()) <= options_.encodedImageBytes) {
           source->bytes = file.read(qint64(options_.encodedImageBytes) + 1);
-          if (!source->bytes.isEmpty() && quint64(source->bytes.size()) <= options_.encodedImageBytes) {
+          if (!source->bytes.isEmpty() && quint64(source->bytes.size()) <= options_.encodedImageBytes && matchingCache(path,source,source->bytes)) {
             source->cached = true; source->forceNetwork = true; source->migrate = false; done(source, true); return;
           }
         }
@@ -489,8 +626,12 @@ public:
     connect(process, &QProcess::errorOccurred, process, [complete](QProcess::ProcessError error) {
       if (error == QProcess::FailedToStart) complete(false);
     });
-    process->start(python, {script, QStringLiteral("--data-root"), options_.dataRoot,
-        QStringLiteral("--extract-image"), QStringLiteral("--visual-key"), ImageService::storageKey(source->request.visualKey), QStringLiteral("--replace")});
+    QStringList arguments{script, QStringLiteral("--data-root"), options_.dataRoot,
+        QStringLiteral("--extract-image"), QStringLiteral("--visual-key"), ImageService::storageKey(source->request.visualKey),
+        QStringLiteral("--image-source-identity"), source->sourceIdentity, QStringLiteral("--replace")};
+    if (!source->request.contentSha256.isEmpty()) arguments << QStringLiteral("--image-content-sha256") << source->request.contentSha256;
+    if (source->request.catalog) arguments << QStringLiteral("--image-index-object") << source->request.catalog->imageIndexObject;
+    process->start(python,arguments);
   }
   // A bounded, cheap "the file on disk is still a usable image" check. It never
   // decodes the whole file: the RAM copy already proved decodability.
@@ -502,9 +643,10 @@ public:
   ImagePersistenceReport verify(const JobPtr& job) {
     if (closing_) return {ImagePersistence::Cancelled, QStringLiteral("图片服务正在关闭"), false};
     if (job->cancelled.load()) return {ImagePersistence::Cancelled, QStringLiteral("磁盘确认已取消"), false};
-    const QString path = cachePath(options_.dataRoot, job->request.visualKey);
+    const QString path = cachePath(options_.dataRoot, job->request.visualKey, job->sourceIdentity);
     if (path.isEmpty()) return {ImagePersistence::Failed, QStringLiteral("缓存路径无效或不可写"), false};
-    if (validStoredImage(path)) return {ImagePersistence::AlreadyValid, {}, false};
+    if (validStoredImage(path) && (job->contentSha256.isEmpty() || fileFingerprint(path)==job->contentSha256))
+      return {ImagePersistence::AlreadyValid, {}, false};
     return {ImagePersistence::Failed,
         QStringLiteral("内存中已有图片，但磁盘缓存缺失或无效"), false};
   }
@@ -513,8 +655,8 @@ public:
   ImagePersistenceReport save(const JobPtr& job) {
     if (closing_) return {ImagePersistence::Cancelled, QStringLiteral("图片服务正在关闭"), false};
     if (job->cancelled.load()) return {ImagePersistence::Cancelled, QStringLiteral("保存已取消"), false};
-    if (job->cached && !job->migrate) return {ImagePersistence::AlreadyValid, {}, false};
-    const QString path = cachePath(options_.dataRoot, job->request.visualKey);
+    if (job->cached && !job->migrate) return verify(job);
+    const QString path = cachePath(options_.dataRoot, job->request.visualKey, job->sourceIdentity);
     if (path.isEmpty()) return {ImagePersistence::Failed, QStringLiteral("缓存路径无效或不可写"), false};
     const QString directory = QFileInfo(path).absolutePath();
     if (!QDir().mkpath(directory) || !safeExistingChain(path))
@@ -524,6 +666,37 @@ public:
     lock.setStaleLockTime(0);
     if (!safeExistingChain(lockPath) || !lock.tryLock(0) || !safeExistingChain(path))
       return {ImagePersistence::Failed, QStringLiteral("缓存文件被其他进程占用或路径无效"), false};
+    const QString content=QString::fromLatin1(QCryptographicHash::hash(job->bytes,QCryptographicHash::Sha256).toHex());
+    bool writeFile=true;
+    const bool official=!job->sourceIdentity.isEmpty();
+    if (official) {
+      const QString expected=recordedFingerprint(path,job->sourceIdentity);
+      if (!expected.isEmpty() && expected!=content)
+        return {ImagePersistence::Failed,QStringLiteral("同一图片来源的内容已变化，保留原对象"),false};
+      if (QFile::exists(path)) {
+        const QString existing=fileFingerprint(path);
+        if (existing!=content && expected!=content)
+          return {ImagePersistence::Failed,QStringLiteral("同一图片来源已有不同内容，保留原对象"),false};
+        writeFile=existing!=content;
+      } else {
+        QTemporaryFile staged(QDir(directory).filePath(QStringLiteral(".picture-XXXXXX")));
+        if (!staged.open() || staged.write(job->bytes)!=job->bytes.size() || !staged.flush())
+          return {ImagePersistence::Failed,QStringLiteral("图片暂存失败"),false};
+        staged.close();
+        if (job->cancelled.load() || closing_)
+          return {ImagePersistence::Cancelled,QStringLiteral("保存已取消"),false};
+        std::error_code error;
+#ifdef Q_OS_WIN
+        std::filesystem::create_hard_link(std::filesystem::path(staged.fileName().toStdWString()),std::filesystem::path(path.toStdWString()),error);
+#else
+        std::filesystem::create_hard_link(std::filesystem::path(staged.fileName().toStdString()),std::filesystem::path(path.toStdString()),error);
+#endif
+        if (error && fileFingerprint(path)!=content)
+          return {ImagePersistence::Failed,QStringLiteral("图片对象写入失败或并发内容不同，保留已有对象"),false};
+        writeFile=false;
+      }
+    }
+    if (writeFile) {
     QSaveFile file(path);
     file.setDirectWriteFallback(false);
     if (!file.open(QIODevice::WriteOnly))
@@ -543,7 +716,8 @@ public:
       return {ImagePersistence::Failed, QStringLiteral("缓存路径检查失败"), false};
     }
     if (!file.commit()) return {ImagePersistence::Failed, QStringLiteral("缓存提交失败"), false};
-    const bool wantsMetadata = !job->cached && !job->url.isEmpty();
+    }
+    const bool wantsMetadata = (!job->cached || job->migrate) && !job->url.isEmpty();
     bool metadataSaved = false;
     if (wantsMetadata) {
       const QString metaPath = QDir(directory).filePath(ImageService::storageKey(job->request.visualKey) + QStringLiteral(".json"));
@@ -551,7 +725,8 @@ public:
       metadata.setDirectWriteFallback(false);
       const QByteArray body = QJsonDocument(QJsonObject{{QStringLiteral("schemaVersion"), 1}, {QStringLiteral("url"), job->url},
           {QStringLiteral("revision"), job->sourceRevision},
-          {QStringLiteral("pngSha256"), QString::fromLatin1(QCryptographicHash::hash(job->bytes, QCryptographicHash::Sha256).toHex())}}).toJson(QJsonDocument::Compact);
+          {QStringLiteral("symbol"), job->sourceSymbol}, {QStringLiteral("sourceIdentity"), job->sourceIdentity},
+          {QStringLiteral("pngSha256"), content}}).toJson(QJsonDocument::Compact);
       if (safeExistingChain(metaPath) && metadata.open(QIODevice::WriteOnly) && metadata.write(body) == body.size())
         metadataSaved = metadata.commit();
     }
@@ -586,6 +761,7 @@ struct ImageService::Impl {
   std::shared_ptr<IoState> ioState = std::make_shared<IoState>();
   std::shared_ptr<void> directoryLease;
   QHash<QString, QString> urls;
+  ImageCatalogHandle publicCatalog;
   QHash<QString, Cached> cache;
   QHash<QString, QString> failures;
   QList<JobPtr> waiting;
@@ -611,6 +787,7 @@ struct ImageService::Impl {
   quint64 batchGeneration = 0;
   quint64 jobIdCounter = 0;
   quint64 clock = 0;
+  quint64 sourceGeneration = 0;
   quint64 cacheBytes = 0;
   bool initialized = false;
   bool initializing = false;
@@ -686,6 +863,11 @@ struct ImageService::Impl {
         self.directoryLease = reserve(self.ledger, bytes);
         if (self.directoryLease) self.urls = values;
         self.initialized = true; self.initializing = false;
+        const QPointer<ImageService> generationOwner(self.q);
+        const quint64 generation = self.sourceGeneration;
+        QMetaObject::invokeMethod(self.q, [generationOwner,generation] {
+          if (generationOwner && !generationOwner->impl_->closing) emit generationOwner->imageGenerationAvailable(generation);
+        }, Qt::QueuedConnection);
         if (self.reloading) {
           self.reloading = false;
           const QPointer<ImageService> owner(self.q);
@@ -783,6 +965,9 @@ struct ImageService::Impl {
     job->refreshChecked = source->refreshChecked;
     job->url = source->url;
     job->sourceRevision = source->sourceRevision;
+    job->sourceIdentity = source->sourceIdentity;
+    job->sourceSymbol = source->sourceSymbol;
+    job->contentSha256 = source->contentSha256;
     job->localCandidates = source->localCandidates;
     job->localCandidate = source->localCandidate;
     // The charge is shared: it is released with the last consumer, not with the
@@ -819,6 +1004,7 @@ struct ImageService::Impl {
       if (current) sources.remove(source->key);
       for (const auto& job : std::as_const(released)) {
         job->message = source->message;
+        job->sourceIdentity = source->sourceIdentity;
         report(job, ImageOutcome::Unavailable);
       }
     }
@@ -859,6 +1045,11 @@ struct ImageService::Impl {
     auto job = std::make_shared<Job>();
     job->key = key;
     job->request = request;
+    const auto cached = cache.constFind(key);
+    if (cached != cache.cend()) {
+      job->sourceIdentity = cached->image->sourceIdentity;
+      job->contentSha256 = cached->image->contentSha256;
+    }
     job->batch = true;
     job->batchGeneration = batchGeneration;
     job->jobId = ++jobIdCounter;
@@ -878,7 +1069,8 @@ struct ImageService::Impl {
       failures.insert(job->key, job->message);
     }
     else failures.remove(job->key);
-    const ImageResult result{job->key, job->request.visualKey, outcome, std::move(handle), job->message};
+    const ImageResult result{job->key, job->request.visualKey, outcome, std::move(handle), job->message, job->sourceIdentity,
+        job->contentSha256.isEmpty() ? job->request.contentSha256 : job->contentSha256, job->request.catalog};
     const QPointer<ImageService> owner(q);
     // Publication is a separate Core event. A direct completed slot may delete
     // or close the service; no scheduler frame remains on that call stack.
@@ -967,12 +1159,26 @@ void ImageService::Impl::pump() {
     // stopped at. A first request starts from an empty acquisition state.
     source->url = job->url;
     source->sourceRevision = job->sourceRevision;
+    source->sourceIdentity = job->sourceIdentity;
+    source->sourceSymbol = job->sourceSymbol;
     source->localCandidates = job->localCandidates;
     source->localCandidate = job->localCandidate;
     source->forceNetwork = job->forceNetwork;
     source->networkAttempted = job->networkAttempted;
     source->refreshChecked = job->refreshChecked;
-    if (source->url.isEmpty() && source->request.attributeId < 0 && source->request.stargodId == 0) {
+    if (source->url.isEmpty() && source->request.catalog && source->request.attributeId < 0 && source->request.stargodId == 0) {
+      const auto entry = pinnedImageEntry(source->request);
+      const auto identity = entry.value(QStringLiteral("sourceIdentity")).toString();
+      source->sourceIdentity = source->request.sourceIdentity.isEmpty() ? identity : source->request.sourceIdentity;
+      if (!identity.isEmpty() && (source->request.sourceIdentity.isEmpty() || source->request.sourceIdentity == identity)) {
+        source->url = entry.value(QStringLiteral("swfUrl")).toString();
+        source->sourceRevision = entry.value(QStringLiteral("revision")).toString();
+        source->sourceSymbol = entry.value(QStringLiteral("symbol")).toString();
+      }
+      if (source->sourceIdentity.isEmpty()) source->sourceIdentity = QStringLiteral("unresolved");
+    } else if (source->url.isEmpty() && source->request.attributeId < 0 && source->request.stargodId == 0) {
+      const bool current = source->request.sourceGeneration == std::numeric_limits<quint64>::max() ||
+          source->request.sourceGeneration == sourceGeneration;
       const QString storage = ImageService::storageKey(source->request.visualKey);
       QString found = QStringLiteral("id:") + storage;
       source->url = urls.value(found);
@@ -989,9 +1195,13 @@ void ImageService::Impl::pump() {
         }
       }
       source->sourceRevision = urls.value(QStringLiteral("revision:") + found);
-      for (const auto& name : source->request.candidateNames) {
-        if (!source->url.isEmpty()) break;
-        source->url = urls.value(name.trimmed());
+      source->sourceSymbol = urls.value(QStringLiteral("symbol:") + found);
+      const QString identity = urls.value(QStringLiteral("identity:") + found);
+      source->sourceIdentity = source->request.sourceIdentity.isEmpty()
+          ? (current ? identity : QStringLiteral("unresolved")) : source->request.sourceIdentity;
+      if (!current || (!source->request.sourceIdentity.isEmpty() && identity != source->request.sourceIdentity)) {
+        source->url.clear(); source->sourceRevision.clear(); source->sourceSymbol.clear();
+        if (source->sourceIdentity.isEmpty()) source->sourceIdentity = QStringLiteral("unresolved");
       }
     }
     source->encodedLease = reserveEvicting(options.encodedImageBytes, ChargeKind::Encoded);
@@ -1189,6 +1399,9 @@ void ImageService::Impl::completeDecode(const JobPtr& job, QImage image, qint64 
   payload->visualKey = job->request.visualKey;
   payload->image = std::move(image);
   payload->imageBytes = quint64(payload->image.sizeInBytes()) + 512;
+  payload->sourceIdentity = job->sourceIdentity;
+  payload->catalog = job->request.catalog;
+  payload->contentSha256 = job->contentSha256;
   payload->memoryRetention = std::move(job->outputLease);
   payload->ledger = ledger;
   while (cacheBytes + payload->imageBytes > options.lruBytes && evictOne()) {}
@@ -1216,6 +1429,7 @@ ImageService::ImageService(ImageServiceOptions options, ImageExecutors executors
   qRegisterMetaType<ImageRequest>();
   qRegisterMetaType<ImageHandle>();
   qRegisterMetaType<ImagePersistenceResult>();
+  qRegisterMetaType<ImageCatalogHandle>();
   impl_->start();
 }
 ImageService::~ImageService() {
@@ -1226,8 +1440,11 @@ ImageService::~ImageService() {
 }
 QString ImageService::requestKey(const ImageRequest& request, const QString& resourceVersion) {
   const QSize size = outputSize(request);
-  return QStringLiteral("%1|%2|%3x%4|%5").arg(imageSourceIdentity(request), resourceVersion)
-      .arg(size.width()).arg(size.height()).arg(qBound<qreal>(1, request.devicePixelRatio, 4), 0, 'f', 3);
+  const QString snapshot = request.catalog && request.catalogKeyed ? QStringLiteral("|index:%1").arg(indexIdentity(request)) : request.attributeId < 0 && request.stargodId == 0 &&
+      request.sourceGeneration != std::numeric_limits<quint64>::max()
+      ? QStringLiteral("|source-generation:%1").arg(request.sourceGeneration) : QString();
+  return QStringLiteral("%1|%2|%3x%4|%5%6").arg(imageSourceIdentity(request), resourceVersion)
+      .arg(size.width()).arg(size.height()).arg(qBound<qreal>(1, request.devicePixelRatio, 4), 0, 'f', 3).arg(snapshot);
 }
 QString ImageService::storageKey(const QString& visualKey) {
   static const QRegularExpression numeric(QStringLiteral("^([1-9][0-9]*)_([0-9]+)(?:_[0-9a-fA-F]{12})?$"));
@@ -1237,11 +1454,22 @@ QString ImageService::storageKey(const QString& visualKey) {
 void ImageService::reloadImageIndex() {
   Q_ASSERT(thread() == QThread::currentThread());
   if (impl_->closing) return;
+  // Production switches complete public bundles. A legacy reload must not
+  // bypass its pinned indexes by rereading the old mutable catalog directory.
+  if (impl_->publicCatalog) { publishImageGeneration(); return; }
+  ++impl_->sourceGeneration;
   const QPointer<ImageService> owner(this);
   cancelBatch();
   if (!owner) return;
   impl_->failures.clear();
-  for (const auto& job : std::as_const(impl_->active)) job->cancelled.store(true);
+  for (const auto& job : std::as_const(impl_->active)) {
+    job->cancelled.store(true);
+    const ImageResult result{job->key,job->request.visualKey,ImageOutcome::Unavailable,{},
+        QStringLiteral("图片资料已更新，请重新打开资料后重试"),
+        job->sourceIdentity.isEmpty() ? (job->request.sourceIdentity.isEmpty() ? QStringLiteral("unresolved") : job->request.sourceIdentity)
+                                      : job->sourceIdentity,job->request.contentSha256};
+    QMetaObject::invokeMethod(this,[owner,result] { if (owner && !owner->impl_->closing) emit owner->completed(result); },Qt::QueuedConnection);
+  }
   impl_->waiting.clear(); impl_->encoded.clear(); impl_->decoding.reset(); impl_->active.clear();
   impl_->pendingSource.clear();
   // A new directory generation must not be served by a task that started before
@@ -1256,6 +1484,39 @@ void ImageService::reloadImageIndex() {
   impl_->refreshStats();
   impl_->start();
 }
+void ImageService::applyPublicDataset(PublicDatasetSnapshotHandle dataset) {
+  Q_ASSERT(thread() == QThread::currentThread());
+  if (impl_->closing || !dataset) return;
+  const auto images = dataset->components.value(QStringLiteral("images")).sha256;
+  const auto icons = dataset->components.value(QStringLiteral("icons")).sha256;
+  if (!validSourceIdentity(images) || !validSourceIdentity(icons)) return;
+  if (impl_->publicCatalog && impl_->publicCatalog->imageIndexObject == images && impl_->publicCatalog->iconIndexObject == icons) return;
+  auto catalog = std::make_shared<ImageCatalogSnapshot>();
+  catalog->imageIndexObject = images; catalog->iconIndexObject = icons;
+  catalog->imageIndex = dataset->imageIndex; catalog->iconIndex = dataset->iconIndex;
+  impl_->publicCatalog = std::move(catalog);
+  ++impl_->sourceGeneration;
+  // Old jobs and document requests keep their exact indexes. Only unbound
+  // legacy cache entries require clearing; keyed public objects remain valid.
+  impl_->failures.clear();
+  for (auto it = impl_->cache.begin(); it != impl_->cache.end();) {
+    if (!it.key().contains(QStringLiteral("|index:"))) { impl_->cacheBytes -= it->image->imageBytes; it = impl_->cache.erase(it); }
+    else ++it;
+  }
+  const QPointer<ImageService> alive(this);
+  emit imageCatalogAvailable(impl_->publicCatalog);
+  if (!alive) return;
+  emit imageGenerationAvailable(impl_->sourceGeneration);
+  if (!alive) return;
+  emit imageIndexReloaded();
+}
+void ImageService::publishImageGeneration() {
+  Q_ASSERT(thread() == QThread::currentThread());
+  const QPointer<ImageService> alive(this);
+  if (impl_->publicCatalog && !impl_->closing) emit imageCatalogAvailable(impl_->publicCatalog);
+  if (!alive) return;
+  if (impl_->initialized && !impl_->closing) emit imageGenerationAvailable(impl_->sourceGeneration);
+}
 void ImageService::requestBatch(const QList<ImageRequest>& requests) {
   Q_ASSERT(thread() == QThread::currentThread());
   if (impl_->closing) return;
@@ -1267,6 +1528,7 @@ void ImageService::requestBatch(const QList<ImageRequest>& requests) {
   ++impl_->batchGeneration;
   QSet<QString> seen;
   for (auto request : requests) {
+    if (!request.catalog) request.catalog = impl_->publicCatalog;
     request.selected = false;
     // Batch results populate the disk instead of being held for a GUI image.
     request.outputLogicalSize = {1, 1}; request.devicePixelRatio = 1;
@@ -1317,17 +1579,26 @@ void ImageService::request(const ImageRequest& request) {
   if ((!safeVisualKey(request.visualKey) && request.attributeId < 0 && request.stargodId == 0) || request.attributeId > 100000 ||
       request.stargodId < 0 || request.stargodId > 100000 || (request.attributeId >= 0 && request.stargodId > 0) ||
       request.candidateNames.size() > 8 || request.outputLogicalSize.width() <= 0 ||
-      request.outputLogicalSize.height() <= 0 || !std::isfinite(request.devicePixelRatio)) {
+      request.outputLogicalSize.height() <= 0 || !std::isfinite(request.devicePixelRatio) ||
+      (!request.sourceIdentity.isEmpty() && request.sourceIdentity != QStringLiteral("unresolved") && !validSourceIdentity(request.sourceIdentity)) ||
+      (!request.contentSha256.isEmpty() && !validSourceIdentity(request.contentSha256))) {
     emit completed({{}, request.visualKey, ImageOutcome::Rejected, {}}); return;
   }
   for (const auto& name : request.candidateNames) if (name.size() > 512) {
     emit completed({{}, request.visualKey, ImageOutcome::Rejected, {}}); return;
   }
   const QString key = requestKey(request, impl_->options.resourceVersion);
+  const auto expectedCatalog = request.catalog ? request.catalog : impl_->publicCatalog;
+  const auto sameIndex = [&](const ImageCatalogHandle& catalog) {
+    if (!expectedCatalog || !catalog) return expectedCatalog == catalog;
+    return request.attributeId >= 0 || request.stargodId > 0 ? expectedCatalog->iconIndexObject == catalog->iconIndexObject
+        : expectedCatalog->imageIndexObject == catalog->imageIndexObject;
+  };
   if (auto cached = impl_->cache.find(key); cached != impl_->cache.end()) {
-    if (!request.refreshChangedSource) {
+    if (sameIndex(cached->image->catalog) && !request.refreshChangedSource && (request.sourceIdentity.isEmpty() || request.sourceIdentity == cached->image->sourceIdentity) &&
+        (request.contentSha256.isEmpty() || request.contentSha256==cached->image->contentSha256)) {
       cached->access = ++impl_->clock;
-      emit completed({key, request.visualKey, ImageOutcome::Ready, cached->image});
+      emit completed({key, request.visualKey, ImageOutcome::Ready, cached->image, {}, cached->image->sourceIdentity,cached->image->contentSha256,cached->image->catalog});
       const QPointer<ImageService> owner(this);
       // The RAM copy proves neither file existence nor content. A batch entry
       // must let I/O confirm the stored file before it can count as persisted.
@@ -1339,6 +1610,9 @@ void ImageService::request(const ImageRequest& request) {
     impl_->cache.erase(cached);
   }
   if (auto active = impl_->active.find(key); active != impl_->active.end()) {
+    if (!sameIndex(active.value()->request.catalog)) {
+      emit completed({key,request.visualKey,ImageOutcome::Unavailable,{},QStringLiteral("图片资料正在切换，请稍后重试"),{}, {}, expectedCatalog}); return;
+    }
     if (request.selected) {
       // Mutate request priority only before it crosses to a worker.
       for (int i = 0; i < impl_->waiting.size(); ++i) if (impl_->waiting[i] == active.value()) {
@@ -1357,7 +1631,7 @@ void ImageService::request(const ImageRequest& request) {
     impl_->report(displaced, ImageOutcome::Rejected);
   }
   auto job = std::make_shared<Job>();
-  quint64 descriptorBytes = sizeof(Job) + 512 + quint64(key.capacity() + request.visualKey.capacity()) * 2;
+  quint64 descriptorBytes = sizeof(Job) + 512 + quint64(key.capacity() + request.visualKey.capacity() + request.sourceIdentity.capacity() + request.contentSha256.capacity()) * 2;
   for (const auto& name : request.candidateNames) descriptorBytes += quint64(name.capacity()) * 2 + 64;
   job->descriptorLease = impl_->reserveEvicting(descriptorBytes, ChargeKind::Normal);
   if (!job->descriptorLease) {
@@ -1365,8 +1639,15 @@ void ImageService::request(const ImageRequest& request) {
     return;
   }
   job->request = request;
+  if (!job->request.catalog && (request.sourceGeneration == std::numeric_limits<quint64>::max() ||
+      request.sourceGeneration == impl_->sourceGeneration)) {
+    job->request.catalog = impl_->publicCatalog; job->request.catalogKeyed = false;
+  }
   job->key = key;
-  job->sourceKey = imageSourceIdentity(request) + QLatin1Char('|') + impl_->options.resourceVersion;
+  job->sourceKey = imageSourceIdentity(request) + QLatin1Char('|') + impl_->options.resourceVersion +
+      QLatin1Char('|') + QString::number(request.sourceGeneration) + QLatin1Char('|') + request.sourceIdentity;
+  job->sourceKey += QLatin1Char('|') + request.contentSha256;
+  job->sourceKey += QLatin1Char('|') + indexIdentity(job->request);
   // An explicit "this source changed" refresh re-reads instead of reusing bytes
   // that were fetched before the update.
   if (request.refreshChangedSource) job->sourceKey += QStringLiteral("|refresh");

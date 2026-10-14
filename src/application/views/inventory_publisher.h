@@ -6,6 +6,7 @@
 #include <memory>
 #include "contracts/pet_derivation_types.h"
 #include "contracts/pet_detail_types.h"
+#include "contracts/public_dataset.h"
 
 class PetRepository;
 class InventoryProjection;
@@ -28,9 +29,13 @@ public:
   void factsFailed(const PetDerivationKey& key, const QString& error);
   void metadataUpdated(std::shared_ptr<const PetDetailCatalogSnapshot> metadata);
   void skillMetadataUpdated(std::shared_ptr<const PetSkillCatalogSnapshot> skills);
+  void setPublicDataset(PublicDatasetSnapshotHandle dataset);
   void setDetailService(PetDetailPreparationService* service, PetDerivationCache* derivations);
   void selectDetail(int consumer, qint64 id);
   void requestDetailPage(int consumer, DetailSection section, int pageIndex);
+  void relationCatalogLoadFinished(bool loaded, const QString& error = {});
+signals:
+  void relationCatalogNeeded();
 private:
   void publish();
   void provideWaitingDetails();
@@ -38,6 +43,8 @@ private:
   void detailDependenciesChanged(const QSet<qint64>& ids);
   QSet<qint64> changedSelectedRecords();
   quint64 summaryRevision(qint64 id, const QJsonObject& brief);
+  std::shared_ptr<const DetailRelationRoster> relationRoster();
+  void refreshRelationDetails();
   PetRepository* repository_;
   InventoryProjection* projection_;
   bool scheduled_ = false;
@@ -50,6 +57,10 @@ private:
   std::shared_ptr<const InventoryViewSnapshot> last_;
   std::shared_ptr<const PetDetailCatalogSnapshot> metadata_;
   std::shared_ptr<const PetSkillCatalogSnapshot> skills_;
+  PublicDatasetSnapshotHandle publicDataset_;
+  std::shared_ptr<const DetailRelationRoster> relationRoster_;
+  bool relationCatalogPending_ = false;
+  QString relationCatalogProblem_;
   QHash<qint64, int> backpackRows_;
   QHash<qint64, int> warehouseRows_;
   QPointer<PetDetailPreparationService> detailService_;

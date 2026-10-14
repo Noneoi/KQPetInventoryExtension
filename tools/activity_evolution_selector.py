@@ -13,6 +13,7 @@ from pathlib import Path
 import re
 
 from public_routine_updater import _arguments, _atomic_json, _balanced, _declaration, _read
+from public_resource_session import resource_matches
 
 PARSER_VERSION = 1
 FILENAME = "activity-evolution-data.json"
@@ -41,6 +42,10 @@ def dependency_revision(versions: dict) -> str:
         if not re.fullmatch(r"[0-9]{8,20}", version):
             raise ValueError("进化适用范围缺少官方资源版本：" + key)
         values[key] = version
+    observed = getattr(versions, 'source_hashes', {})
+    hashes = {key: observed[key] for _, key, _ in RESOURCES if key in observed}
+    if hashes:
+        values['sourceHashes'] = hashes
     return hashlib.sha256(json.dumps(values, sort_keys=True, separators=(",", ":")).encode()).hexdigest()
 
 
@@ -189,7 +194,7 @@ def _load_tables(updater, versions: dict) -> dict:
     resources = dict(previous)
     changed = []
     for label, key, classes in RESOURCES:
-        if current and previous[label].get("version") == versions[key]:
+        if 'shop' not in getattr(updater, 'force_components', ()) and current and resource_matches(previous[label], key, versions):
             continue
         changed.append(label)
         swf, source = updater.resource(key, versions)
@@ -198,9 +203,15 @@ def _load_tables(updater, versions: dict) -> dict:
             exported = updater.export(swf, updater.scratch / ("activity-evolution-" + label), selected)
             scripts[label][selected.rsplit(".", 1)[-1]] = exported.read_text(encoding="utf-8-sig")
         resources[label] = {**source, "key": key}
+    observed = getattr(versions, 'source_hashes', {})
+    hashes = {key: observed[key] for _, key, _ in RESOURCES if key in observed}
     if not changed:
+        if current.get('sourceHashes', {}) != hashes:
+            current = {**current, 'sourceHashes': hashes, 'dependencyRevision': revision}
+            _atomic_json(path, current)
         return current
-    result = {**current, "schema": 1, "parserVersion": PARSER_VERSION, "dependencyRevision": revision, "resources": resources}
+    result = {**current, "schema": 1, "parserVersion": PARSER_VERSION, "dependencyRevision": revision,
+              "resources": resources, "sourceHashes": hashes}
     if "evolution" in changed:
         source = scripts["evolution"]
         verify_evolution_algorithm(source["PetEvoPanelManager"], source["PetEvoPanelDefine"])

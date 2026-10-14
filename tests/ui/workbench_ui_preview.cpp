@@ -1,4 +1,6 @@
 #include "ui/workbench/workbench_window.h"
+#include "ui/battle/battle_replay_page.h"
+#include "battle_replay_preview_catalog.h"
 #include "ui/pet/pet_window.h"
 #include "ui/shop/shop_window.h"
 #include "application/catalog/shop_exchange_catalog.h"
@@ -17,13 +19,17 @@
 #include "domain/asset_derivation.h"
 
 #include <QApplication>
+#include <QBuffer>
+#include <QCryptographicHash>
 #include <QDir>
 #include <QElapsedTimer>
 #include <QFileInfo>
+#include <QFile>
 #include <QFontDatabase>
 #include <QGuiApplication>
 #include <QImage>
 #include <QJsonArray>
+#include <QJsonDocument>
 #include <QLineEdit>
 #include <QLabel>
 #include <QHeaderView>
@@ -153,7 +159,6 @@ int main(int argc, char* argv[]) {
   auto& inventory = fixture.inventory;
   ImageServiceOptions imageOptions;
   imageOptions.dataRoot = dataRoot.path();
-  imageOptions.verifiedUrls.insert(QStringLiteral("星河守望者"), QStringLiteral("http://127.0.0.1:1/isolated-preview.png"));
   // Preseed only this disposable fixture. Production image writes belong to I/O.
   QImage portrait(240, 240, QImage::Format_ARGB32_Premultiplied);
   portrait.fill(QColor(QStringLiteral("#edf5ff")));
@@ -171,18 +176,50 @@ int main(int argc, char* argv[]) {
     painter.setPen(QColor(QStringLiteral("#35638d")));
     painter.drawText(QRect(0, 203, 240, 30), Qt::AlignCenter, QStringLiteral("合成图片 · 离线预览"));
   }
-  QDir().mkpath(QDir(dataRoot.path()).filePath(QStringLiteral("images/pets")));
+  QByteArray portraitBytes;
+  QBuffer portraitBuffer(&portraitBytes);
+  portraitBuffer.open(QIODevice::WriteOnly);
+  bool imageFixtureReady=portrait.save(&portraitBuffer,"PNG");
+  const QString pngHash=QString::fromLatin1(QCryptographicHash::hash(portraitBytes,QCryptographicHash::Sha256).toHex());
+  QJsonObject faceEntries;
+  QJsonArray faceExceptions;
+  const auto writeFixture=[&](const QString& path,const QByteArray& bytes) {
+    QDir().mkpath(QFileInfo(path).absolutePath());
+    QFile file(path);
+    return file.open(QIODevice::WriteOnly) && file.write(bytes)==bytes.size();
+  };
   for (int index = 0; index < 42; ++index) {
     const auto sample = pet(index,1,index<12);
-    imageOptions.verifiedUrls.insert(sample.value(QStringLiteral("n")).toString(),QStringLiteral("http://127.0.0.1:1/isolated-preview.png"));
-    portrait.save(QDir(dataRoot.path()).filePath(QStringLiteral("images/pets/%1.png").arg(petVisualKey(sample))));
+    // Synthetic stand-ins exercise the exact index/cache contract. They are
+    // confined to this temporary directory and are never fetched or presented
+    // as downloaded official art (the rendered portrait is labelled synthetic).
+    const int face=petRaceId(sample);
+    const QString version=QStringLiteral("1");
+    const QString url=QStringLiteral("https://aoqi.100bt.com/play/peticon/peticon%1~%2.swf").arg(face).arg(version);
+    const QString symbol=QStringLiteral("mmo.pet.peticon%1_L").arg(face);
+    const QString identity=QString::fromLatin1(QCryptographicHash::hash(
+        QJsonDocument(QJsonArray{url,symbol,version}).toJson(QJsonDocument::Compact),QCryptographicHash::Sha256).toHex());
+    faceEntries.insert(QString::number(face),QJsonObject{{QStringLiteral("swfUrl"),url},{QStringLiteral("symbol"),symbol},
+        {QStringLiteral("revision"),version},{QStringLiteral("sourceIdentity"),identity}});
+    faceExceptions.append(face);
+    const QString stem=QDir(dataRoot.path()).filePath(QStringLiteral("images/pets/sources/%1/%2")
+        .arg(identity,ImageService::storageKey(petVisualKey(sample))));
+    imageFixtureReady &= writeFixture(stem+QStringLiteral(".png"),portraitBytes);
+    imageFixtureReady &= writeFixture(stem+QStringLiteral(".json"),QJsonDocument(QJsonObject{
+        {QStringLiteral("testOnly"),true},{QStringLiteral("url"),url},{QStringLiteral("symbol"),symbol},
+        {QStringLiteral("revision"),version},{QStringLiteral("sourceIdentity"),identity},{QStringLiteral("pngSha256"),pngHash}}).toJson());
   }
+  imageFixtureReady &= writeFixture(QDir(dataRoot.path()).filePath(QStringLiteral("catalog/pet-image-index.json")),
+      QJsonDocument(QJsonObject{{QStringLiteral("schemaVersion"),1},{QStringLiteral("faces"),faceEntries},
+          {QStringLiteral("faceIdExceptions"),faceExceptions},{QStringLiteral("source"),
+              QJsonObject{{QStringLiteral("kind"),QStringLiteral("synthetic-offline-preview-fixture")}}}}).toJson());
   ImageService images(imageOptions, {
       [&](auto job) { return fixture.storage.postAuxiliary(std::move(job)); },
       [&](auto job) { return fixture.controller.postPriorityCompute(std::move(job)); }});
   PetImageCache sharedImages(dataRoot.path());
   sharedImages.setService(&images);
   bool ok = require(fixture.initialized,"production preview inventory did not initialize");
+  ok &= require(imageFixtureReady,"exact-source synthetic portrait fixture did not initialize");
   AnalysisProjection analysis;
   const QList<ShopExchangeGood> goods = ShopExchangeCatalog::instance().onlineGoods(QDate(2026, 9, 9));
   ok &= require(!goods.isEmpty(), "embedded catalog unavailable in preview");
@@ -312,9 +349,10 @@ int main(int argc, char* argv[]) {
   counts.insert(QStringLiteral("4:3237"), 920);
   counts.insert(QStringLiteral("134:1"), 1260);
   int gameRequests = 0;
-  std::array<int, 4> factories{};
+  std::array<int, 5> factories{};
   WorkbenchWindow window([&](WorkbenchPage page, QWidget* parent) -> QWidget* {
     ++factories[static_cast<int>(page)];
+    if (page == WorkbenchPage::BattleReplay) return createPreviewBattleReplayPage(parent);
     if (page == WorkbenchPage::Pets) {
       auto* widget = new PetWindow(&inventory, parent, &sharedImages);
       QObject::connect(widget, &PetWindow::detailRequested, widget, [&, widget](qint64) {
@@ -406,7 +444,7 @@ int main(int argc, char* argv[]) {
   const QPersistentModelIndex selection = mainWarehouse ? QPersistentModelIndex(mainWarehouse->currentIndex()) : QPersistentModelIndex{};
   const int requestsBeforeSwitches = gameRequests;
   for (int repeat = 0; repeat < 3; ++repeat)
-    for (int index = 0; index < 4; ++index) window.showPage(static_cast<WorkbenchPage>(index));
+    for (int index = 0; index < 5; ++index) window.showPage(static_cast<WorkbenchPage>(index));
   window.showPage(WorkbenchPage::Pets);
   QCoreApplication::processEvents();
   ok &= require(gameRequests == requestsBeforeSwitches && search->text() == QStringLiteral("星河") &&

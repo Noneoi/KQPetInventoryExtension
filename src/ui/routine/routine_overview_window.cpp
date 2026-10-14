@@ -4,6 +4,7 @@
 #include "ui/common/ui_preferences.h"
 
 #include "domain/checked_json_numbers.h"
+#include "domain/routine_opportunity_rules.h"
 
 #include <QAbstractItemView>
 #include <QBrush>
@@ -23,15 +24,6 @@
 #include <optional>
 
 namespace {
-
-// Per-period allowances the server does not send with the counters. Kept in
-// one place so a rule change in the game is a one-line edit.
-constexpr int kStarAdventureDailyLimit = 3;
-constexpr int kStarAdventureWeeklyLimit = 6;
-constexpr int kCompetitionDailyBase = 40;
-constexpr int kCompetitionWeeklyLimit = 40;
-constexpr int kFarmDailyRefreshLimit = 16;
-constexpr int kArenaDailyBase = 8;
 
 QString localTime(const QDateTime& utc) {
   return utc.toLocalTime().toString(QStringLiteral("yyyy-MM-dd HH:mm:ss"));
@@ -85,13 +77,6 @@ QString sourceTip(const ObservationValidity& state) {
   if (!state.reason.isEmpty()) values << state.reason;
   if (!state.evidenceReference.isEmpty()) values << state.evidenceReference;
   return values.join(QLatin1Char('\n'));
-}
-std::optional<qint64> remaining(qint64 base, const std::optional<qint64>& bought,
-                               const std::optional<qint64>& used) {
-  qint64 maximum = 0;
-  if (!bought || !used || !DomainNumeric::checkedAdd(base, *bought, &maximum) ||
-      maximum > std::numeric_limits<int>::max() || *used > maximum) return {};
-  return maximum - *used;
 }
 bool sameValidity(const QHash<QString, ObservationValidity>& left, const QHash<QString, ObservationValidity>& right) {
   if (left.size() != right.size()) return false;
@@ -321,6 +306,14 @@ void RoutineOverviewWindow::rebuild() {
 
 void RoutineOverviewWindow::rebuildOpportunities() {
   opportunityTable_->setRowCount(0);
+  const auto rules = RoutineOpportunityRules::read(catalog_ ? catalog_->root : QJsonObject{});
+  const auto declared = [](const std::optional<qint64>& value) {
+    return value ? QStringLiteral("配置值 %1").arg(*value) : QStringLiteral("—");
+  };
+  const auto purchasedLimit = [](const std::optional<qint64>& base, const std::optional<qint64>& bought) {
+    return base && bought && *bought <= std::numeric_limits<int>::max() - *base
+        ? QStringLiteral("%1 + 已购 %2").arg(*base).arg(*bought) : QStringLiteral("—");
+  };
   const auto add = [this](const QString& name, const QString& period,
       const std::optional<qint64>& available, const QString& limit, const QString& used,
       const QString& group, const QString& source) {
@@ -342,14 +335,13 @@ void RoutineOverviewWindow::rebuildOpportunities() {
   const auto star = opportunityPackets_.value(starKey).toObject();
   const auto starToday = count(star.value(QStringLiteral("ti")));
   const auto starWeek = count(star.value(QStringLiteral("wgt")));
-  add(QStringLiteral("星轮探险"), QStringLiteral("今日"), starToday, QString::number(kStarAdventureDailyLimit),
-      starToday && *starToday <= kStarAdventureDailyLimit ? QString::number(kStarAdventureDailyLimit - *starToday)
-                                                          : QStringLiteral("—"), starKey,
-      QStringLiteral("1008_20220603_swa_0_0：ti"));
+  add(QStringLiteral("星轮探险"), QStringLiteral("今日"), starToday, declared(rules.starDailyDeclared),
+      QStringLiteral("—"), starKey,
+      QStringLiteral("1008_20220603_swa_0_0：ti（服务器剩余次数）；每日配置声明未参与已核验的客户端反算，不据此推算已用次数"));
   add(QStringLiteral("星轮探险"), QStringLiteral("本周"),
-      starWeek && *starWeek <= kStarAdventureWeeklyLimit ? std::optional<qint64>(kStarAdventureWeeklyLimit - *starWeek)
-                                                         : std::nullopt,
-      QString::number(kStarAdventureWeeklyLimit), number(starWeek), starKey, QStringLiteral("1008_20220603_swa_0_0：wgt"));
+      rules.starWeekly && starWeek && *starWeek <= *rules.starWeekly
+          ? std::optional<qint64>(*rules.starWeekly - *starWeek) : std::nullopt,
+      number(rules.starWeekly), number(starWeek), starKey, QStringLiteral("1008_20220603_swa_0_0：wgt；每周额度来自已核验的官方配置与消费者"));
   const QString treeKey = QStringLiteral("1008_20190531_gbt_1");
   add(QStringLiteral("缤纷树"), QStringLiteral("今日"), count(opportunityPackets_.value(treeKey).toObject().value(QStringLiteral("ti"))),
       QStringLiteral("—"), QStringLiteral("—"), treeKey, QStringLiteral("1008_20190531_gbt_1：ti（服务器剩余次数）"));
@@ -359,33 +351,36 @@ void RoutineOverviewWindow::rebuildOpportunities() {
   const QString competitionKey = QStringLiteral("110_123_0");
   const auto competition = opportunityPackets_.value(competitionKey).toObject();
   const auto bought = count(competition.value(QStringLiteral("rdb"))), used = count(competition.value(QStringLiteral("rdt")));
-  const auto daily = remaining(kCompetitionDailyBase, bought, used);
+  const auto daily = RoutineOpportunityRules::remaining(rules.competitionDaily, bought, used);
   add(QStringLiteral("全民斗技"), QStringLiteral("今日"), daily,
-      bought && *bought <= std::numeric_limits<int>::max() - kCompetitionDailyBase
-          ? QStringLiteral("%1 + 已购 %2").arg(kCompetitionDailyBase).arg(*bought) : QStringLiteral("—"),
-      number(used), competitionKey, QStringLiteral("110_123_0：%1 + rdb - rdt").arg(kCompetitionDailyBase));
+      purchasedLimit(rules.competitionDaily, bought),
+      number(used), competitionKey, QStringLiteral("110_123_0：已核验的官方日基础额度 + rdb - rdt"));
   add(QStringLiteral("全民斗技"), QStringLiteral("本周"), count(competition.value(QStringLiteral("rwwt"))),
-      QString::number(kCompetitionWeeklyLimit),
-      number(count(competition.value(QStringLiteral("wwt")))), competitionKey, QStringLiteral("110_123_0：rwwt"));
+      declared(rules.competitionWeeklyDeclared),
+      number(count(competition.value(QStringLiteral("wwt")))), competitionKey,
+      QStringLiteral("110_123_0：rwwt（服务器剩余次数）；周配置声明未参与已核验的客户端反算，不作为实际剩余额度上限"));
   const QString farmKey = QStringLiteral("1008_20260522_nf_0");
   const auto farm = opportunityPackets_.value(farmKey).toObject();
+  const auto farmBonus = RoutineOpportunityRules::farmBonus(rules, farm);
   const auto refreshes = count(farm.value(QStringLiteral("rft")));
-  add(QStringLiteral("最新版农场·可用次数"), QStringLiteral("今日"), count(farm.value(QStringLiteral("pt"))),
-      QStringLiteral("—"), QStringLiteral("—"), farmKey, QStringLiteral("1008_20260522_nf_0：pt"));
-  add(QStringLiteral("最新版农场·刷新次数"), QStringLiteral("今日"), refreshes, QString::number(kFarmDailyRefreshLimit),
-      refreshes && *refreshes <= kFarmDailyRefreshLimit ? QString::number(kFarmDailyRefreshLimit - *refreshes)
-                                                        : QStringLiteral("—"), farmKey,
-      QStringLiteral("1008_20260522_nf_0：rft"));
+  add(QStringLiteral("最新版农场·可用次数"), QStringLiteral("储存"), count(farm.value(QStringLiteral("pt"))),
+      number(count(farmBonus.value(QStringLiteral("pickMax")))), QStringLiteral("—"), farmKey,
+      QStringLiteral("1008_20260522_nf_0：pt；上限按已读取的邀请档位与官方配置选取；每日补充 %1 次，不能由储存差额反算今日已用")
+          .arg(number(count(farmBonus.value(QStringLiteral("dailyPick"))))));
+  add(QStringLiteral("最新版农场·刷新次数"), QStringLiteral("储存"), refreshes,
+      number(count(farmBonus.value(QStringLiteral("refreshMax")))), QStringLiteral("—"), farmKey,
+      QStringLiteral("1008_20260522_nf_0：rft；上限按已读取的邀请档位与官方配置选取；每日补充 %1 次，不能由储存差额反算今日已用")
+          .arg(number(count(farmBonus.value(QStringLiteral("dailyRefresh"))))));
   add(QStringLiteral("灵骑破封"), QStringLiteral("今日"), {}, QStringLiteral("—"), QStringLiteral("—"), {},
       QStringLiteral("现有129_0_1为执行破封，没有已核验的只读次数来源"));
   const auto arena = opportunityPackets_.value(QStringLiteral("16_24_A")).toObject();
   const auto addArena = [&](const QString& name, const QString& field) {
     const auto info = arena.value(field).toObject();
     const auto used = count(info.value(QStringLiteral("ct"))), bought = count(info.value(QStringLiteral("bct")));
-    const auto available = remaining(kArenaDailyBase, bought, used);
+    const auto base = rules.arenaDaily.contains(field) ? std::optional<qint64>(rules.arenaDaily.value(field)) : std::nullopt;
+    const auto available = RoutineOpportunityRules::remaining(base, bought, used);
     add(name, QStringLiteral("今日"), available,
-        bought && *bought <= std::numeric_limits<int>::max() - kArenaDailyBase
-            ? QStringLiteral("%1 + 已购 %2").arg(kArenaDailyBase).arg(*bought) : QStringLiteral("—"),
+        purchasedLimit(base, bought),
         number(used), QStringLiteral("16_24_A:") + field,
         QStringLiteral("游戏内竞技场被动观察16_24_A：%1.ct/bct；扩展不主动查询").arg(field));
   };
@@ -393,7 +388,8 @@ void RoutineOverviewWindow::rebuildOpportunities() {
   addArena(QStringLiteral("传奇竞技场·挑战"), QStringLiteral("zao2"));
   opportunityNote_->setText(QStringLiteral(
       "数字来自最近一次读取；显示“周期未确认”时可能已经跨天或跨周，请以游戏内为准，这时也不会用绿色标记。"
-      "竞技场次数在游戏内打开竞技场后才会更新；灵骑破封暂时没有可读取的次数。鼠标悬停可查看数据来源。"));
+      "额度规则由设置中的公共数据更新维护；旧目录没有规则时只显示已读取的原始次数。"
+      "农场次数可储存，储存差额不是今日已用。竞技场在游戏内打开后更新；鼠标悬停可查看来源。"));
 }
 
 void RoutineOverviewWindow::rebuildTasks() {

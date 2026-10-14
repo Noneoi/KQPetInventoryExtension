@@ -4,7 +4,7 @@
 #include <QString>
 #include <QSize>
 
-enum class WorkbenchPage { Pets = 0, Shop, Routine, Assets };
+enum class WorkbenchPage { Pets = 0, Shop, Routine, Assets, BattleReplay };
 Q_DECLARE_METATYPE(WorkbenchPage)
 
 struct NavigationTarget {

@@ -1,2 +1,7 @@
 # Keep vendored upstream formatting without project whitespace checks.
 third_party/** -whitespace
+
+# These evidence fixtures are verified by byte-level SHA-256 on every checkout.
+assets/battle-replay-regression/*.json -text
+assets/battle-replay-catalog.json -text
+tests/fixtures/routine-official-rules/** -text -whitespace

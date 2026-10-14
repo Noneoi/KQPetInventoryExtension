@@ -31,6 +31,9 @@ PORTS = {
     # for cultivation materials, and the local stargod statistics result. They
     # carry no implementation and their own includes are still inspected.
     "src/contracts/cultivation_material_inventory.h", "src/contracts/local_stargod_statistics.h",
+    "src/contracts/battle_replay_catalog.h", "src/contracts/public_dataset.h",
+    "src/contracts/public_update_state.h", "src/contracts/public_data_detail.h",
+    "src/contracts/public_data_contract.h",
 }
 # Value wrappers and header-only presentation helpers not listed as library
 # sources. Their contents/includes are recursively checked, never trusted blind.

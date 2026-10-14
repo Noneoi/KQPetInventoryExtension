@@ -5,6 +5,7 @@ import json
 import re
 
 from generate_pet_detail_data import iter_call_args, parse_money, strict_int, swf_text
+from public_resource_session import resource_matches
 
 NAME_RULE_VERSION = 1
 NAME_RESOURCES = (("displayInterfaces", "library/interfaces"),
@@ -84,7 +85,7 @@ def names_valid(catalog: dict) -> bool:
 
 def needs_names_update(current: dict, versions: dict) -> bool:
     previous = current.get("source", {}).get("resources", {})
-    return not names_valid(current) or any(not versions.get(key) or previous.get(label, {}).get("version") != versions[key]
+    return not names_valid(current) or any(not resource_matches(previous.get(label, {}), key, versions)
                                           for label, key in NAME_RESOURCES)
 
 
@@ -94,7 +95,7 @@ def update_names(updater, current: dict, versions: dict, resources: dict) -> boo
     upgrade = not names_valid(current)
     changed = False
     label, key = NAME_RESOURCES[0]
-    if upgrade or previous.get(label, {}).get("version") != versions.get(key):
+    if upgrade or not resource_matches(previous.get(label, {}), key, versions):
         swf, resources[label] = updater.resource(key, versions)
         attributes_path = updater.export(swf, updater.scratch / "display-attributes", "mmo.interfaces.pet.data.PetAttr")
         jobs_path = updater.export(swf, updater.scratch / "display-jobs", "mmo.interfaces.pet.data.PetJob")
@@ -107,7 +108,7 @@ def update_names(updater, current: dict, versions: dict, resources: dict) -> boo
         current["jobs"] = jobs
         current["fusionJobs"] = fusion_jobs(jobs_source, jobs)
         changed = True
-    if upgrade or any(previous.get(label, {}).get("version") != versions.get(key) for label, key in NAME_RESOURCES[1:]):
+    if upgrade or any(not resource_matches(previous.get(label, {}), key, versions) for label, key in NAME_RESOURCES[1:]):
         money = {}
         for index, (label, key) in enumerate(NAME_RESOURCES[1:]):
             swf, resources[label] = updater.resource(key, versions)

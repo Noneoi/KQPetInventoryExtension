@@ -9,6 +9,7 @@
 #include "domain/pet_move_policy.h"
 #include "application/views/inventory_read_view.h"
 #include "ui/detail/prepared_pet_detail_renderer.h"
+#include "ui/detail/public_data_detail_dialog.h"
 #include "ui/detail/pet_raw_data_tree.h"
 #include "ui/common/pet_facts_ui.h"
 #include "domain/pet_metadata_view.h"
@@ -241,8 +242,16 @@ ShopWindow::ShopWindow(InventoryReadView* repository, QWidget* parent, PetImageC
   goodSearchDebounce_->setInterval(150);
   connect(goodSearchDebounce_, &QTimer::timeout, this, [this] { applyGoodSearch(true); });
   connect(goodSearch_, &QLineEdit::textChanged, goodSearchDebounce_, qOverload<>(&QTimer::start));
+  goodDetails_ = new QPushButton(QStringLiteral("项目资料"),shopPane);
+  goodDetails_->setObjectName(QStringLiteral("KQShopPublicDetail"));
+  goodDetails_->setToolTip(QStringLiteral("查看选中项目的官方说明与适用精灵；不会向游戏发送请求"));
+  goodDetails_->setEnabled(false);
+  connect(goodDetails_,&QPushButton::clicked,this,[this] {
+    if (currentGood_.hasIdentity()) PublicDataDetailDialog::open({currentGoodDataset_,{}},
+      {PublicDataViewKind::Shop,QStringLiteral("goods"),currentGoodKey_},this);
+  });
   shopLayout->addWidget(currencySummary_);
-  shopLayout->addWidget(goodSearch_);
+  auto* searchRow=new QHBoxLayout; searchRow->addWidget(goodSearch_,1); searchRow->addWidget(goodDetails_); shopLayout->addLayout(searchRow);
   shopLayout->addWidget(shopTabs_, 1);
 
   auto* petPane = new QWidget(left);
@@ -279,6 +288,8 @@ ShopWindow::ShopWindow(InventoryReadView* repository, QWidget* parent, PetImageC
         catalog.petName(petRaceId(pet))}, petDetail_->devicePixelRatioF(), true);
   });
   connect(petDetail_, &QTextBrowser::anchorClicked, this, [this](const QUrl& url) {
+    PublicRecordKey key;
+    if (PublicDataDetailLinks::decode(url,&key)) { PublicDataDetailDialog::open(renderedPetData_,key,this); return; }
     DetailSection section; int page = 0;
     if (repository_ && PreparedPetDetailRenderer::pageLink(url, &section, &page))
       repository_->requestDetailPage(1, section, page);
@@ -348,6 +359,7 @@ ShopWindow::ShopWindow(InventoryReadView* repository, QWidget* parent, PetImageC
     currentEligibility_.clear();
     currentGood_ = {};
     currentGoodKey_.clear();
+    currentGoodDataset_.reset(); goodDetails_->setEnabled(false);
     updateSelectedGoodEmphasis();
     currentInstanceId_ = 0;
     pendingDetailId_ = 0;
@@ -388,6 +400,7 @@ void ShopWindow::resetSessionContext() {
   hasMaterialCounts_ = false;
   currentGood_ = {};
   currentGoodKey_.clear(); highlightedGoodKey_.clear(); goodLocations_.clear();
+  currentGoodDataset_.reset(); goodDetails_->setEnabled(false);
   activityGoods_.clear();
   currentEligibility_.clear();
   eligiblePetIdsByRace_.clear();
@@ -508,10 +521,34 @@ void ShopWindow::setReadOnlyObservations(const QJsonObject& packets) {
   scheduleRebuild();
 }
 
+void ShopWindow::setPublicDataset(PublicDatasetSnapshotHandle dataset) {
+  publicDataset_ = std::move(dataset);
+  if (!publicDataset_ || !publicDataset_->shop || !catalogSnapshot_ ||
+      publicDataset_->shop->root != catalogSnapshot_->root) return;
+  // Local shop selections may create another view of the same immutable root.
+  // Preserve that view without combining different public source versions.
+  auto bound=std::make_shared<PublicDatasetSnapshot>(*publicDataset_); bound->shop=catalogSnapshot_;
+  catalogDataset_=std::move(bound);
+  // An asynchronously opened shop may have rendered before its complete
+  // bundle arrived. Upgrade only that unversioned fallback, never an old page.
+  for (auto& rows : shopRows_) for (auto& row : rows)
+    if (row.dataset && row.dataset->revision.isEmpty() && row.dataset->shop && row.dataset->shop->root==catalogSnapshot_->root)
+      row.dataset=catalogDataset_;
+  if (currentGoodDataset_ && currentGoodDataset_->revision.isEmpty() && currentGoodDataset_->shop &&
+      currentGoodDataset_->shop->root==catalogSnapshot_->root) currentGoodDataset_=catalogDataset_;
+}
 void ShopWindow::setCatalogSnapshot(std::shared_ptr<const ShopCatalogSnapshot> catalog, QDate businessDate) {
   const auto now = QDateTime::currentDateTimeUtc();
   if (catalogSnapshot_ == catalog && catalogDate_ == businessDate && now < nextAvailabilityChange_) return;
   catalogSnapshot_ = std::move(catalog);
+  catalogDataset_.reset();
+  if (publicDataset_) setPublicDataset(publicDataset_);
+  else if (repository_ && repository_->publicDatasetSnapshot()) setPublicDataset(repository_->publicDatasetSnapshot());
+  if (!catalogDataset_ && catalogSnapshot_) {
+    // Legacy/test inputs remain a shop-only context. Never borrow unrelated
+    // current pet definitions merely because the numeric IDs happen to match.
+    auto bound=std::make_shared<PublicDatasetSnapshot>(); bound->shop=catalogSnapshot_; catalogDataset_=std::move(bound);
+  }
   catalogDate_ = businessDate;
   nextAvailabilityChange_ = QDateTime(now.toOffsetFromUtc(8 * 3600).date().addDays(1), QTime(0, 0), Qt::OffsetFromUTC, 8 * 3600);
   const auto asOf = businessDate == now.toOffsetFromUtc(8 * 3600).date() ? now :
@@ -898,7 +935,7 @@ void ShopWindow::rebuild() {
       styleAvailableExchangeRow(table, row, hasRemainingQuota);
       const QString stableKey = good.stableKey();
       goodLocations_.insert(stableKey,{int(shopRows_.size()),row});
-      rows.append({good, row, stableKey});
+      rows.append({good, row, stableKey, catalogDataset_});
       ++row;
     }
     table->setProperty("shopIndex", shopRows_.size());
@@ -908,6 +945,12 @@ void ShopWindow::rebuild() {
           row >= shopRows_.at(shopIndex).size()) return;
       const auto& selected = shopRows_.at(shopIndex).at(row);
       showGoodPets(selected.good,selected.stableKey);
+    });
+    connect(table,&QTableWidget::cellDoubleClicked,this,[this,table](int row,int) {
+      const int shopIndex=table->property("shopIndex").toInt();
+      if (shopIndex<0 || shopIndex>=shopRows_.size() || row<0 || row>=shopRows_[shopIndex].size()) return;
+      const auto& selected=shopRows_[shopIndex][row];
+      PublicDataDetailDialog::open({selected.dataset,{}},{PublicDataViewKind::Shop,QStringLiteral("goods"),selected.stableKey},this);
     });
     const QString currency = shopCurrencyText(shop);
     table->setProperty("currencyText",currency);
@@ -1053,6 +1096,10 @@ void ShopWindow::showGoodPets(const ShopExchangeGood& good, const QString& stabl
   if (repository_) repository_->watchDetail(1, 0);
   currentGood_ = good;
   currentGoodKey_ = key;
+  currentGoodDataset_.reset();
+  const auto location=goodLocations_.constFind(key);
+  if (location!=goodLocations_.cend()) currentGoodDataset_=shopRows_[location->first][location->second].dataset;
+  goodDetails_->setEnabled(good.hasIdentity());
   updateSelectedGoodEmphasis();
   currentEligibility_.clear();
   currentInstanceId_ = 0;
@@ -1296,6 +1343,13 @@ void ShopWindow::showPetDetail(qint64 instanceId, bool requestLatest) {
                                        ? QStringLiteral("当前已满/不需要使用")
                                        : QStringLiteral("本地数据不足，无法确认");
     const auto prepared = repository_->preparedDetail(1, instanceId);
+    renderedPetData_={repository_->publicDatasetSnapshot(),{}};
+    if (!renderedPetData_.dataset) {
+      auto frozen=std::make_shared<PublicDatasetSnapshot>(); frozen->detail=repository_->metadataSnapshot();
+      frozen->skill=repository_->skillSnapshot(); renderedPetData_.dataset=std::move(frozen);
+    }
+    if (prepared && (!renderedPetData_.dataset->detail || prepared->version.facts.metadataRevision!=renderedPetData_.dataset->detail->revision ||
+        prepared->version.facts.metadataDigest!=renderedPetData_.dataset->detail->contentDigest)) renderedPetData_={};
     QString rendered = prepared ? PreparedPetDetailRenderer::render(prepared, imagePath,
         petDetail_->viewport()->width() < 440, pendingDetailId_ == instanceId)
         : PreparedPetDetailRenderer::waiting(petDisplayName(pet), repository_->detailPreparationError(1));

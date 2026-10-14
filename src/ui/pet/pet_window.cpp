@@ -7,6 +7,7 @@
 #include "ui/detail/prepared_pet_detail_renderer.h"
 #include "ui/detail/pet_power_analysis_renderer.h"
 #include "ui/detail/pet_skill_renderer.h"
+#include "ui/detail/public_data_detail_dialog.h"
 #include "domain/pet_metadata_view.h"
 #include "ui/detail/pet_raw_data_tree.h"
 #include "domain/pet_identity.h"
@@ -67,6 +68,17 @@
 #include <vector>
 
 namespace {
+PublicDataDetailContext publicDetailContext(InventoryReadView* repository, const PreparedPetDetailHandle& prepared={}) {
+  if (!repository) return {};
+  auto dataset=repository->publicDatasetSnapshot();
+  if (!dataset) {
+    auto frozen=std::make_shared<PublicDatasetSnapshot>();
+    frozen->detail=repository->metadataSnapshot(); frozen->skill=repository->skillSnapshot(); dataset=std::move(frozen);
+  }
+  if (prepared && (!dataset->detail || dataset->detail->revision!=prepared->version.facts.metadataRevision ||
+      dataset->detail->contentDigest!=prepared->version.facts.metadataDigest)) return {};
+  return {std::move(dataset),{}};
+}
 
 // The related-pet popup's own detail slot, beside 0 (selected pet) and 1 (shop).
 constexpr int kRelatedDetailConsumer = 2;
@@ -322,6 +334,8 @@ PetWindow::PetWindow(InventoryReadView* repository, QWidget* parent, PetImageCac
   });
   connect(detailView_, &QTextBrowser::anchorClicked, this, [this](const QUrl& url) {
     if (!repository_) return;
+    PublicRecordKey publicKey;
+    if (PublicDataDetailLinks::decode(url,&publicKey)) { PublicDataDetailDialog::open(renderedDetailData_,publicKey,this); return; }
     qint64 related = 0;
     if (PreparedPetDetailRenderer::petLink(url, &related)) { showRelatedPetDetail(related); return; }
     DetailSection section; int page = 0;
@@ -336,6 +350,9 @@ PetWindow::PetWindow(InventoryReadView* repository, QWidget* parent, PetImageCac
   skillView_->setObjectName(QStringLiteral("KQPetSkillDetail"));
   skillView_->setOpenLinks(false);
   skillView_->setOpenExternalLinks(false);
+  connect(skillView_, &QTextBrowser::anchorClicked, this, [this](const QUrl& url) {
+    PublicRecordKey key; if (PublicDataDetailLinks::decode(url,&key)) PublicDataDetailDialog::open(renderedSkillData_,key,this);
+  });
   skillView_->setPlaceholderText(QStringLiteral("请选择一只精灵"));
   skillView_->setMouseTracking(true);
   skillView_->viewport()->setMouseTracking(true);
@@ -1163,6 +1180,8 @@ void PetWindow::showRelatedPetDetail(qint64 instanceId) {
     layout->addWidget(relatedView_, 1);
     connect(relatedView_, &QTextBrowser::anchorClicked, this, [this](const QUrl& url) {
       if (!repository_) return;
+      PublicRecordKey key;
+      if (PublicDataDetailLinks::decode(url,&key)) { PublicDataDetailDialog::open(renderedRelatedData_,key,this); return; }
       qint64 related = 0;
       // A relation inside the popup retargets the same popup rather than
       // opening an unbounded stack of windows.
@@ -1203,6 +1222,7 @@ void PetWindow::refreshRelatedPetDetail() {
       : QString();
   const auto prepared = repository_->preparedDetail(kRelatedDetailConsumer, relatedId_);
   if (prepared && prepared == renderedRelatedDetail_) return;
+  renderedRelatedData_ = publicDetailContext(repository_,prepared);
   const QString html = prepared
       ? PreparedPetDetailRenderer::render(prepared, imagePath, true)
       : PreparedPetDetailRenderer::waiting(name, repository_->detailPreparationError(kRelatedDetailConsumer));
@@ -1291,6 +1311,7 @@ void PetWindow::showDetail(const QJsonObject& pet) {
   const auto rendered = prepared ? PreparedPetDetailRenderer::render(prepared, imagePath, narrow)
       : PreparedPetDetailRenderer::waiting(name, repository_->detailPreparationError(0));
   imageCache_->setDocumentImage(detailView_, rendered, imagePath);
+  if (prepared!=renderedPreparedDetail_ || !renderedDetailData_.dataset) renderedDetailData_=publicDetailContext(repository_,prepared);
   renderedPreparedDetail_ = prepared;
   renderedDetailImagePath_ = imagePath;
   renderedDetailNarrow_ = narrow;
@@ -1337,7 +1358,7 @@ bool PetWindow::eventFilter(QObject* watched, QEvent* event) {
       const QPoint position = mouse->position().toPoint();
       const QString anchor = skillView_->anchorAt(position);
       QString tooltip;
-      if (anchor.startsWith(QStringLiteral("kqterm:"))) {
+      if (anchor.startsWith(QStringLiteral("kqterm:")) || anchor.startsWith(QStringLiteral("kqpublic:"))) {
         const int documentPosition = skillView_->cursorForPosition(position).position();
         for (const int candidate : {documentPosition, documentPosition + 1, documentPosition - 1}) {
           if (candidate < 0 || candidate > skillView_->document()->characterCount()) continue;
@@ -1409,7 +1430,14 @@ void PetWindow::showSkills(int raceId, const QString& name) {
   if (renderedSkillRaceId_ == raceId && renderedSkillRevision_ == revision) return;
   const bool samePet = renderedSkillRaceId_ == raceId;
   const int scroll = samePet ? skillView_->verticalScrollBar()->value() : 0;
-  skillView_->setHtml(PetSkillRenderer::render(skills, raceId, name));
+  renderedSkillData_ = {repository_->publicDatasetSnapshot(),{}};
+  if (!renderedSkillData_.dataset) {
+    auto legacy = std::make_shared<PublicDatasetSnapshot>();
+    legacy->detail=repository_->metadataSnapshot(); legacy->skill=skills; renderedSkillData_.dataset=std::move(legacy);
+  } else if (renderedSkillData_.dataset->skill != skills) renderedSkillData_ = {};
+  const auto metadata=renderedSkillData_.dataset ? renderedSkillData_.dataset->detail : nullptr;
+  skillView_->setHtml(PetSkillRenderer::render(skills, raceId, name,
+      metadata ? PetMetadataView(metadata).originalName(raceId) : QString()));
   renderedSkillRaceId_ = raceId;
   renderedSkillRevision_ = revision;
   skillView_->verticalScrollBar()->setValue(scroll);

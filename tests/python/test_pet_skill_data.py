@@ -1,4 +1,5 @@
 import json
+from copy import deepcopy
 from pathlib import Path
 import sys
 import unittest
@@ -6,7 +7,8 @@ import unittest
 
 ROOT = Path(__file__).resolve().parents[2]
 sys.path.insert(0, str(ROOT / "tools"))
-from generate_pet_skill_supplement import TERM, official_texts  # noqa: E402
+from generate_pet_skill_supplement import (TERM, official_texts, parameterized_entry,
+                                          parameter_text, build_supplement)  # noqa: E402
 
 
 class PetSkillDataTests(unittest.TestCase):
@@ -88,6 +90,64 @@ class PetSkillDataTests(unittest.TestCase):
             self.assertTrue(evaluation["text"].startswith("技能文字显示"), race_id)
             self.assertIn("以本页技能原文为准", evaluation["text"], race_id)
             self.assertLessEqual(len(evaluation["text"]), 90, race_id)
+
+
+class ExactSupplementTests(unittest.TestCase):
+    def catalog(self):
+        return {"source": {"version": "synthetic-version"},
+                "entries": {"护盾": "ARG1护盾，ARG2回合", "官方空": ""},
+                "skills": {"1": {"description": "己阵获得[护盾·30·2]与[护盾Ⅱ]。"}},
+                "pets": {"1": {"name": "synthetic", "signs": "灵初", "slots": {"normal": 1}},
+                         "2": {"name": "synthetic other", "signs": "不是灵初", "slots": {"normal": 1}}}}
+
+    def test_only_official_middle_dot_parameters_are_aliases(self):
+        entries = {"护盾": "值ARG", "双参数": "ARG1和ARG2", "护盾·30": ""}
+        for text in ("护盾Ⅱ", "护盾II", "护盾-Ⅱ", "护盾-30", "旧护盾", "护盾加强"):
+            with self.subTest(text=text):
+                self.assertIsNone(parameterized_entry(text, entries))
+        self.assertIsNone(parameterized_entry("护盾·30", entries), "Exact empty row must win")
+        base, arguments, description = parameterized_entry("双参数·甲·乙", entries)
+        self.assertEqual((base, arguments), ("双参数", ["甲", "乙"]))
+        self.assertEqual(parameter_text(description, arguments), "甲和乙")
+        self.assertEqual(parameter_text("值ARG", []), "值指定数值")
+        self.assertEqual(parameter_text("ARG1 / ARG2 / ARG", ["甲"]), "甲 / 指定数值 / 甲")
+        self.assertEqual(parameter_text("ARG1 / ARG10", ["甲"]), "甲 / 指定数值")
+        self.assertEqual(parameter_text("ARG1 / ARG10", list("甲乙丙丁戊己庚辛壬癸")), "甲 / 癸")
+        self.assertEqual(parameter_text("ARG1 / ARG2 / ARG", ["ARG2", "乙"]), "ARG2 / 乙 / ARG2")
+
+    def test_local_evaluations_are_archival_and_tags_are_exact(self):
+        result = build_supplement(self.catalog())
+        self.assertEqual(result["defaultDisplayPolicy"], "current-official-catalog-only")
+        self.assertEqual(set(result["evaluations"]), {"1"})
+        self.assertEqual(result["evaluations"]["1"]["source"], "local-keyword-summary")
+        self.assertFalse(result["evaluations"]["1"]["defaultVisible"])
+        self.assertEqual(len(result["sourceCatalogSha256"]), 64)
+        self.assertEqual(result["mechanisms"]["护盾·30·2"]["text"], "30护盾，2回合")
+        self.assertEqual(result["mechanisms"]["护盾Ⅱ"]["source"], "official-skill-evidence")
+        self.assertIn("[护盾Ⅱ]", result["mechanisms"]["护盾Ⅱ"]["evidence"][0])
+        self.assertEqual(result["mechanisms"]["护盾Ⅱ"]["usage"], "historical-reference-only")
+
+    def test_all_historical_records_survive_without_becoming_default_text(self):
+        previous = {"schema": 1, "kind": "pet-skill-manual-supplement", "updatePolicy": "manual-static",
+                    "sourceVersion": "old", "mechanisms": {"护盾Ⅱ": {"text": "legacy note"}},
+                    "evaluations": {"1": {"text": "legacy evaluation"}}, "opaqueHistoricalField": {"keep": 1}}
+        original = deepcopy(previous)
+        first = build_supplement(self.catalog(), previous=previous)
+        self.assertEqual(previous, original)
+        self.assertEqual(first["historicalSnapshots"], [original])
+        again = build_supplement(self.catalog(), previous=first)
+        self.assertEqual(again, first, "Same source rebuild must not duplicate history")
+        current = self.catalog()
+        current["source"]["version"] = "new"
+        changed = build_supplement(current, previous=first)
+        self.assertEqual(len(changed["historicalSnapshots"]), 2)
+        self.assertEqual(changed["historicalSnapshots"][0], original)
+        self.assertEqual(changed["sourceVersion"], "new")
+        self.assertNotEqual(changed["sourceCatalogSha256"], first["sourceCatalogSha256"])
+
+    def test_unknown_existing_output_is_not_silently_overwritten(self):
+        with self.assertRaises(ValueError):
+            build_supplement(self.catalog(), previous={"unrelated": "file"})
 
 
 if __name__ == "__main__":

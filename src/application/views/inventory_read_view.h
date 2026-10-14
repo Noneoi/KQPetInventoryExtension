@@ -7,6 +7,7 @@
 #include "contracts/pet_record_types.h"
 #include "contracts/pet_derivation_types.h"
 #include "contracts/pet_detail_types.h"
+#include "contracts/public_dataset.h"
 #include <memory>
 
 // Read port used by GUI components. Production UI receives InventoryProjection;
@@ -30,6 +31,7 @@ public:
   virtual bool currentSourceVerified() const { return false; }
   virtual std::shared_ptr<const PetDetailCatalogSnapshot> metadataSnapshot() const { return {}; }
   virtual std::shared_ptr<const PetSkillCatalogSnapshot> skillSnapshot() const { return {}; }
+  virtual PublicDatasetSnapshotHandle publicDatasetSnapshot() const { return {}; }
   virtual RawPetRecordHandle rawRecordHandle(qint64) const { return {}; }
   virtual PetRecordVersion recordVersion(qint64) const { return {}; }
   virtual PetDerivedFactsHandle derivedFactsFor(qint64) const { return {}; }

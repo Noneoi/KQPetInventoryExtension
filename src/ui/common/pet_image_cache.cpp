@@ -111,6 +111,8 @@ void PetImageCache::setService(ImageService* service, const QString& resourceVer
   if (service_) disconnect(service_, nullptr, this, nullptr);
   service_ = service;
   version_ = resourceVersion;
+  sourceGeneration_ = std::numeric_limits<quint64>::max();
+  imageCatalog_.reset();
   ++bindingGeneration_;
   images_.clear(); petKeys_.clear(); icons_.clear(); pending_.clear(); imageStatuses_.clear();
   if (!service) return;
@@ -118,13 +120,21 @@ void PetImageCache::setService(ImageService* service, const QString& resourceVer
   connect(service, &ImageService::completed, this, [this, generation](const ImageResult& result) {
     if (bindingGeneration_ == generation) accept(result);
   }, Qt::QueuedConnection);
+  connect(service, &ImageService::imageGenerationAvailable, this, [this, generation](quint64 sourceGeneration) {
+    if (bindingGeneration_ == generation) sourceGeneration_ = sourceGeneration;
+  }, Qt::QueuedConnection);
+  connect(service, &ImageService::imageCatalogAvailable, this, [this, generation](const ImageCatalogHandle& catalog) {
+    if (bindingGeneration_ == generation) imageCatalog_ = catalog;
+  }, Qt::QueuedConnection);
   connect(service, &ImageService::imageIndexReloaded, this, [this, generation] {
     if (bindingGeneration_ != generation) return;
-    images_.clear(); icons_.clear(); imageStatuses_.clear(); pending_.clear();
+    images_.clear(); petKeys_.clear(); icons_.clear(); imageStatuses_.clear(); pending_.clear();
     const auto browserList = browsers_.keys();
     for (auto* browser : browserList) refreshBrowserResources(browser);
     emit attributeIconsReady();
   }, Qt::QueuedConnection);
+  const QPointer<ImageService> current = service;
+  QMetaObject::invokeMethod(service, [current] { if (current) current->publishImageGeneration(); }, Qt::QueuedConnection);
   const auto deferred = std::exchange(deferred_, {});
   for (const auto& request : deferred) enqueue(request);
   const auto browserList = browsers_.keys();
@@ -152,6 +162,7 @@ QIcon PetImageCache::attributeIcon(const QString& sequence) const {
   const int id = valid && parsed >= 0 && parsed <= 100000 ? parsed : 0;
   ImageRequest request;
   request.attributeId = id;
+  request.catalog = imageCatalog_;
   request.visualKey = QStringLiteral("attribute-%1").arg(id);
   request.outputLogicalSize = {24,24};
   request.devicePixelRatio = devicePixelRatio_;
@@ -181,10 +192,16 @@ QString PetImageCache::ensurePetImage(const QJsonObject& pet, const QStringList&
   ImageRequest request;
   request.visualKey = petVisualKey(pet);
   request.candidateNames = candidateNames;
+  request.sourceGeneration = sourceGeneration_;
+  request.catalog = imageCatalog_;
   request.outputLogicalSize = {300, 300};
   request.devicePixelRatio = devicePixelRatio;
   request.retry = retry;
   const QString key = ImageService::requestKey(request, version_);
+  if (petRequests_.contains(key)) {
+    request.sourceIdentity = petRequests_.value(key).sourceIdentity;
+    request.contentSha256 = petRequests_.value(key).contentSha256;
+  }
   if (petRequests_.size() >= 128 && !petRequests_.contains(key)) petRequests_.erase(petRequests_.begin());
   petRequests_.insert(key, request);
   if (petKeys_.size() >= 128 && !petKeys_.contains(request.visualKey)) petKeys_.erase(petKeys_.begin());
@@ -195,6 +212,21 @@ QString PetImageCache::ensurePetImage(const QJsonObject& pet, const QStringList&
 }
 void PetImageCache::accept(const ImageResult& result) {
   pending_.remove(result.key);
+  const QString identity = result.sourceIdentity.isEmpty() ? QStringLiteral("unresolved") : result.sourceIdentity;
+  if (auto request = petRequests_.find(result.key); request != petRequests_.end()) {
+    if (!request->catalog && result.catalog) { request->catalog = result.catalog; request->catalogKeyed = false; }
+    if (!result.sourceIdentity.isEmpty() || request->sourceIdentity.isEmpty()) request->sourceIdentity = identity;
+    if (!result.contentSha256.isEmpty()) request->contentSha256 = result.contentSha256;
+  }
+  for (auto browser = browsers_.begin(); browser != browsers_.end(); ++browser)
+    for (auto request = browser->requests.begin(); request != browser->requests.end(); ++request)
+      if (ImageService::requestKey(request.value(),version_) == result.key) {
+        if (!request->catalog && result.catalog) { request->catalog = result.catalog; request->catalogKeyed = false; }
+        if (request->attributeId < 0 && request->stargodId == 0) {
+          if (!result.sourceIdentity.isEmpty() || request->sourceIdentity.isEmpty()) request->sourceIdentity = identity;
+          if (!result.contentSha256.isEmpty()) request->contentSha256 = result.contentSha256;
+        }
+      }
   if (result.outcome != ImageOutcome::Ready || !result.handle) {
     const QString message = result.message.isEmpty() ? QStringLiteral("图片暂不可用；可右键重试") : result.message;
     if (imageStatuses_.size() >= 128) imageStatuses_.erase(imageStatuses_.begin());
@@ -204,7 +236,7 @@ void PetImageCache::accept(const ImageResult& result) {
     emit petImageStatusChanged(result.visualKey, message);
     return;
   }
-  const bool wasUnavailable = imageStatuses_.remove(result.key) > 0;
+  const bool wasUnavailable = imageStatuses_.remove(result.key);
   for (auto it = browsers_.begin(); it != browsers_.end(); ++it)
     if (it->keys.values().contains(result.key)) it.key()->setToolTip({});
   if (wasUnavailable) emit petImageStatusChanged(result.visualKey, {});
@@ -222,7 +254,12 @@ void PetImageCache::accept(const ImageResult& result) {
     const auto browserList = browsers_.keys();
     for (auto* browser : browserList) refreshBrowserResources(browser);
   }
-  else emit petImageReady(result.visualKey, resourceUrl(result.key));
+  else {
+    for (auto browser = browsers_.begin(); browser != browsers_.end(); ++browser)
+      for (auto resource = browser->keys.begin(); resource != browser->keys.end(); ++resource)
+        if (resource.value() == result.key) browser.key()->updateImageResource(resource.key(),result.handle);
+    if (petKeys_.value(result.visualKey) == result.key) emit petImageReady(result.visualKey, resourceUrl(result.key));
+  }
 }
 void PetImageCache::refreshBrowserResources(PetImageBrowser* browser) {
   const auto found = browsers_.constFind(browser);
@@ -257,6 +294,7 @@ void PetImageCache::setDocumentImage(QTextBrowser* browser, const QString& html,
       const auto icon = match.next();
       ImageRequest request;
       request.stargodId = icon.captured(2).toInt();
+      request.catalog = imageCatalog_;
       if (request.stargodId > 100000) continue;
       request.visualKey = QStringLiteral("stargod-%1").arg(request.stargodId);
       request.outputLogicalSize = {48,48}; request.devicePixelRatio = devicePixelRatio_;
@@ -271,6 +309,7 @@ void PetImageCache::setDocumentImage(QTextBrowser* browser, const QString& html,
       for (const auto& cell : stargodRingSlots(QUrl(ringMatch.next().captured(1)))) {
         if (cell.empty || cell.imageId <= 0 || bindings.requests.size() >= 96) continue;
         ImageRequest request; request.stargodId = cell.imageId;
+        request.catalog = imageCatalog_;
         request.visualKey = QStringLiteral("stargod-%1").arg(cell.imageId);
         request.outputLogicalSize = {96,96}; request.devicePixelRatio = devicePixelRatio_;
         const QString url = QStringLiteral("kqstargod://icon/%1").arg(cell.imageId);

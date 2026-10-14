@@ -8,6 +8,16 @@
 #include <QStringList>
 #include <functional>
 #include <memory>
+#include <limits>
+#include "contracts/public_dataset.h"
+
+// Only the two small index views are retained by a document. They share the
+// bundle's immutable JSON storage without pinning an expanded replay catalog.
+struct ImageCatalogSnapshot {
+  QString imageIndexObject, iconIndexObject;
+  QJsonObject imageIndex, iconIndex;
+};
+using ImageCatalogHandle = std::shared_ptr<const ImageCatalogSnapshot>;
 
 struct ImageExecutors {
   // Nonblocking admission. Jobs run on the existing I/O and Compute threads.
@@ -35,6 +45,16 @@ struct ImageServiceOptions {
 struct ImageRequest {
   QString visualKey;
   QStringList candidateNames;
+  // Names are legacy caller metadata only; they never select a download.
+  QString sourceIdentity;
+  QString contentSha256;
+  ImageCatalogHandle catalog;
+  // A request sent before the asynchronous directory handshake keeps its
+  // original delivery key when the completion supplies the exact index lease.
+  bool catalogKeyed = true;
+  // A GUI document pins the directory generation it first requested. The
+  // default permits current-directory batch/standalone requests.
+  quint64 sourceGeneration = std::numeric_limits<quint64>::max();
   QSize outputLogicalSize{300, 300};
   qreal devicePixelRatio = 1;
   bool selected = true;
@@ -56,6 +76,9 @@ struct ImagePayload {
   std::shared_ptr<ImageServiceInternal::Ledger> ledger;
   QImage image; // Destroy pixels before the accounting lease.
   quint64 imageBytes = 0;
+  QString sourceIdentity;
+  QString contentSha256;
+  ImageCatalogHandle catalog;
 };
 using ImageHandle = std::shared_ptr<const ImagePayload>;
 
@@ -66,6 +89,9 @@ struct ImageResult {
   ImageOutcome outcome = ImageOutcome::Unavailable;
   ImageHandle handle;
   QString message;
+  QString sourceIdentity;
+  QString contentSha256;
+  ImageCatalogHandle catalog;
 };
 
 // Displaying an image and keeping it on disk are separate results. A decoded
@@ -114,6 +140,8 @@ public:
   void request(const ImageRequest& request);
   // Reloads only the local catalog file. Call after an explicit data update.
   void reloadImageIndex();
+  void applyPublicDataset(PublicDatasetSnapshotHandle dataset);
+  void publishImageGeneration();
   void requestBatch(const QList<ImageRequest>& requests);
   void pauseBatch(bool paused);
   void cancelBatch();
@@ -132,6 +160,8 @@ signals:
   // file is still there). Never emitted for a plain preview.
   void persistenceCompleted(const ImagePersistenceResult& result);
   void imageIndexReloaded();
+  void imageGenerationAvailable(quint64 generation);
+  void imageCatalogAvailable(const ImageCatalogHandle& catalog);
   void batchProgress(int completed, int total, int failed);
   void batchFinished(bool cancelled, int failed);
 
@@ -144,3 +174,4 @@ Q_DECLARE_METATYPE(ImageRequest)
 Q_DECLARE_METATYPE(ImageResult)
 Q_DECLARE_METATYPE(ImageHandle)
 Q_DECLARE_METATYPE(ImagePersistenceResult)
+Q_DECLARE_METATYPE(ImageCatalogHandle)

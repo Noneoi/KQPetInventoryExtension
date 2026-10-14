@@ -15,6 +15,7 @@ import re
 import zlib
 from pathlib import Path
 
+PET_DICTIONARY_SCHEMA = 5
 
 def find_one(root: Path, pattern: str) -> Path:
     matches = sorted(root.rglob(pattern))
@@ -102,50 +103,81 @@ def parse_int(token: str, default: int = 0) -> int:
     return int(match.group()) if match else default
 
 
+def _parse_pet_rows(source: str) -> dict[str, dict]:
+    pets: dict[str, dict] = {}
+    for args in iter_create_args(source):
+        if len(args) < 64:
+            continue
+        race_id = parse_int(args[0], -1)
+        if race_id < 0:
+            continue
+        breakthrough_costs = json.loads(args[62])
+        if not isinstance(breakthrough_costs, str):
+            raise ValueError("official astrolabe breakthrough costs are not a literal string")
+        # PetDictionaryDataItem.create(param29:String) assigns _sign.
+        # Preserve the official tags even when a skin hides the era in
+        # its display name; do not derive an era from slot counts/costs.
+        sign = json.loads(args[28])
+        if not isinstance(sign, str):
+            raise ValueError("official pet sign is not a literal string")
+        pets[str(race_id)] = {
+            "name": decode_as_string(args[1]),
+            "attributes": decode_as_string(args[8]),
+            "jobs": decode_as_string(args[9]),
+            "groupRaceId": parse_int(args[42]),
+            "sign": sign,
+            # Official PetDictionaryDataItem.create(param54) -> quality (SP/SSS/SS/S/A).
+            "quality": decode_as_string(args[53]),
+            "astrolabeBreakCosts": breakthrough_costs,
+            # PetDictionaryDataItem.create(param31) → maxLevel.
+            "maxLevel": parse_int(args[30], 0),
+            # PetDictionaryDataItem.create(param64).  The official getter
+            # falls back to level 6 when this value is not positive.
+            "stargodSlotMaxLevel": max(6, parse_int(args[63], 6)),
+        }
+    return pets
+
+
 def parse_pets(root: Path) -> dict[str, dict]:
+    """Parse constructor fields; use merge_pet_sources for versioned catalogs."""
     files = list(root.rglob("PetDictionaryDataContents.as"))
     files += list(root.rglob("PetDictionaryDataContentsUpdate.as"))
     pets: dict[str, dict] = {}
     for path in sorted(files, key=lambda item: "Update" in item.name):
-        source = path.read_text(encoding="utf-8")
-        for args in iter_create_args(source):
-            if len(args) < 64:
-                continue
-            race_id = parse_int(args[0], -1)
-            if race_id < 0:
-                continue
-            breakthrough_costs = json.loads(args[62])
-            if not isinstance(breakthrough_costs, str):
-                raise ValueError("official astrolabe breakthrough costs are not a literal string")
-            # PetDictionaryDataItem.create(param29:String) assigns _sign.
-            # Preserve the official tags even when a skin hides the era in
-            # its display name; do not derive an era from slot counts/costs.
-            sign = json.loads(args[28])
-            if not isinstance(sign, str):
-                raise ValueError("official pet sign is not a literal string")
-            pets[str(race_id)] = {
-                "name": decode_as_string(args[1]),
-                "attributes": decode_as_string(args[8]),
-                "jobs": decode_as_string(args[9]),
-                "groupRaceId": parse_int(args[42]),
-                "sign": sign,
-                # Official PetDictionaryDataItem.create(param54) -> quality (SP/SSS/SS/S/A).
-                "quality": decode_as_string(args[53]),
-                "astrolabeBreakCosts": breakthrough_costs,
-                # PetDictionaryDataItem.create(param31) → maxLevel.
-                "maxLevel": parse_int(args[30], 0),
-                # PetDictionaryDataItem.create(param64).  The official getter
-                # falls back to level 6 when this value is not positive.
-                "stargodSlotMaxLevel": max(6, parse_int(args[63], 6)),
-            }
+        pets.update(_parse_pet_rows(path.read_text(encoding="utf-8-sig")))
     return pets
 
 
 def merge_pet_sources(roots: list[Path]) -> dict[str, dict]:
-    """Use explicit base/update order; filesystem traversal order is not a version."""
-    result: dict[str, dict] = {}
+    """Follow PetDictionaryDataService's strictly newer update timestamp rule."""
+    filenames = ("PetDictionaryDataContents.as", "PetDictionaryDataContentsUpdate.as")
+    sources: dict[str, str] = {}
     for root in roots:
-        result.update(parse_pets(root))
+        for filename in filenames:
+            for path in root.rglob(filename):
+                source = path.read_text(encoding="utf-8-sig")
+                if filename in sources and sources[filename] != source:
+                    raise ValueError("ambiguous official pet dictionary source: " + filename)
+                sources[filename] = source
+    if any(filename not in sources for filename in filenames):
+        raise ValueError("official base/update pet dictionary pair is incomplete")
+    timestamps = {}
+    for filename, source in sources.items():
+        values = re.findall(r"\bconst\s+timestamp\s*:\s*Number\s*=\s*(\d+)\s*;", source)
+        if len(values) != 1:
+            raise ValueError("missing or ambiguous official pet dictionary timestamp: " + filename)
+        timestamps[filename] = int(values[0])
+    base, update = filenames
+    result = _parse_pet_rows(sources[base])
+    if not result:
+        raise ValueError("official base pet dictionary is empty")
+    # PetDictionaryDataService constructor uses update.timestamp > base.timestamp
+    # before copying entries, including new IDs. Same/older updates are ignored.
+    if timestamps[update] > timestamps[base]:
+        delta = _parse_pet_rows(sources[update])
+        if not delta and not re.search(r"\bconst\s+datas\s*:\s*Object\s*=\s*\{\s*\}\s*;", sources[update]):
+            raise ValueError("official pet dictionary update is not a readable table")
+        result.update(delta)
     return result
 
 
@@ -564,7 +596,7 @@ def main() -> None:
 
     catalog = {
         "schema": 1,
-        "petDictionarySchema": 4,
+        "petDictionarySchema": PET_DICTIONARY_SCHEMA,
         "powerRuleVersion": 1,
         "cultivationRuleVersion": 1,
         "source": {"kind": "aoqi-official-unpack", "powerRuleVersion": 1},
@@ -572,7 +604,7 @@ def main() -> None:
         "attributes": {"0":"全部", **enum_names(attr_source,"PetAttr")},
         "jobs": job_names,
         "fusionJobs": fusion_jobs(job_source,job_names),
-        "pets": parse_pets(root),
+        "pets": merge_pet_sources([root]),
         "badges": parse_badges(badge_swf),
         "sacredEquipment": parse_sacred(sacred_as, find_one(root, "Equipment4PetItemService.as")),
         "sacredStarPlans": parse_sacred_plans(find_one(root, "SE_StarUpgradeConfig.as"), "Star"),

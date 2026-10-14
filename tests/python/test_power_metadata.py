@@ -129,5 +129,87 @@ class PowerMetadataTests(unittest.TestCase):
             catalog.parse_material_cost("4:1:-20")
 
 
+class PetDictionaryMergeTests(unittest.TestCase):
+    def setUp(self):
+        temporary = tempfile.TemporaryDirectory()
+        self.addCleanup(temporary.cleanup)
+        self.root = Path(temporary.name)
+        self.base_root, self.update_root = self.root / "z-base", self.root / "a-update"
+        self.base_root.mkdir()
+        self.update_root.mkdir()
+        self.base = self.base_root / "PetDictionaryDataContents.as"
+        self.update = self.update_root / "PetDictionaryDataContentsUpdate.as"
+
+    @staticmethod
+    def row(identifier, name):
+        args = ["0"] * 67
+        args[0], args[1] = str(identifier), json.dumps(name)
+        args[8], args[9], args[28] = '"26,28"', '"22"', '"神运,灵初,皮肤"'
+        args[30], args[42], args[53], args[62], args[63] = "120", "8000", '"SP"', '"8:51:100"', "8"
+        return json.dumps(str(identifier)) + ":PetDictionaryDataItem.create(" + ",".join(args) + ")"
+
+    @staticmethod
+    def write_table(path, timestamp, rows):
+        path.write_text(f"public static const timestamp:Number = {timestamp};\n"
+                        "public static const datas:Object = {" + ",".join(rows) + "};", encoding="utf-8")
+
+    def test_newer_update_overrides_adds_and_preserves_every_workbench_pet_field(self):
+        self.write_table(self.base, 100, [self.row(9001, "base"), self.row(9002, "retained")])
+        self.write_table(self.update, 101, [self.row(9001, "updated"), self.row(9003, "added")])
+        merged = catalog.merge_pet_sources([self.update_root, self.base_root])
+        self.assertEqual(set(merged), {"9001", "9002", "9003"})
+        self.assertEqual(merged["9001"], {
+            "name": "updated", "attributes": "26,28", "jobs": "22", "groupRaceId": 8000,
+            "sign": "神运,灵初,皮肤", "quality": "SP", "astrolabeBreakCosts": "8:51:100",
+            "maxLevel": 120, "stargodSlotMaxLevel": 8,
+        })
+        self.assertEqual(merged["9002"]["name"], "retained")
+        self.assertEqual(merged["9003"]["name"], "added")
+        self.assertEqual(catalog.merge_pet_sources([self.root]), merged)
+
+    def test_equal_and_older_timestamps_ignore_override_and_update_only_ids(self):
+        self.write_table(self.base, 100, [self.row(9001, "base")])
+        for timestamp in (100, 99):
+            with self.subTest(timestamp=timestamp):
+                self.write_table(self.update, timestamp, [self.row(9001, "unused"), self.row(9002, "unused new")])
+                merged = catalog.merge_pet_sources([self.base_root, self.update_root])
+                self.assertEqual(set(merged), {"9001"})
+                self.assertEqual(merged["9001"]["name"], "base")
+
+    def test_newer_legal_empty_update_keeps_base(self):
+        self.write_table(self.base, 100, [self.row(9001, "base")])
+        self.write_table(self.update, 101, [])
+        self.assertEqual(catalog.merge_pet_sources([self.root]), catalog.parse_pets(self.base_root))
+
+    def test_missing_ambiguous_or_nonliteral_timestamp_is_not_guessed(self):
+        self.write_table(self.base, 100, [self.row(9001, "base")])
+        for declaration in ("", "const timestamp:Number = NEXT;",
+                            "const timestamp:Number = 101; const timestamp:Number = 102;"):
+            with self.subTest(declaration=declaration):
+                self.update.write_text(declaration + "const datas:Object = {};", encoding="utf-8")
+                with self.assertRaisesRegex(ValueError, "timestamp"):
+                    catalog.merge_pet_sources([self.root])
+
+    def test_conflicting_dictionary_copies_do_not_depend_on_directory_order(self):
+        self.write_table(self.base, 100, [self.row(9001, "base")])
+        self.write_table(self.update, 101, [])
+        conflict = self.update_root / self.base.name
+        self.write_table(conflict, 100, [self.row(9001, "different")])
+        with self.assertRaisesRegex(ValueError, "ambiguous official pet dictionary"):
+            catalog.merge_pet_sources([self.root])
+
+    def test_missing_pair_empty_base_or_unreadable_delta_fails(self):
+        self.write_table(self.base, 100, [self.row(9001, "base")])
+        with self.assertRaisesRegex(ValueError, "incomplete"):
+            catalog.merge_pet_sources([self.root])
+        self.write_table(self.update, 101, ['"9001":PetDictionaryDataItem.create(9001)'])
+        with self.assertRaisesRegex(ValueError, "not a readable table"):
+            catalog.merge_pet_sources([self.root])
+        self.write_table(self.base, 100, [])
+        self.write_table(self.update, 101, [])
+        with self.assertRaisesRegex(ValueError, "base pet dictionary is empty"):
+            catalog.merge_pet_sources([self.root])
+
+
 if __name__ == "__main__":
     unittest.main()

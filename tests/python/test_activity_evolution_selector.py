@@ -10,6 +10,12 @@ sys.path.insert(0, str(Path(__file__).resolve().parents[2] / "tools"))
 import activity_evolution_selector as selector
 
 
+class ObservedVersions(dict):
+    def __init__(self, values, hashes):
+        super().__init__(values)
+        self.source_hashes = dict(hashes)
+
+
 MANAGER = '''
 public function getPetEvoLinkAllRaceIds(param1:Array,param2:Boolean=true):Array {
  if(param1==null){param1=[];}
@@ -62,7 +68,11 @@ class FakeUpdater:
         self.calls.append(key)
         path = self.scratch / (key.rsplit("/", 1)[-1] + ".swf")
         path.write_bytes(b"frozen fixture")
-        return path, {"version": versions[key], "url": "https://aoqi.100bt.com/play/" + key + "~" + versions[key] + ".swf"}
+        source = {"version": versions[key], "url": "https://aoqi.100bt.com/play/" + key + "~" + versions[key] + ".swf"}
+        observed = getattr(versions, 'source_hashes', {})
+        if key in observed:
+            source['sha256'] = observed[key]
+        return path, source
 
     def export(self, swf, directory, selected):
         directory.mkdir(parents=True, exist_ok=True)
@@ -134,6 +144,37 @@ class ActivityEvolutionSelectorTests(unittest.TestCase):
         with self.assertRaisesRegex(ValueError, "展开顺序已变化"):
             self.expand([100])
         self.assertEqual(path.read_bytes(), before)
+
+    def test_same_version_observed_hash_change_reexpands_only_changed_source(self):
+        self.versions = ObservedVersions(self.versions, {key: 'a' * 64 for key in self.versions})
+        official_versions = dict(self.versions)
+        before_revision = selector.dependency_revision(self.versions)
+        self.assertEqual(self.expand([100]), [100, 200, 300, 101, 201])
+        self.updater.calls.clear()
+        self.assertEqual(self.expand([100]), [100, 200, 300, 101, 201])
+        self.assertEqual(self.updater.calls, [])
+        changed = 'multipleformpet/multipleformpetservice'
+        self.versions.source_hashes[changed] = 'b' * 64
+        self.updater.scripts['MultipleFormPetConfig'] = FORMS.replace('[100,101]', '[100,101,102]')
+        self.assertNotEqual(selector.dependency_revision(self.versions), before_revision)
+        self.assertEqual(self.expand([100]), [100, 200, 300, 101, 201, 102])
+        self.assertEqual(self.updater.calls, [changed])
+        saved = json.loads((self.updater.catalog / selector.FILENAME).read_text(encoding='utf-8'))
+        self.assertEqual(saved['sourceHashes'], self.versions.source_hashes)
+        self.assertEqual(saved['resources']['forms']['sha256'], 'b' * 64)
+        self.assertEqual(dict(self.versions), official_versions)
+
+    def test_same_version_unrecognized_hash_change_keeps_old_cache_bytes(self):
+        self.versions = ObservedVersions(self.versions, {key: 'a' * 64 for key in self.versions})
+        self.expand([100])
+        path = self.updater.catalog / selector.FILENAME
+        previous = path.read_bytes()
+        self.versions.source_hashes['pet/petdataservice'] = 'b' * 64
+        self.updater.scripts['PetEvoPanelManager'] = MANAGER.replace(
+            'param1=this.resetRealPetRaceIds(param1);', 'param1=this.getArbitraryNewMapping(param1);')
+        with self.assertRaisesRegex(ValueError, '展开顺序已变化'):
+            self.expand([100])
+        self.assertEqual(path.read_bytes(), previous)
 
     def test_invalid_or_empty_seeds_do_not_fetch_public_resources(self):
         self.assertEqual(self.expand([]), [])

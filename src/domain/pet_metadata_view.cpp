@@ -2,6 +2,7 @@
 #include "pet_identity.h"
 #include "checked_json_numbers.h"
 #include "pet_era.h"
+#include "public_data_view.h"
 #include <QRegularExpression>
 #include <QSet>
 #include <QJsonArray>
@@ -270,10 +271,8 @@ QJsonObject PetMetadataView::enrichMetadata(const QJsonObject& petObject,
 }
 
 QJsonObject PetMetadataView::item(const char* section, int defineId) const {
-  return snapshot()->root.value(QString::fromLatin1(section))
-      .toObject()
-      .value(QString::number(defineId))
-      .toObject();
+  return PublicDataView(PublicDataViewKind::PetDetail, snapshot()->root)
+      .object(QString::fromLatin1(section), QString::number(defineId));
 }
 
 QJsonObject PetMetadataView::pet(int raceId) const { return item("pets", raceId); }

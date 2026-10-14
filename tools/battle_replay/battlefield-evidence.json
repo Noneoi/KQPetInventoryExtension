@@ -1,0 +1,1654 @@
+{
+  "format": 1,
+  "checkedOn": "2026-10-08",
+  "packages": [
+    {
+      "resource": "library/interfaces",
+      "version": "20260930468207480",
+      "url": "http://aoqi.100bt.com/play/library/interfaces~20260930468207480.swf",
+      "file": "library_interfaces.swf",
+      "bytes": 621582,
+      "sha256": "2a7b34e20b998b40e38fea17050fde581c10ae22b6f1750632709a1dc8ad6872"
+    },
+    {
+      "resource": "battle/battle",
+      "version": "260930623185041",
+      "url": "http://aoqi.100bt.com/play/battle/battle~260930623185041.swf",
+      "file": "battle_battle.swf",
+      "bytes": 138593,
+      "sha256": "e429b57fae82a8af9dd92f0d6ec7f6ff1612f743a790f9036987cd1c4ea73a75"
+    },
+    {
+      "resource": "battleconfig/battleconfig",
+      "version": "260930372598462",
+      "url": "http://aoqi.100bt.com/play/battleconfig/battleconfig~260930372598462.swf",
+      "file": "battleconfig_battleconfig.swf",
+      "bytes": 734720,
+      "sha256": "8e912e2bb1a92ba89c5c2ee9a6abc0c0543a8092d2da84618e4800c9a086a16c"
+    }
+  ],
+  "petDictionary": {
+    "retrievedUtc": "2026-10-08T13:05:20.292433+00:00",
+    "manifestSha256": "5797a33bccd4d04f82edf6f043ae9cfc8dbde8beb306aa63bd8cba8673d2dddb",
+    "packages": [
+      {
+        "resource": "pet/petdictionarydata",
+        "version": "20260930468207480",
+        "url": "https://aoqi.100bt.com/play/pet/petdictionarydata~20260930468207480.swf",
+        "sha256": "fc86e5396a3269ffccd93721ba770fb4d3a1e4c51803d7388da3114d3e56f666",
+        "entries": 9459,
+        "decompiledFile": "petdictionarydata/scripts/mmo/pet/petdictionarydata/PetDictionaryDataContents.as",
+        "decompiledSha256": "f2a32d1823a07c7faad9cb6686a0e985f219b8b21ab28e33fbfe258395e446d4"
+      },
+      {
+        "resource": "pet/petdictionarydataupdate",
+        "version": "20260930468207480",
+        "url": "https://aoqi.100bt.com/play/pet/petdictionarydataupdate~20260930468207480.swf",
+        "sha256": "23c9fb3435271cfa81e5c785588be152d1d9fcb9d66179ee6939990d73664b5c",
+        "entries": 330,
+        "decompiledFile": "petdictionarydataupdate/scripts/mmo/pet/petdictionarydata/PetDictionaryDataContentsUpdate.as",
+        "decompiledSha256": "54af4cbe28446aec9019db951446a224f35cc08327b2384f47b4b4cec2d68de4"
+      }
+    ]
+  },
+  "rules": [
+    {
+      "topic": "生命/护盾条",
+      "rule": "BattleFighter.curHp 与 curSp 分别用当前数值/maxHp 更新条宽。curSp 不按 maxHp 封顶。文本完整显示记录值，仅绘制宽度限制为 0..100%。"
+    },
+    {
+      "topic": "气势条",
+      "rule": "FighterInfo 初始以及 set raceId 后从官方 PetDictionaryDataItem.maxPower 读取分母；_ultSuperSkillNo (create 的第17参数) > 0 时为150，否则DEFAULT_MAX_POWER=100。curPower不以分母封顶。字典缺项显示?。"
+    },
+    {
+      "topic": "变身和属性",
+      "rule": "t=1 更新 cr/cf/cn、cu 的首项（为0时用scu）和ca；没有调用superUniqueSkill setter，原 suskill 保留。t=6 只更新ca。保留原始or/of等字段，避开反编译代码中orgFaceId被连续写两次的原始异常。"
+    },
+    {
+      "topic": "召唤/分身",
+      "rule": "t=3只有完成回调，不自行触发登场。等待型Buff新增且等待类型>0，召唤单位或已呼出的分身执行summonAppear，只恢复子显示层；此通用调用不改生命、召唤标志或整体alpha，不单独产生新登场。回放用Effect.restoresDisplayLayers记录。明确召唤技能PlaySummonEffectCommand对isse=true目标的播放阶段及t=5分身呼出路径各自保留；t=5按承载记录的player和ci寻找分身并设isSelfReplication/isSelfReplicationCalledOut。文字版不重建逐帧alpha/layer。"
+    },
+    {
+      "topic": "生命状态",
+      "rule": "当前hp为0显示生命归零退场，0到正数显示生命恢复；不能由此推断复活技能、被动因果。待召唤/待分身优先标明尚未登场。"
+    },
+    {
+      "topic": "玩家换位/移除",
+      "rule": "BattleSyncManager先删除玩家，再处理ml。BattlePlayer.shiftTo写入玩家curX/curY，按每个fighter的initPosX/Y重新定位。文字版分别保存玩家位置和精灵九宫格位置；每队一次选择一位玩家的阵容。被删除玩家保留末次记录并明确标识已移除。"
+    },
+    {
+      "topic": "事件与回退",
+      "rule": "关键事件来自相邻命令快照的变化；行动末生命恢复到原值仍保留中途生命归零/恢复事件。回退直接读取快照，不反向推算。"
+    }
+  ],
+  "sources": [
+    {
+      "path": "pet-interface/scripts/mmo/interfaces/pet/data/PetDictionaryDataItem.as",
+      "sha256": "35d3be30c73a3f24639835dfadd02d1e7e3fb7a67a77f6543c261300ff26ce8c",
+      "methods": [
+        {
+          "line": 202,
+          "signature": "public function PetDictionaryDataItem()"
+        },
+        {
+          "line": 207,
+          "signature": "public static function create(param1:int, param2:String, param3:String, param4:String, param5:String, param6:String, param7:String, param8:int, param9:String, param10:String, param11:int, param12:int, param13:String, param14:String, param15:int, param16:int, param17:int, param18:int, param19:String, param20:String, param21:String, param22:int, param23:String, param24:String, param25:String, param26:String, param27:int, param28:String, param29:String, param30:int, param31:int, param32:int, param33:int, param34:int, param35:String, param36:int, param37:int, param38:int, param39:String, param40:String, param41:PetEvoableType, param42:int, param43:int, param44:int, param45:Number, param46:String, param47:int, param48:String, param49:String, param50:int, param51:int, param52:String, param53:String, param54:String, param55:String, param56:String, param57:String, param58:String, param59:int, param60:int, param61:String, param62:String, param63:String, param64:int, param65:String, param66:String, param67:String) : PetDictionaryDataItem"
+        },
+        {
+          "line": 355,
+          "signature": "public static function createAC(param1:int, param2:String, param3:String, param4:String, param5:int, param6:int, param7:int, param8:int, param9:Number) : PetDictionaryDataItem"
+        },
+        {
+          "line": 360,
+          "signature": "public static function getMainAttribute(param1:Array) : int"
+        },
+        {
+          "line": 375,
+          "signature": "public static function handleMcRaceType(param1:MovieClip, param2:Array, param3:Boolean = false) : void"
+        },
+        {
+          "line": 410,
+          "signature": "public static function handleMcJobTypeByDataItem(param1:MovieClip, param2:PetDictionaryDataItem) : void"
+        },
+        {
+          "line": 428,
+          "signature": "private static function findMcJobFrame(param1:Array, param2:MovieClip) : int"
+        },
+        {
+          "line": 477,
+          "signature": "public static function getAttDescById(param1:int) : String"
+        },
+        {
+          "line": 482,
+          "signature": "public static function getJobDescById(param1:int) : String"
+        },
+        {
+          "line": 487,
+          "signature": "public function get att1Desc() : String"
+        },
+        {
+          "line": 492,
+          "signature": "public function get att2Desc() : String"
+        },
+        {
+          "line": 497,
+          "signature": "public function get jobDesc() : String"
+        },
+        {
+          "line": 502,
+          "signature": "public function hasJob(param1:int) : Boolean"
+        },
+        {
+          "line": 507,
+          "signature": "public function get raceId() : int"
+        },
+        {
+          "line": 512,
+          "signature": "public function get orgName() : String"
+        },
+        {
+          "line": 517,
+          "signature": "public function get desc() : String"
+        },
+        {
+          "line": 522,
+          "signature": "public function get job() : int"
+        },
+        {
+          "line": 527,
+          "signature": "public function get jobE() : PetJob"
+        },
+        {
+          "line": 532,
+          "signature": "public function get job2() : int"
+        },
+        {
+          "line": 537,
+          "signature": "public function get jobE2() : PetJob"
+        },
+        {
+          "line": 542,
+          "signature": "public function get jobs() : Array"
+        },
+        {
+          "line": 547,
+          "signature": "public function get secondaryJob() : int"
+        },
+        {
+          "line": 552,
+          "signature": "public function get JobESecondary() : PetJob"
+        },
+        {
+          "line": 557,
+          "signature": "public function get height() : String"
+        },
+        {
+          "line": 562,
+          "signature": "public function get weight() : String"
+        },
+        {
+          "line": 567,
+          "signature": "public function hasAttribute(param1:int) : Boolean"
+        },
+        {
+          "line": 572,
+          "signature": "public function get attribute1() : int"
+        },
+        {
+          "line": 577,
+          "signature": "public function get attr1() : PetAttr"
+        },
+        {
+          "line": 582,
+          "signature": "public function get attribute2() : int"
+        },
+        {
+          "line": 587,
+          "signature": "public function get attr2() : PetAttr"
+        },
+        {
+          "line": 592,
+          "signature": "public function get dictionaryId() : int"
+        },
+        {
+          "line": 597,
+          "signature": "public function get favour() : String"
+        },
+        {
+          "line": 602,
+          "signature": "public function get birthPlace() : String"
+        },
+        {
+          "line": 607,
+          "signature": "public function get rare() : int"
+        },
+        {
+          "line": 612,
+          "signature": "public function get canSeeinBook() : Boolean"
+        },
+        {
+          "line": 617,
+          "signature": "public function get sendPlace() : String"
+        },
+        {
+          "line": 626,
+          "signature": "public function get evolutionInfo() : String"
+        },
+        {
+          "line": 631,
+          "signature": "public function getNextEvolveLevel(param1:int) : int"
+        },
+        {
+          "line": 655,
+          "signature": "public function getNextEvolveRaceId(param1:int) : int"
+        },
+        {
+          "line": 681,
+          "signature": "public function get norSkillNo() : int"
+        },
+        {
+          "line": 686,
+          "signature": "public function get ultSkillNo() : int"
+        },
+        {
+          "line": 691,
+          "signature": "public function get ultSuperSkillNo() : int"
+        },
+        {
+          "line": 696,
+          "signature": "public function get heroSkillNo() : int"
+        },
+        {
+          "line": 701,
+          "signature": "public function get psychicsSkillNo() : int"
+        },
+        {
+          "line": 706,
+          "signature": "public function get strategyTip() : String"
+        },
+        {
+          "line": 711,
+          "signature": "public function get positionDesc() : String"
+        },
+        {
+          "line": 716,
+          "signature": "public function get evolutionToolDes() : String"
+        },
+        {
+          "line": 721,
+          "signature": "public function get starGodSkillName() : String"
+        },
+        {
+          "line": 726,
+          "signature": "public function get starGodSkillDesc() : String"
+        },
+        {
+          "line": 731,
+          "signature": "public function get reLearnPower() : String"
+        },
+        {
+          "line": 736,
+          "signature": "public function get reStarGod() : String"
+        },
+        {
+          "line": 741,
+          "signature": "public function get recYuanSou() : String"
+        },
+        {
+          "line": 746,
+          "signature": "public function get defYuanSou() : String"
+        },
+        {
+          "line": 751,
+          "signature": "public function get matchWords() : String"
+        },
+        {
+          "line": 760,
+          "signature": "public function get sign() : String"
+        },
+        {
+          "line": 765,
+          "signature": "public function isBossPet() : Boolean"
+        },
+        {
+          "line": 770,
+          "signature": "public function isDoubleFormPet() : Boolean"
+        },
+        {
+          "line": 775,
+          "signature": "public function isBoss() : Boolean"
+        },
+        {
+          "line": 780,
+          "signature": "public function isSkin() : Boolean"
+        },
+        {
+          "line": 785,
+          "signature": "public function isSuperGodPet() : Boolean"
+        },
+        {
+          "line": 790,
+          "signature": "public function isSuperGodAttrPet() : Boolean"
+        },
+        {
+          "line": 795,
+          "signature": "public function isGodJob() : Boolean"
+        },
+        {
+          "line": 800,
+          "signature": "public function isLegend() : Boolean"
+        },
+        {
+          "line": 805,
+          "signature": "public function isTianQi() : Boolean"
+        },
+        {
+          "line": 810,
+          "signature": "public function isQiYuan() : Boolean"
+        },
+        {
+          "line": 815,
+          "signature": "public function isHuan() : Boolean"
+        },
+        {
+          "line": 820,
+          "signature": "public function isYiXingZu() : Boolean"
+        },
+        {
+          "line": 825,
+          "signature": "public function isAlmighty() : Boolean"
+        },
+        {
+          "line": 830,
+          "signature": "public function isXingJi() : Boolean"
+        },
+        {
+          "line": 835,
+          "signature": "public function isShenYun() : Boolean"
+        },
+        {
+          "line": 840,
+          "signature": "public function isLingChu() : Boolean"
+        },
+        {
+          "line": 845,
+          "signature": "public function isSwallower() : Boolean"
+        },
+        {
+          "line": 850,
+          "signature": "public function needMarkCarryPetType(param1:Boolean = true) : Boolean"
+        },
+        {
+          "line": 863,
+          "signature": "public function get recPetBadge() : PetBadge"
+        },
+        {
+          "line": 872,
+          "signature": "public function isDoubleHeroSkill() : Boolean"
+        },
+        {
+          "line": 877,
+          "signature": "public function isSixStarGod() : Boolean"
+        },
+        {
+          "line": 882,
+          "signature": "public function isTransformer() : Boolean"
+        },
+        {
+          "line": 887,
+          "signature": "public function isPsychicser() : Boolean"
+        },
+        {
+          "line": 892,
+          "signature": "public function isMultipleForm() : Boolean"
+        },
+        {
+          "line": 897,
+          "signature": "public function isAncientPet() : Boolean"
+        },
+        {
+          "line": 902,
+          "signature": "public function isGodAttr() : Boolean"
+        },
+        {
+          "line": 907,
+          "signature": "public function findSign(param1:String) : Boolean"
+        },
+        {
+          "line": 925,
+          "signature": "public function isDragonJob() : Boolean"
+        },
+        {
+          "line": 930,
+          "signature": "public function isSummonerPet() : Boolean"
+        },
+        {
+          "line": 935,
+          "signature": "public function isLargePet() : Boolean"
+        },
+        {
+          "line": 940,
+          "signature": "public function get recProficient() : int"
+        },
+        {
+          "line": 945,
+          "signature": "public function get suitProficient() : String"
+        },
+        {
+          "line": 950,
+          "signature": "public function get rentType() : int"
+        },
+        {
+          "line": 955,
+          "signature": "public function get reGiftStarEnergy() : String"
+        },
+        {
+          "line": 960,
+          "signature": "public function get reGiftStarEneryPropertyIds() : Array"
+        },
+        {
+          "line": 988,
+          "signature": "public function get suitGuardStone() : int"
+        },
+        {
+          "line": 993,
+          "signature": "public function get maxLevel() : int"
+        },
+        {
+          "line": 998,
+          "signature": "public function get extPosition() : Array"
+        },
+        {
+          "line": 1003,
+          "signature": "public function get gridType() : int"
+        },
+        {
+          "line": 1008,
+          "signature": "public function get largeSkillNo() : int"
+        },
+        {
+          "line": 1013,
+          "signature": "public function get isExtPointAttack() : Boolean"
+        },
+        {
+          "line": 1018,
+          "signature": "public function get dragonJobSkillNo() : int"
+        },
+        {
+          "line": 1023,
+          "signature": "public function get yuanLiSkillNo() : int"
+        },
+        {
+          "line": 1032,
+          "signature": "public function get huanSkillNo() : int"
+        },
+        {
+          "line": 1041,
+          "signature": "public function get isHideGuardStone() : Boolean"
+        },
+        {
+          "line": 1046,
+          "signature": "public function get starGodType() : int"
+        },
+        {
+          "line": 1068,
+          "signature": "public function get starGodTypeC() : int"
+        },
+        {
+          "line": 1088,
+          "signature": "private function get starGodSlotOpenLevelsP() : Array"
+        },
+        {
+          "line": 1112,
+          "signature": "public function get starGodSlotOpenLevels() : Array"
+        },
+        {
+          "line": 1122,
+          "signature": "public function get maxStarGod() : int"
+        },
+        {
+          "line": 1132,
+          "signature": "public function get maxPower() : int"
+        },
+        {
+          "line": 1142,
+          "signature": "public function get fullPowerBuffId() : int"
+        },
+        {
+          "line": 1151,
+          "signature": "public function get evoableType() : PetEvoableType"
+        },
+        {
+          "line": 1156,
+          "signature": "public function get evoableRaceId() : int"
+        },
+        {
+          "line": 1161,
+          "signature": "public function get groupRaceId() : int"
+        },
+        {
+          "line": 1166,
+          "signature": "public function get beforeGodAttrRaceId() : int"
+        },
+        {
+          "line": 1171,
+          "signature": "public function get sex() : Number"
+        },
+        {
+          "line": 1176,
+          "signature": "public function get skinFusion() : String"
+        },
+        {
+          "line": 1181,
+          "signature": "public function get legendSkillNo() : int"
+        },
+        {
+          "line": 1186,
+          "signature": "public function get shenYunSkillNo() : int"
+        },
+        {
+          "line": 1191,
+          "signature": "public function get qiYunType() : int"
+        },
+        {
+          "line": 1196,
+          "signature": "public function get transformSkillNo() : int"
+        },
+        {
+          "line": 1201,
+          "signature": "public function get recLegendStoneGroupIds() : String"
+        },
+        {
+          "line": 1206,
+          "signature": "public function get recLegendStoneDefineIds() : String"
+        },
+        {
+          "line": 1211,
+          "signature": "public function get petPackageBgType() : int"
+        },
+        {
+          "line": 1216,
+          "signature": "public function get isSpine() : Boolean"
+        },
+        {
+          "line": 1221,
+          "signature": "public function get starLevel() : int"
+        },
+        {
+          "line": 1231,
+          "signature": "public function get starLevelMax() : int"
+        },
+        {
+          "line": 1241,
+          "signature": "public function get recStarRed() : Array"
+        },
+        {
+          "line": 1250,
+          "signature": "public function isRecStarRedInited() : Boolean"
+        },
+        {
+          "line": 1255,
+          "signature": "public function setRecStarRedValue(param1:Array) : void"
+        },
+        {
+          "line": 1260,
+          "signature": "public function isCarrier() : Boolean"
+        },
+        {
+          "line": 1265,
+          "signature": "public function get psychicsPartners() : String"
+        },
+        {
+          "line": 1270,
+          "signature": "public function get psychicsPartnersArr() : Array"
+        },
+        {
+          "line": 1292,
+          "signature": "public function get quality() : String"
+        },
+        {
+          "line": 1297,
+          "signature": "public function get birthPlace2() : String"
+        },
+        {
+          "line": 1302,
+          "signature": "public function get sendPlace2() : String"
+        },
+        {
+          "line": 1307,
+          "signature": "public function get birthPlaceA() : String"
+        },
+        {
+          "line": 1318,
+          "signature": "public function get sendPlaceA() : String"
+        },
+        {
+          "line": 1329,
+          "signature": "public function get astrolabeDefine() : String"
+        },
+        {
+          "line": 1334,
+          "signature": "public function get recAstrolabeTracesArr() : Array"
+        },
+        {
+          "line": 1346,
+          "signature": "public function get astrolabeTwinkleCounts() : int"
+        },
+        {
+          "line": 1351,
+          "signature": "public function get astrolabeBreakCosts() : Array"
+        },
+        {
+          "line": 1360,
+          "signature": "public function get isTesting() : Boolean"
+        },
+        {
+          "line": 1365,
+          "signature": "public function get headIconId() : int"
+        },
+        {
+          "line": 1370,
+          "signature": "public function isAlterableName() : Boolean"
+        },
+        {
+          "line": 1375,
+          "signature": "public function get sacredEquipmentInfo() : String"
+        },
+        {
+          "line": 1380,
+          "signature": "public function parseOnlineDate(param1:String) : void"
+        },
+        {
+          "line": 1413,
+          "signature": "public function isOnline() : Boolean"
+        },
+        {
+          "line": 1422,
+          "signature": "public function getOnlineDateTips() : String"
+        },
+        {
+          "line": 1427,
+          "signature": "public function get stargodSlotMaxLevel() : int"
+        },
+        {
+          "line": 1432,
+          "signature": "public function iconInfo() : String"
+        },
+        {
+          "line": 1437,
+          "signature": "public function findSkillEntry(param1:String) : Boolean"
+        },
+        {
+          "line": 1451,
+          "signature": "public function isElite() : Boolean"
+        }
+      ]
+    },
+    {
+      "path": "interfaces/scripts/mmo/interfaces/battle/data/FighterInfo.as",
+      "sha256": "86d6375c169fb1e2467ef0574e39c991e18197c828af294170eddb4543b00642",
+      "methods": [
+        {
+          "line": 78,
+          "signature": "public function FighterInfo()"
+        },
+        {
+          "line": 83,
+          "signature": "public static function get representFighterInfo() : FighterInfo"
+        },
+        {
+          "line": 105,
+          "signature": "public static function parseServerResponce(param1:Object) : FighterInfo"
+        },
+        {
+          "line": 153,
+          "signature": "public function get isSelfReplicationCalledOut() : Boolean"
+        },
+        {
+          "line": 158,
+          "signature": "public function set isSelfReplicationCalledOut(param1:Boolean) : void"
+        },
+        {
+          "line": 163,
+          "signature": "public function get needShowSelfReplication() : Boolean"
+        },
+        {
+          "line": 168,
+          "signature": "public function get isSelfReplication() : Boolean"
+        },
+        {
+          "line": 173,
+          "signature": "public function set isSelfReplication(param1:Boolean) : void"
+        },
+        {
+          "line": 178,
+          "signature": "public function get belong2PlayerIndex() : int"
+        },
+        {
+          "line": 183,
+          "signature": "public function set belong2PlayerIndex(param1:int) : void"
+        },
+        {
+          "line": 188,
+          "signature": "public function get name() : String"
+        },
+        {
+          "line": 197,
+          "signature": "public function get id() : int"
+        },
+        {
+          "line": 202,
+          "signature": "public function get raceId() : int"
+        },
+        {
+          "line": 211,
+          "signature": "public function get raceIdIgnoreTesting() : int"
+        },
+        {
+          "line": 216,
+          "signature": "public function get faceId() : int"
+        },
+        {
+          "line": 225,
+          "signature": "public function get originalRaceId() : int"
+        },
+        {
+          "line": 230,
+          "signature": "public function get originalFaceId() : int"
+        },
+        {
+          "line": 235,
+          "signature": "public function set raceId(param1:int) : void"
+        },
+        {
+          "line": 243,
+          "signature": "public function set faceId(param1:int) : void"
+        },
+        {
+          "line": 248,
+          "signature": "public function get level() : int"
+        },
+        {
+          "line": 253,
+          "signature": "public function get curHp() : Number"
+        },
+        {
+          "line": 258,
+          "signature": "public function set curHp(param1:Number) : void"
+        },
+        {
+          "line": 263,
+          "signature": "public function get maxHp() : Number"
+        },
+        {
+          "line": 268,
+          "signature": "public function set maxHp(param1:Number) : void"
+        },
+        {
+          "line": 273,
+          "signature": "public function get curSp() : Number"
+        },
+        {
+          "line": 278,
+          "signature": "public function set curSp(param1:Number) : void"
+        },
+        {
+          "line": 283,
+          "signature": "public function get curPower() : int"
+        },
+        {
+          "line": 288,
+          "signature": "public function set curPower(param1:int) : void"
+        },
+        {
+          "line": 293,
+          "signature": "public function get maxPower() : int"
+        },
+        {
+          "line": 298,
+          "signature": "public function get normalSkill() : int"
+        },
+        {
+          "line": 307,
+          "signature": "public function set normalSkill(param1:int) : void"
+        },
+        {
+          "line": 312,
+          "signature": "public function get uniqueSkill() : int"
+        },
+        {
+          "line": 321,
+          "signature": "public function set uniqueSkill(param1:int) : void"
+        },
+        {
+          "line": 326,
+          "signature": "public function get superUniqueSkill() : int"
+        },
+        {
+          "line": 331,
+          "signature": "public function set superUniqueSkill(param1:int) : void"
+        },
+        {
+          "line": 336,
+          "signature": "public function get raceTypeIds() : Array"
+        },
+        {
+          "line": 341,
+          "signature": "public function get jobTypeId() : int"
+        },
+        {
+          "line": 346,
+          "signature": "public function set raceTypeIds(param1:Array) : void"
+        },
+        {
+          "line": 351,
+          "signature": "public function get initPosX() : int"
+        },
+        {
+          "line": 356,
+          "signature": "public function get initPosY() : int"
+        },
+        {
+          "line": 361,
+          "signature": "public function get initBufferIds() : Array"
+        },
+        {
+          "line": 366,
+          "signature": "public function get isSummoned() : Boolean"
+        },
+        {
+          "line": 371,
+          "signature": "public function get isSummonedCallOut() : Boolean"
+        },
+        {
+          "line": 376,
+          "signature": "public function set bSummonedCallOut(param1:Boolean) : void"
+        },
+        {
+          "line": 381,
+          "signature": "public function get isChaser() : Boolean"
+        },
+        {
+          "line": 386,
+          "signature": "public function get petTitleData() : PetTitleData"
+        },
+        {
+          "line": 391,
+          "signature": "private function isTesting() : Boolean"
+        },
+        {
+          "line": 396,
+          "signature": "public function get transFromRaceId() : int"
+        },
+        {
+          "line": 401,
+          "signature": "public function set transFromRaceId(param1:int) : void"
+        },
+        {
+          "line": 406,
+          "signature": "public function getShowRaceIdWithOrigin() : int"
+        }
+      ]
+    },
+    {
+      "path": "interfaces/scripts/mmo/interfaces/battle/data/SkillNumUnitTransform.as",
+      "sha256": "4ebbb14b1fddfb5ac0f5e23da77c935b9df6762d403c4684ebabfc5913717fb4",
+      "methods": [
+        {
+          "line": 24,
+          "signature": "public function SkillNumUnitTransform()"
+        },
+        {
+          "line": 29,
+          "signature": "public static function parseServerResponce(param1:Object) : SkillNumUnitTransform"
+        },
+        {
+          "line": 36,
+          "signature": "protected static function parseServerResponceTransform(param1:SkillNumUnitTransform, param2:Object) : void"
+        },
+        {
+          "line": 49,
+          "signature": "public function get orgRaceId() : int"
+        },
+        {
+          "line": 54,
+          "signature": "public function get orgFaceId() : int"
+        },
+        {
+          "line": 59,
+          "signature": "public function get curRaceId() : int"
+        },
+        {
+          "line": 64,
+          "signature": "public function get curFaceId() : int"
+        },
+        {
+          "line": 69,
+          "signature": "public function get normalSkillId() : int"
+        },
+        {
+          "line": 74,
+          "signature": "public function get uniqueSkillId() : int"
+        },
+        {
+          "line": 79,
+          "signature": "public function get superUniqueSkillId() : int"
+        },
+        {
+          "line": 84,
+          "signature": "public function get raceTypeIds() : Array"
+        }
+      ]
+    },
+    {
+      "path": "interfaces/scripts/mmo/interfaces/battle/data/SkillNumUnitTransformAttr.as",
+      "sha256": "c3184545ac4a53a2b2837e76f4cc6acdf3e567c7ca38f1160b44fb02986e3609",
+      "methods": [
+        {
+          "line": 10,
+          "signature": "public function SkillNumUnitTransformAttr()"
+        },
+        {
+          "line": 15,
+          "signature": "public static function parseServerResponce(param1:Object) : SkillNumUnitTransformAttr"
+        },
+        {
+          "line": 22,
+          "signature": "protected static function parseServerResponceTransformAttr(param1:SkillNumUnitTransformAttr, param2:Object) : void"
+        },
+        {
+          "line": 28,
+          "signature": "public function get raceTypeIds() : Array"
+        }
+      ]
+    },
+    {
+      "path": "interfaces/scripts/mmo/interfaces/battleconfig/define/SkillDefine.as",
+      "sha256": "4570131d8eb9263a5293ebcdfadc6ea48d9472c9b97911e98bc17707a33f8317",
+      "methods": [
+        {
+          "line": 48,
+          "signature": "public function SkillDefine()"
+        },
+        {
+          "line": 53,
+          "signature": "public static function parseDefine(param1:XML, param2:SkillDescDefine) : SkillDefine"
+        },
+        {
+          "line": 108,
+          "signature": "public static function copyDefine(param1:*, param2:SkillDefine, param3:SkillDescDefine) : SkillDefine"
+        },
+        {
+          "line": 134,
+          "signature": "private static function getSkillType2ByDesc(param1:SkillDescDefine) : int"
+        },
+        {
+          "line": 144,
+          "signature": "public static function wrapDescOnly(param1:SkillDescDefine) : SkillDefine"
+        },
+        {
+          "line": 154,
+          "signature": "public static function checkSkillDefineAvailableInBattle(param1:SkillDefine) : Boolean"
+        },
+        {
+          "line": 163,
+          "signature": "public static function checkIsAutoChessSkillId(param1:int) : Boolean"
+        },
+        {
+          "line": 179,
+          "signature": "public static function getOrigSkillId(param1:int) : int"
+        },
+        {
+          "line": 190,
+          "signature": "public static function getRaceIdBySkillId(param1:int) : int"
+        },
+        {
+          "line": 199,
+          "signature": "public function get playOrderType() : int"
+        },
+        {
+          "line": 204,
+          "signature": "public function get id() : int"
+        },
+        {
+          "line": 209,
+          "signature": "public function get swfId() : int"
+        },
+        {
+          "line": 214,
+          "signature": "public function get name() : String"
+        },
+        {
+          "line": 219,
+          "signature": "public function get description() : String"
+        },
+        {
+          "line": 224,
+          "signature": "public function get actionFrame() : int"
+        },
+        {
+          "line": 229,
+          "signature": "public function get pos() : int"
+        },
+        {
+          "line": 234,
+          "signature": "public function get isFullSceneEffect() : Boolean"
+        },
+        {
+          "line": 239,
+          "signature": "public function get type() : int"
+        },
+        {
+          "line": 244,
+          "signature": "public function get type2() : int"
+        },
+        {
+          "line": 249,
+          "signature": "public function get jumpFrame() : int"
+        },
+        {
+          "line": 254,
+          "signature": "public function get effectFrame() : int"
+        },
+        {
+          "line": 259,
+          "signature": "public function get shockScreen() : Boolean"
+        },
+        {
+          "line": 264,
+          "signature": "public function get blackScreen() : Boolean"
+        },
+        {
+          "line": 269,
+          "signature": "public function get isBossSkill() : Boolean"
+        },
+        {
+          "line": 274,
+          "signature": "public function get isHideOtherAvatar() : Boolean"
+        },
+        {
+          "line": 279,
+          "signature": "public function get hasLastEffect() : Boolean"
+        },
+        {
+          "line": 284,
+          "signature": "public function get isCentral() : Boolean"
+        },
+        {
+          "line": 289,
+          "signature": "public function get isSpine() : Boolean"
+        },
+        {
+          "line": 294,
+          "signature": "public function get functionalType() : String"
+        }
+      ]
+    },
+    {
+      "path": "battle/scripts/mmo/battle/fighter/BattleFighter.as",
+      "sha256": "c7d1e79413d927409c4aa5e87e6b5240b280f06a39ba99513ebbcab9e3758b1b",
+      "methods": [
+        {
+          "line": 82,
+          "signature": "public function BattleFighter(param1:FighterInfo, param2:Object, param3:Boolean = false)"
+        },
+        {
+          "line": 95,
+          "signature": "private function isUseSimpleResBySkillId(param1:int) : Boolean"
+        },
+        {
+          "line": 105,
+          "signature": "public function attack(param1:RoundResult, param2:Function) : void"
+        },
+        {
+          "line": 190,
+          "signature": "protected function setupNumUI(param1:RoundResult) : void"
+        },
+        {
+          "line": 225,
+          "signature": "private function setNumUI(param1:String) : void"
+        },
+        {
+          "line": 234,
+          "signature": "protected function setBattleRoundUI(param1:RoundResult, param2:Boolean = false) : void"
+        },
+        {
+          "line": 243,
+          "signature": "public function counterAttack(param1:RoundResult, param2:Function) : void"
+        },
+        {
+          "line": 254,
+          "signature": "protected function getCloneContent(param1:Object) : Object"
+        },
+        {
+          "line": 269,
+          "signature": "protected function setupOtherParam(param1:Object, param2:SkillDefine, param3:MovieClip, param4:RoundResult) : void"
+        },
+        {
+          "line": 278,
+          "signature": "protected function executeCommand(param1:Class, param2:Object, param3:Function, param4:Boolean = true) : void"
+        },
+        {
+          "line": 316,
+          "signature": "private function getCmdInstanceAndSetupEmbedCmd(param1:Class, param2:Boolean) : IBattleCommand"
+        },
+        {
+          "line": 334,
+          "signature": "public function get avatar() : IBattleAvatar"
+        },
+        {
+          "line": 339,
+          "signature": "public function get x() : Number"
+        },
+        {
+          "line": 344,
+          "signature": "public function get y() : Number"
+        },
+        {
+          "line": 349,
+          "signature": "public function get info() : FighterInfo"
+        },
+        {
+          "line": 354,
+          "signature": "public function get needFlip() : Boolean"
+        },
+        {
+          "line": 359,
+          "signature": "public function addToStage(param1:DisplayObjectContainer, param2:Number, param3:Number, param4:int = -1) : void"
+        },
+        {
+          "line": 373,
+          "signature": "public function get curHp() : Number"
+        },
+        {
+          "line": 378,
+          "signature": "public function set curHp(param1:Number) : void"
+        },
+        {
+          "line": 394,
+          "signature": "public function get curSp() : Number"
+        },
+        {
+          "line": 399,
+          "signature": "public function set curSp(param1:Number) : void"
+        },
+        {
+          "line": 413,
+          "signature": "public function fadeOut(param1:Function) : void"
+        },
+        {
+          "line": 418,
+          "signature": "public function showUp() : void"
+        },
+        {
+          "line": 423,
+          "signature": "public function updateCurHp() : void"
+        },
+        {
+          "line": 428,
+          "signature": "public function get maxHp() : Number"
+        },
+        {
+          "line": 433,
+          "signature": "public function set maxHp(param1:Number) : void"
+        },
+        {
+          "line": 442,
+          "signature": "public function get curPower() : int"
+        },
+        {
+          "line": 447,
+          "signature": "public function set curPower(param1:int) : void"
+        },
+        {
+          "line": 470,
+          "signature": "public function addBuff(param1:int, param2:Boolean = true, param3:Function = null) : void"
+        },
+        {
+          "line": 482,
+          "signature": "private function checkNeed2HidePlayerUi() : void"
+        },
+        {
+          "line": 504,
+          "signature": "public function removeBuff(param1:int) : void"
+        },
+        {
+          "line": 515,
+          "signature": "public function doAction(param1:int) : MovieClip"
+        },
+        {
+          "line": 520,
+          "signature": "public function getTargetAction_BackGround(param1:int) : MovieClip"
+        },
+        {
+          "line": 525,
+          "signature": "public function getAction_FullScreen_BackGround(param1:int) : MovieClip"
+        },
+        {
+          "line": 530,
+          "signature": "public function getAction_FullScreen_ForeGround(param1:int) : MovieClip"
+        },
+        {
+          "line": 535,
+          "signature": "public function get curActionTimeline() : MovieClip"
+        },
+        {
+          "line": 540,
+          "signature": "public function get curActionId() : int"
+        },
+        {
+          "line": 545,
+          "signature": "public function showEffect(param1:int, param2:Function, param3:Boolean = false) : void"
+        },
+        {
+          "line": 550,
+          "signature": "public function showEffectMovie(param1:MovieClip, param2:int, param3:Function, param4:Boolean = false) : void"
+        },
+        {
+          "line": 555,
+          "signature": "public function showMovie(param1:MovieClip, param2:Function) : void"
+        },
+        {
+          "line": 560,
+          "signature": "public function showSkillEffect(param1:int, param2:Boolean, param3:Function, param4:Boolean) : MovieClip"
+        },
+        {
+          "line": 575,
+          "signature": "public function showSummonEffect(param1:int, param2:Function) : MovieClip"
+        },
+        {
+          "line": 588,
+          "signature": "public function showTips(param1:Sprite) : void"
+        },
+        {
+          "line": 594,
+          "signature": "public function jumpTo(param1:Number, param2:Number, param3:Function) : void"
+        },
+        {
+          "line": 604,
+          "signature": "public function slideBackward(param1:Function) : void"
+        },
+        {
+          "line": 609,
+          "signature": "public function showBubble(param1:FighterInfo, param2:Number, param3:Number, param4:Function, param5:int = 0, param6:int = 0) : void"
+        },
+        {
+          "line": 633,
+          "signature": "public function showPowerBubble(param1:FighterInfo, param2:Number, param3:Number, param4:Function, param5:int = 0, param6:int = 0) : void"
+        },
+        {
+          "line": 657,
+          "signature": "public function set scale(param1:Number) : void"
+        },
+        {
+          "line": 663,
+          "signature": "public function embedCommand(param1:ISceneCommand, param2:*) : void"
+        },
+        {
+          "line": 669,
+          "signature": "public function resetAvatar(param1:Function) : void"
+        },
+        {
+          "line": 690,
+          "signature": "private function onAdded(param1:Event) : void"
+        },
+        {
+          "line": 697,
+          "signature": "protected function setupAvatar() : void"
+        },
+        {
+          "line": 741,
+          "signature": "protected function recoverBuffers() : void"
+        }
+      ]
+    },
+    {
+      "path": "battle/scripts/mmo/battle/util/BattleNumUnitUtil.as",
+      "sha256": "b11ac2a651f025d1d5d25e7d08d1e2b59004e7d3a8990eac47af11caf3fc127e",
+      "methods": [
+        {
+          "line": 65,
+          "signature": "public function BattleNumUnitUtil(param1:Object)"
+        },
+        {
+          "line": 75,
+          "signature": "public function addFighterUnitPair(param1:IBattlePlayer, param2:IBattleFighter, param3:SkillNumUnit) : void"
+        },
+        {
+          "line": 81,
+          "signature": "public function handleNumUnitList(param1:Function) : void"
+        },
+        {
+          "line": 95,
+          "signature": "private function addAndcheckUnitFinish() : void"
+        },
+        {
+          "line": 104,
+          "signature": "private function handleUnit() : void"
+        },
+        {
+          "line": 172,
+          "signature": "private function handleReplicationChanged(param1:PlayerAndFighterAndUnit) : void"
+        },
+        {
+          "line": 183,
+          "signature": "private function handleBuffChangedState(param1:PlayerAndFighterAndUnit) : void"
+        },
+        {
+          "line": 224,
+          "signature": "private function handleTransformAttr(param1:PlayerAndFighterAndUnit) : void"
+        },
+        {
+          "line": 233,
+          "signature": "private function afterPlayBufferStateChangedMovie(param1:PlayerAndFighterAndUnit) : void"
+        },
+        {
+          "line": 249,
+          "signature": "private function handleSummonPet(param1:SkillNumUnitSummon) : void"
+        },
+        {
+          "line": 267,
+          "signature": "private function handleChangeAvatar(param1:PlayerAndFighterAndUnit) : void"
+        },
+        {
+          "line": 275,
+          "signature": "private function onChangeAvatarMovieEnd(param1:PlayerAndFighterAndUnit) : void"
+        },
+        {
+          "line": 295,
+          "signature": "private function tryApplyBlackScreen() : void"
+        },
+        {
+          "line": 313,
+          "signature": "private function removeBlackScreen() : void"
+        },
+        {
+          "line": 322,
+          "signature": "private function hideFigherEffectLayer(param1:PlayerAndFighterAndUnit) : void"
+        },
+        {
+          "line": 327,
+          "signature": "private function showFigherEffectLayer(param1:PlayerAndFighterAndUnit) : void"
+        },
+        {
+          "line": 332,
+          "signature": "private function resetAvatar(param1:PlayerAndFighterAndUnit) : void"
+        },
+        {
+          "line": 341,
+          "signature": "private function handleSummon(param1:PlayerAndFighterAndUnit) : void"
+        },
+        {
+          "line": 349,
+          "signature": "private function playMovie(param1:String, param2:Boolean, param3:Sprite, param4:Function = null, param5:String = \"\", param6:PlayerAndFighterAndUnit = null, param7:Point = null) : void"
+        },
+        {
+          "line": 397,
+          "signature": "private function onMoveEnd(param1:MovieClip, param2:Function, param3:* = null) : Function"
+        },
+        {
+          "line": 413,
+          "signature": "private function finish() : void"
+        },
+        {
+          "line": 436,
+          "signature": "public function PlayerAndFighterAndUnit(param1:IBattlePlayer, param2:IBattleFighter, param3:SkillNumUnit)"
+        },
+        {
+          "line": 444,
+          "signature": "public function get player() : IBattlePlayer"
+        },
+        {
+          "line": 449,
+          "signature": "public function get fighter() : IBattleFighter"
+        },
+        {
+          "line": 454,
+          "signature": "public function get unit() : SkillNumUnit"
+        }
+      ]
+    },
+    {
+      "path": "battle/scripts/mmo/battle/util/BattleUtil.as",
+      "sha256": "c4ce0432239b6336619825ff9bd23e4fde285e7e8f076d78b3839e1b7c68ed83",
+      "methods": [
+        {
+          "line": 34,
+          "signature": "public function BattleUtil()"
+        },
+        {
+          "line": 39,
+          "signature": "public static function isCurUserInTeam(param1:BattleInfo, param2:int, param3:String) : Boolean"
+        },
+        {
+          "line": 57,
+          "signature": "public static function mergeArray(param1:Array, param2:Array) : Array"
+        },
+        {
+          "line": 71,
+          "signature": "public static function splitNumIntoNumArray(param1:Number, param2:int, param3:Number) : Array"
+        },
+        {
+          "line": 91,
+          "signature": "public static function handleHpChangesSingle(param1:Array, param2:Array, param3:IBattleFighter, param4:int, param5:Function = null) : void"
+        },
+        {
+          "line": 172,
+          "signature": "public static function handlePowerChangesSingle(param1:Array, param2:IBattleFighter) : void"
+        },
+        {
+          "line": 189,
+          "signature": "public static function handleBuffChangesSingle(param1:Array, param2:Array, param3:IBattleFighter) : void"
+        },
+        {
+          "line": 203,
+          "signature": "public static function handleDisplayBuffChangesSingle(param1:Array, param2:IBattleFighter, param3:Function = null) : void"
+        },
+        {
+          "line": 220,
+          "signature": "private static function handleOneBuff(param1:Array, param2:IBattleFighter, param3:Function = null) : void"
+        },
+        {
+          "line": 278,
+          "signature": "private static function addBuffWithOutWait(param1:int, param2:Array, param3:IBattleFighter, param4:Function = null) : void"
+        },
+        {
+          "line": 291,
+          "signature": "private static function removeBuffWithOutWait(param1:int, param2:Array, param3:IBattleFighter, param4:Function = null) : void"
+        },
+        {
+          "line": 304,
+          "signature": "private static function addWaitBuffOneByOne(param1:int, param2:Array, param3:IBattleFighter, param4:Function = null) : void"
+        },
+        {
+          "line": 327,
+          "signature": "private static function addWaitBuffAllAtOnce(param1:int, param2:Array, param3:IBattleFighter, param4:Function = null) : void"
+        },
+        {
+          "line": 351,
+          "signature": "public static function calcWaitTypeBuffNum(param1:Array) : int"
+        },
+        {
+          "line": 374,
+          "signature": "public static function checkHasWaitTypeBuff(param1:Array) : Boolean"
+        },
+        {
+          "line": 383,
+          "signature": "public static function getRestraintCoefficient(param1:IBattleFighter, param2:IBattleFighter, param3:IBattleConfig) : Number"
+        },
+        {
+          "line": 392,
+          "signature": "public static function getOneRaceTypeByPriority(param1:Array, param2:IBattleConfig) : int"
+        },
+        {
+          "line": 410,
+          "signature": "public static function applyTweenGray(param1:DisplayObject, param2:uint) : void"
+        },
+        {
+          "line": 422,
+          "signature": "public static function clearTweenGray(param1:DisplayObject) : void"
+        },
+        {
+          "line": 428,
+          "signature": "public static function getTargetFighter(param1:IBattle, param2:SkillResult) : IBattleFighter"
+        },
+        {
+          "line": 434,
+          "signature": "public static function getFighterByNameAndId(param1:IBattle, param2:String, param3:int) : IBattleFighter"
+        },
+        {
+          "line": 440,
+          "signature": "public static function getDropCoolPetStoneMCD(param1:Array, param2:IBattleConfig) : MaterialCommonData"
+        },
+        {
+          "line": 459,
+          "signature": "public static function getEffectSkillResultNum(param1:Array) : int"
+        }
+      ]
+    },
+    {
+      "path": "battle/scripts/mmo/battle/command/attack/summon/PlaySummonEffectCommand.as",
+      "sha256": "5a3cf1cc3399a818314ec2f83f67a6bf3443098e8606b6afc9971c76141b5259",
+      "methods": [
+        {
+          "line": 49,
+          "signature": "public function PlaySummonEffectCommand()"
+        },
+        {
+          "line": 54,
+          "signature": "override public function execute(param1:Object) : void"
+        },
+        {
+          "line": 100,
+          "signature": "private function onEffectFrame() : void"
+        },
+        {
+          "line": 158,
+          "signature": "private function onBubbleFrame(param1:IBattlePlayer, param2:IBattleFighter) : Function"
+        },
+        {
+          "line": 169,
+          "signature": "private function onEffectEnd(param1:IBattleFighter) : void"
+        }
+      ]
+    },
+    {
+      "path": "battle/scripts/mmo/battle/player/BattlePlayer.as",
+      "sha256": "38061f7d1a6c7999c3fccd33640c4f4a4f55fdabcd0c6e0d99cb4777f35273bd",
+      "methods": [
+        {
+          "line": 36,
+          "signature": "public function BattlePlayer(param1:PlayerInfo, param2:Object, param3:Sprite)"
+        },
+        {
+          "line": 45,
+          "signature": "public function get playerInfo() : PlayerInfo"
+        },
+        {
+          "line": 50,
+          "signature": "public function get fighterList() : Array"
+        },
+        {
+          "line": 55,
+          "signature": "public function registerFighter(param1:IBattleFighter) : void"
+        },
+        {
+          "line": 60,
+          "signature": "public function removeFighter(param1:IBattleFighter) : void"
+        },
+        {
+          "line": 65,
+          "signature": "public function getFighterById(param1:int) : IBattleFighter"
+        },
+        {
+          "line": 70,
+          "signature": "public function fadeOut() : void"
+        },
+        {
+          "line": 84,
+          "signature": "public function shiftTo(param1:int, param2:int, param3:Function) : void"
+        },
+        {
+          "line": 120,
+          "signature": "private function onFighterShiftComplete() : void"
+        },
+        {
+          "line": 130,
+          "signature": "public function set scale(param1:Number) : void"
+        },
+        {
+          "line": 140,
+          "signature": "public function showPlayerName(param1:Sprite, param2:Sprite) : void"
+        }
+      ]
+    },
+    {
+      "path": "battle/scripts/mmo/battle/entity/BattleSyncManager.as",
+      "sha256": "a3336f9bc6b2644c9c9a4c7538a22a644179e5e3fecb59b434cf52d1b293df32",
+      "methods": [
+        {
+          "line": 42,
+          "signature": "public function BattleSyncManager(param1:Object)"
+        },
+        {
+          "line": 56,
+          "signature": "private function onChangePlaying(param1:BattleEvent) : void"
+        },
+        {
+          "line": 66,
+          "signature": "public function getOnBattleLineNum() : int"
+        },
+        {
+          "line": 83,
+          "signature": "public function insertBattleUnit(param1:BattleUnit) : Boolean"
+        },
+        {
+          "line": 106,
+          "signature": "public function run() : void"
+        },
+        {
+          "line": 132,
+          "signature": "private function checkInjection(param1:RoundResult) : void"
+        },
+        {
+          "line": 146,
+          "signature": "private function handleRoundResult(param1:RoundResult) : void"
+        },
+        {
+          "line": 158,
+          "signature": "private function onOneAttackEnd() : void"
+        },
+        {
+          "line": 177,
+          "signature": "private function handleDeleteAction(param1:Array) : Boolean"
+        },
+        {
+          "line": 197,
+          "signature": "private function handleShiftActions(param1:Array) : void"
+        },
+        {
+          "line": 212,
+          "signature": "private function onPlayerShiftComplete() : void"
+        },
+        {
+          "line": 221,
+          "signature": "private function hasNewBattleLineEnd() : Boolean"
+        },
+        {
+          "line": 240,
+          "signature": "private function isPlayerInBattle(param1:String) : Boolean"
+        },
+        {
+          "line": 263,
+          "signature": "public function dispose() : void"
+        }
+      ]
+    }
+  ],
+  "semanticCorrection": {
+    "checkedOn": "2026-10-13",
+    "topic": "等待Buff通用显示恢复不升级为登场",
+    "evidence": "build-battle-reference/buff-semantic-audit-20261013/runtime/case-30098.json",
+    "packageProvenanceUnchanged": true
+  }
+}

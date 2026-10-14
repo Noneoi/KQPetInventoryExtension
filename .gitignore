@@ -6,6 +6,8 @@
 /dist*/
 /release/
 /validation-logs/
+/qa/
+/workbench-preview/
 /.vs/
 CMakeUserPresets.json
 
@@ -16,6 +18,7 @@ CMakeUserPresets.json
 # Toolchain / interpreter byproducts
 *.user
 *.zip
+!assets/battle-replay-update-sources.zip
 __pycache__/
 *.pyc
 *.log

@@ -30,15 +30,15 @@
 
 namespace {
 
-const std::array<QString, 4>& titles() {
-  static const std::array<QString, 4> values{
-      QStringLiteral("精灵"), QStringLiteral("商店"), QStringLiteral("日常"), QStringLiteral("资产")};
+const std::array<QString, 5>& titles() {
+  static const std::array<QString, 5> values{
+      QStringLiteral("精灵"), QStringLiteral("商店"), QStringLiteral("日常"), QStringLiteral("资产"), QStringLiteral("战斗回放")};
   return values;
 }
 
 int pageIndex(WorkbenchPage page) {
   const int value = static_cast<int>(page);
-  return value >= 0 && value < 4 ? value : -1;
+  return value >= 0 && value < static_cast<int>(titles().size()) ? value : -1;
 }
 
 QIcon pageIcon(int page) {
@@ -64,6 +64,10 @@ QIcon pageIcon(int page) {
       painter.drawLine(15, 3, 15, 7);
       painter.drawLine(7, 14, 10, 17);
       painter.drawLine(10, 17, 16, 12);
+    } else if (page == 4) {
+      for (int row = 0; row < 3; ++row)
+        for (int column = 0; column < 3; ++column)
+          painter.drawRoundedRect(QRectF(3 + column * 6, 3 + row * 6, 4, 4), 0.5, 0.5);
     } else {
       painter.drawLine(3, 19, 19, 19);
       painter.drawRect(QRectF(5, 11, 2, 6));
@@ -145,7 +149,7 @@ WorkbenchWindow::WorkbenchWindow(PageFactory factory, QWidget* parent, const Wor
   pluginVersion_->setToolTip(QStringLiteral("插件 %1\n构建标识：%2").arg(BuildInfo::buildLabel(), BuildInfo::releaseId()));
   side->addWidget(pluginVersion_);
   side->addSpacing(18);
-  for (int index = 0; index < 4; ++index) {
+  for (int index = 0; index < static_cast<int>(titles().size()); ++index) {
     auto* button = new QPushButton(titles()[index], sidebar_);
     button->setObjectName(QStringLiteral("KQWorkbenchPage%1").arg(index));
     button->setIcon(pageIcon(index));
@@ -328,7 +332,7 @@ bool WorkbenchWindow::showPage(WorkbenchPage requested) {
   currentPage_ = requested;
   UiPreferences::setValue(QStringLiteral("workbench/page"), index);
   stack_->setCurrentWidget(holders_[index]);
-  for (int page = 0; page < 4; ++page) navigation_[page]->setChecked(page == index);
+  for (int page = 0; page < static_cast<int>(titles().size()); ++page) navigation_[page]->setChecked(page == index);
   notice_->hide();
   emit pageChanged(requested);
   return true;
@@ -457,7 +461,7 @@ void WorkbenchWindow::setPersistence(const WorkbenchPersistence& state) {
 void WorkbenchWindow::updateLayoutMode() {
   collapsed_ = width() < 1080;
   sidebar_->setFixedWidth(collapsed_ ? 146 : 180);
-  for (int index = 0; index < 4; ++index) {
+  for (int index = 0; index < static_cast<int>(titles().size()); ++index) {
     navigation_[index]->setText(collapsed_ ? QString{} : titles()[index]);
     navigation_[index]->setStyleSheet(collapsed_ ? QStringLiteral("padding:3px 4px;") : QString{});
   }
@@ -495,7 +499,7 @@ void WorkbenchWindow::saveUiPreferences() const {
 WorkbenchPage WorkbenchWindow::rememberedPage() {
   bool valid = false;
   const int index = UiPreferences::value(QStringLiteral("workbench/page")).toInt(&valid);
-  if (!valid || index < static_cast<int>(WorkbenchPage::Pets) || index > static_cast<int>(WorkbenchPage::Assets))
+  if (!valid || index < static_cast<int>(WorkbenchPage::Pets) || index > static_cast<int>(WorkbenchPage::BattleReplay))
     return WorkbenchPage::Pets;
   return static_cast<WorkbenchPage>(index);
 }

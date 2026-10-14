@@ -15,13 +15,16 @@ from pathlib import Path
 import re
 import tempfile
 
-PARSER_VERSION = 1
+from public_resource_session import resource_matches
+import public_routine_rules as opportunity_rules
+
+PARSER_VERSION = 2
 FILENAME = "routine-overview.json"
 RESOURCES = (
     ("tasks", "dailytask/dailytaskservice", "mmo.h5version.DiamondTaskConfig"),
     ("hud", "config/config", "mmo.config.CommonHudConfig"),
     ("redPoints", "library/gameconst", "mmo.gameconst.RedPointConfig"),
-)
+) + tuple((label, spec[0], spec[2][0]) for label, spec in opportunity_rules.SPECS.items())
 LIMIT = 2**31 - 1
 
 
@@ -260,6 +263,10 @@ def catalog_valid(root: dict) -> bool:
     resources = source.get("resources")
     if not isinstance(resources, dict) or any(not isinstance(resources.get(label), dict) for label, _, _ in RESOURCES):
         return False
+    if (source.get("rulesParserFingerprint") != opportunity_rules.fingerprint()
+            or source.get("rulesStatus") != opportunity_rules.STATUSES
+            or not opportunity_rules.valid_rules(root.get("opportunityRules"), resources)):
+        return False
     tasks, activities = root.get("tasks"), root.get("activities")
     if not isinstance(tasks, list) or not tasks or len(tasks) > 10000 or not isinstance(activities, list) or not activities or len(activities) > 10000:
         return False
@@ -301,7 +308,8 @@ def update_routines(updater, versions: dict) -> bool:
         version = versions.get(resource, "")
         if not re.fullmatch(r"[0-9]{8,20}", version):
             raise ValueError("官方版本清单缺少日常/活动资源：" + resource)
-        changed[label] = not current or previous.get(label, {}).get("version") != version
+        changed[label] = ('routines' in getattr(updater, 'force_components', ()) or
+                          not current or not resource_matches(previous.get(label, {}), resource, versions))
     if not any(changed.values()):
         if _read(path) != current:
             _atomic_json(path, current)
@@ -309,11 +317,26 @@ def update_routines(updater, versions: dict) -> bool:
             len(current["tasks"]), len(current["activities"]), len(current.get("unsupportedRules", []))))
         return False
     resources, scripts = dict(previous), {}
+    rules = dict(current.get("opportunityRules", {"schema": opportunity_rules.VERSION}))
     for label, resource, selected in RESOURCES:
         if not changed[label]:
             continue
-        _emit("正在更新官方" + {"tasks": "日常与周常任务", "hud": "活动入口目录", "redPoints": "活动红点关系"}[label])
+        _emit("正在更新官方" + {"tasks": "日常与周常任务", "hud": "活动入口目录", "redPoints": "活动红点关系",
+              "starRules": "星轮探险次数规则", "competitionRules": "全民斗技次数规则",
+              "farmRules": "农场储存与补充规则", "arenaRules": "竞技场挑战次数规则"}[label])
         swf, source = updater.resource(resource, versions)
+        if label in opportunity_rules.SPECS:
+            texts, hashes = {}, {}
+            for selected_class in opportunity_rules.SPECS[label][2]:
+                script = updater.export(swf, updater.scratch / ("routines-" + label), selected_class)
+                raw = script.read_bytes()
+                hashes[selected_class] = hashlib.sha256(raw).hexdigest()
+                texts[selected_class] = raw.decode("utf-8-sig")
+            value, contracts = opportunity_rules.parse_rules(label, texts)
+            rules[opportunity_rules.SPECS[label][1]] = value
+            resources[label] = {**source, "key": resource, "scripts": hashes, "contracts": contracts,
+                                "rulesSha256": opportunity_rules.digest(value)}
+            continue
         script = updater.export(swf, updater.scratch / ("routines-" + label), selected)
         scripts[label] = script.read_text(encoding="utf-8-sig")
         resources[label] = {**source, "key": resource, "configSha256": hashlib.sha256(scripts[label].encode("utf-8")).hexdigest()}
@@ -325,9 +348,12 @@ def update_routines(updater, versions: dict) -> bool:
         unsupported = current.get("unsupportedRules", [])
     graph = parse_red_points(scripts["redPoints"]) if changed["redPoints"] else current["parserCache"]["redPointGraph"]
     result = {"schema": 1, "generatedAt": datetime.now(timezone.utc).isoformat(), **tasks,
+              "opportunityRules": rules,
               "activities": activities_with_red_points(entries, graph), "unsupportedRules": unsupported,
               "parserCache": {"redPointGraph": graph},
               "source": {"kind": "aoqi-official-routine-directory", "parserVersion": PARSER_VERSION,
+                         "rulesParserFingerprint": opportunity_rules.fingerprint(),
+                         "rulesStatus": opportunity_rules.STATUSES,
                          "startVersion": updater.start_version, "resources": resources}}
     result["source"]["counts"] = {"tasks": len(tasks["tasks"]), "activities": len(entries), "redPointNodes": len(graph), "unsupportedRules": len(unsupported)}
     if not catalog_valid(result):

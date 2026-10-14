@@ -129,6 +129,30 @@ private:
     if (state_->closing.load()) { finish(failure(QStringLiteral("缓存管理已停止"))); return; }
     const QString root = request_.value(QStringLiteral("root")).toString();
     const QString tools = QDir(root).filePath(QStringLiteral("data-tools"));
+    // Restoring a public version uses the same native publisher as updates.
+    // Export the paired helper before the script touches an account or pointer.
+    // Resource-light test/legacy hosts may omit it; the script then rejects
+    // public-version restores during preflight, while old backups still work.
+    if (action_ == QStringLiteral("restore") &&
+        QFile::exists(QStringLiteral(":/kqpet/data-updater/KQPublicDatasetCheck.exe"))) {
+      const QString scripts = QDir(tools).filePath(QStringLiteral("scripts"));
+      if (!QDir().mkpath(scripts)) { finish(failure(QStringLiteral("无法准备公共资料恢复工具"))); return; }
+      const QStringList names{QStringLiteral("KQPublicDatasetCheck.exe"), QStringLiteral("Qt6Core.dll"),
+          QStringLiteral("msvcp140.dll"), QStringLiteral("msvcp140_1.dll"),
+          QStringLiteral("vcruntime140.dll"), QStringLiteral("vcruntime140_1.dll")};
+      for (const auto& name : names) {
+        QFile resource(QStringLiteral(":/kqpet/data-updater/") + name);
+        if (!resource.open(QIODevice::ReadOnly)) { finish(failure(QStringLiteral("内置公共资料恢复工具不完整"))); return; }
+        const auto bytes = resource.readAll();
+        const QString destination = QDir(scripts).filePath(name);
+        QFile existing(destination);
+        if (existing.open(QIODevice::ReadOnly) && existing.readAll() == bytes) continue;
+        existing.close();
+        if (bytes.isEmpty() || !writeAtomic(destination, bytes)) {
+          finish(failure(QStringLiteral("无法保存公共资料恢复工具"))); return;
+        }
+      }
+    }
     const QString token = QUuid::createUuid().toString(QUuid::Id128);
     temporaryDirectory_ = QDir(root).filePath(QStringLiteral(".maintenance/cache-") + token);
     if (!QDir().mkpath(tools) || !QDir().mkpath(temporaryDirectory_)) {

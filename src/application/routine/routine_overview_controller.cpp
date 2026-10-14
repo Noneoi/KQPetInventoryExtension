@@ -266,7 +266,8 @@ bool RoutineOverviewController::requestRefresh() {
     emit statusChanged(QStringLiteral("原版发送入口尚未就绪"));
     return false;
   }
-  if (catalogIo_) catalogIo_->requestOfficialUpdate(CatalogKind::Routine);
+  // The normal public-catalog writer is the Settings updater. Refresh here
+  // only observes the authenticated account; it never imports local AS files.
 
   requestAccount_ = account_;
   requestSessionGeneration_ = sessionGeneration_;
@@ -361,9 +362,6 @@ void RoutineOverviewController::handleDecodedEnvelope(const InboundEnvelope& env
     } else {
       const auto fields = opportunityFields(command);
       updated = !fields.isEmpty() && normalizeCounters(packet, fields, &observation);
-      if (updated && command == kNationalCompetitionCommand &&
-          observation.value(QStringLiteral("rdb")).toInt() > std::numeric_limits<int>::max() - 40)
-        updated = false;
       if (!updated) warnings.append(QStringLiteral("%1数据不完整").arg(requestLabels_.value(command, command)));
     }
     if (updated) {
@@ -424,8 +422,7 @@ void RoutineOverviewController::handleVerifiedPacket(const QJsonObject& packet) 
       const QJsonValue value = packet.value(group);
       QJsonObject counters;
       if (!value.isObject() || !normalizeCounters(value.toObject(),
-            {QStringLiteral("ct"), QStringLiteral("bct")}, &counters) ||
-          counters.value(QStringLiteral("bct")).toInt() > std::numeric_limits<int>::max() - 8) {
+            {QStringLiteral("ct"), QStringLiteral("bct")}, &counters)) {
         fieldStates_.insert(stateKey, value.isUndefined() ? PacketFieldState::Missing
                                                          : PacketFieldState::Invalid);
         continue;
@@ -483,9 +480,6 @@ void RoutineOverviewController::handleVerifiedPacket(const QJsonObject& packet) 
     const QStringList fields = opportunityFields(command);
     QJsonObject candidate;
     bool valid = !fields.isEmpty() && normalizeCounters(packet, fields, &candidate);
-    if (valid && command == kNationalCompetitionCommand &&
-        candidate.value(QStringLiteral("rdb")).toInt() > std::numeric_limits<int>::max() - 40)
-      valid = false;
     if (!valid) {
       fieldStates_.insert(command, PacketFieldState::Invalid);
       completeRequest(command, false,
@@ -735,12 +729,10 @@ bool RoutineOverviewController::applyCachedObject(const QJsonObject& root) {
         if (!raw.contains(group)) continue;
         QJsonObject counters;
         if (!raw.value(group).isObject() || !normalizeCounters(raw.value(group).toObject(),
-              {QStringLiteral("ct"), QStringLiteral("bct")}, &counters) ||
-            counters.value(QStringLiteral("bct")).toInt() > std::numeric_limits<int>::max() - 8) return false;
+              {QStringLiteral("ct"), QStringLiteral("bct")}, &counters)) return false;
         candidate.insert(group, counters);
       }
-    } else if (!normalizeCounters(entry.value().toObject(), required.value(command), &candidate) ||
-               (command == kNationalCompetitionCommand && candidate.value(QStringLiteral("rdb")).toInt() > std::numeric_limits<int>::max() - 40)) return false;
+    } else if (!normalizeCounters(entry.value().toObject(), required.value(command), &candidate)) return false;
     opportunities.insert(command, candidate);
   }
   for (auto field = daily.begin(); field != daily.end(); ++field)

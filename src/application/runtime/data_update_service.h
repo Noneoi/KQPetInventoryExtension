@@ -1,6 +1,7 @@
 #pragma once
 
 #include <QObject>
+#include "contracts/public_update_state.h"
 #include <QStringList>
 #include <memory>
 
@@ -20,18 +21,27 @@ public:
   // componentNames()). Unknown names are rejected without starting anything.
   bool requestUpdate(const QStringList& components = {});
   bool busy() const;
+  bool canCancel() const;
+  bool cancelPreparation();
+  // Called only after the complete candidate was published (or rejected) by
+  // CatalogIoService. Preparing Python output is not an applied update.
+  void completePublication(bool applied, const QString& message);
   void close();
 
 signals:
   void progress(const QString& message);
-  // Successful components include unchanged components: callers can reload
-  // cached defaults that were installed on a first check without a download.
+  void progressChanged(const PublicUpdateProgress& progress);
+  // Emitted after whole-version publication (or a terminal preparation failure).
+  // Consumers receive the complete snapshot through CatalogIoService.
   void finished(bool success, const QStringList& components, const QString& message);
+  void candidatePrepared(const QString& attempt, const QString& message);
 
 private:
   friend struct DataUpdateInternal::State;
   void receiveProgress(const QString& message);
-  void receiveFinished(bool success, const QStringList& components, const QString& message);
+  void receiveProgressState(const PublicUpdateProgress& progress);
+  void tryStart();
+  void receiveFinished(bool success, const QStringList& components, const QString& message, const QString& attempt);
   struct Impl;
   std::unique_ptr<Impl> impl_;
 };
