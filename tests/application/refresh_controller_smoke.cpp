@@ -29,7 +29,10 @@ bool require(bool condition, const char* message) {
   return condition;
 }
 
-bool waitUntil(const std::function<bool()>& predicate, int timeoutMs = 1500) {
+// Positive waits include asynchronous cache/checkpoint IO on hosted disks.
+// They return immediately when ready; explicit negative-observation windows
+// below keep their short, separately specified durations.
+bool waitUntil(const std::function<bool()>& predicate, int timeoutMs = 10000) {
   QElapsedTimer timer;
   timer.start();
   while (!predicate() && timer.elapsed() < timeoutMs) {
@@ -187,6 +190,8 @@ bool shopDetailVisitTest(const QString& root) {
   ok &= require(waitUntil([&] { return finished.size() == 1; }) && sent == QList<qint64>({102}),
       "shop cancellation discarded the analysis consumer of a shared one-shot request");
   sent.clear(); finished.clear();
+  ok &= require(waitUntil([&] { return !controller.detailTaskLoading(); }),
+                "shared shop/batch fixture checkpoint did not finish loading");
   controller.requestShopDetailOnce(103,6); controller.startWarehouseDetailRefreshForIds({103});
   controller.cancelShopDetailRequests(6);
   ok &= require(waitUntil([&] { return !controller.detailBatchRunning(); }) &&
@@ -477,7 +482,10 @@ bool weakBatchTimeoutPauseTest(const QString& root) {
   timings.automaticIntervalMs = 100000;
   timings.detailRequestGapMs = 1;
   timings.detailBatchRestMs = 1;
-  timings.detailTimeoutMs = 20;
+  // Synthetic successful replies must not become timeouts because the VM was
+  // descheduled for a Windows timer tick. Missing replies still time out and
+  // exercise exactly the same retry/streak assertions.
+  timings.detailTimeoutMs = 200;
   timings.detailMaxRetries = 1;
   controller.setTimings(timings);
   const auto deliverWeak = [&](const QJsonObject& packet) {
@@ -548,7 +556,7 @@ bool weakBatchTimeoutPauseTest(const QString& root) {
       finished == 9 && succeeded == 2 && failed == 7 &&
       sent == QList<qint64>{101, 101, 102, 102, 103, 104, 104, 105, 105, 106, 106, 107, 107, 108, 108, 109},
       "resume lost remaining instances or failed to reset the timeout streak");
-  ok &= require(controller.timings().detailTimeoutMs == 20 && controller.timings().detailMaxRetries == 1 &&
+  ok &= require(controller.timings().detailTimeoutMs == timings.detailTimeoutMs && controller.timings().detailMaxRetries == 1 &&
       controller.timings().detailRequestGapMs == 1, "automatic pause changed the user's refresh timings");
   replies = Replies::Success; sent.clear(); finished = succeeded = failed = 0;
   controller.retryIncompleteDetails();
@@ -604,6 +612,10 @@ int main(int argc, char* argv[]) {
   timings.detailBatchSize = 2;
   timings.detailMaxRetries = 1;
   controller.setTimings(timings);
+  // Hold startup IO long enough to exercise the checkpoint-loading boundary.
+  // Batch ordering below must not depend on the host disk beating a 1 ms click.
+  ok &= require(repository.storageService()->postAuxiliary([](QObject*) { QThread::msleep(800); }),
+                "slow checkpoint fixture could not queue its IO hold");
 
   QElapsedTimer clock;
   clock.start();
@@ -616,6 +628,7 @@ int main(int argc, char* argv[]) {
   bool listOverlap = false;
   int warehouseResponses = 0;
   int detailResponseDelayMs = 4;
+  bool injectPriorityRead = false;
 
   controller.setSender([&](const QString&, const QString& command, const QString& parameters) {
     if (command == QStringLiteral("2_1_10")) {
@@ -645,6 +658,10 @@ int main(int argc, char* argv[]) {
       const QJsonObject request = QJsonDocument::fromJson(parameters.toUtf8()).object();
       const qint64 id = request.value(QStringLiteral("pi")).toVariant().toLongLong();
       detailOrder.append(id);
+      if (injectPriorityRead) {
+        injectPriorityRead = false;
+        QTimer::singleShot(0,&controller,[&controller] { controller.requestSingleDetail(103); });
+      }
       ++detailOutstanding;
       maxDetailOutstanding = qMax(maxDetailOutstanding, detailOutstanding);
       QTimer::singleShot(detailResponseDelayMs, &repository, [&, id]() {
@@ -694,9 +711,11 @@ int main(int argc, char* argv[]) {
     }
   });
 
+  // Inject the priority request only after the first ordinary request is
+  // actually submitted, including when checkpoint IO deferred batch startup.
+  injectPriorityRead = true;
   controller.startWarehouseDetailRefresh();
   const int warehouseResponsesAtBatchStart = warehouseResponses;
-  QTimer::singleShot(1, &controller, [&controller]() { controller.requestSingleDetail(103); });
   ok &= require(waitUntil([&]() {
                   return controller.detailBatchPaused() && detailOrder.size() >= 2;
                 }), "batch did not pause after current/priority detail requests");
