@@ -40,6 +40,7 @@
 #include <QMouseEvent>
 #include <QPainter>
 #include <QPushButton>
+#include <QMenu>
 #include <QRegularExpression>
 #include <QResizeEvent>
 #include <QScrollBar>
@@ -121,6 +122,12 @@ PetWindow::PetWindow(InventoryReadView* repository, QWidget* parent, PetImageCac
   refresh_ = new QPushButton(QStringLiteral("刷新背包/仓库"), this);
   refreshDetails_ = new QPushButton(QStringLiteral("刷新仓库详情"), this);
   refreshDetails_->setObjectName(QStringLiteral("KQPetRefreshWarehouseDetails"));
+  retryDetails_ = new QPushButton(QStringLiteral("补读未完成"), this);
+  retryDetails_->setObjectName(QStringLiteral("KQPetRetryIncompleteDetails"));
+  auto* retryMenu = new QMenu(retryDetails_);
+  retryMenu->addAction(QStringLiteral("继续上次未完成的详情（含失败或取消）"), this, [this] { emit warehouseDetailRetryRequested(false); });
+  retryMenu->addAction(QStringLiteral("同时补读缺失详情"), this, [this] { emit warehouseDetailRetryRequested(true); });
+  retryDetails_->setMenu(retryMenu);
   pauseDetails_ = new QPushButton(QStringLiteral("暂停详情刷新"), this);
   cancelDetails_ = new QPushButton(QStringLiteral("取消详情刷新"), this);
   settings_ = new QPushButton(QStringLiteral("设置"), this);
@@ -130,7 +137,7 @@ PetWindow::PetWindow(InventoryReadView* repository, QWidget* parent, PetImageCac
   pauseDetails_->hide();
   cancelDetails_->hide();
   toolbarWidgets_ = {new QLabel(QStringLiteral("精灵查询"), this), search_, refresh_,
-                     refreshDetails_, pauseDetails_, cancelDetails_, settings_, diagnostics_};
+                     refreshDetails_, retryDetails_, pauseDetails_, cancelDetails_, settings_, diagnostics_};
   for (int column = 0; column < toolbarWidgets_.size(); ++column)
     toolbarLayout_->addWidget(toolbarWidgets_[column], 0, column);
   toolbarLayout_->setColumnStretch(1, 1);
@@ -782,7 +789,9 @@ void PetWindow::requestSelectedWarehouseDetails() {
 
 void PetWindow::setDetailProgress(bool running, bool paused, int completed, int total,
                                   int succeeded, int failed, qint64 currentInstanceId,
-                                  int estimatedSeconds) {
+                                  int estimatedSeconds, int resumableCount) {
+  retryDetails_->setText(resumableCount > 0 ? QStringLiteral("继续未完成（%1）").arg(resumableCount) : QStringLiteral("补读未完成"));
+  retryDetails_->setToolTip(QStringLiteral("仅当前账号；点击后继续未完成名单，已成功保存或已移除的精灵会跳过。重启后不会自动发送请求。"));
   detailBatchPaused_ = paused;
   detailBatchRunning_ = running;
   detailCompleted_ = completed;
@@ -791,13 +800,14 @@ void PetWindow::setDetailProgress(bool running, bool paused, int completed, int 
   cancelDetails_->setVisible(running && (!workbenchCompact_ || !compactDetails_));
   progress_->setVisible(!workbenchEmbedded_ && (running || total > 0));
   refreshDetails_->setEnabled(!running && !moveRunning_);
+  retryDetails_->setEnabled(!running && !moveRunning_);
   for (QCheckBox* check : detailEraChecks_) check->setEnabled(!running && !moveRunning_);
   pauseDetails_->setEnabled(running && !moveRunning_);
   cancelDetails_->setEnabled(running && !moveRunning_);
   pauseDetails_->setText(paused ? QStringLiteral("继续详情刷新")
                                 : QStringLiteral("暂停详情刷新"));
   if (!running && total <= 0) {
-    progress_->setText(QStringLiteral("仓库详情刷新：未启动"));
+    progress_->setText(resumableCount > 0 ? QStringLiteral("上次详情任务剩余 %1 只，点击“继续未完成”续读。").arg(resumableCount) : QStringLiteral("仓库详情刷新：未启动"));
     emit sidebarDetailProgressChanged(progress_->text(), running, completed, total);
     return;
   }
@@ -814,6 +824,7 @@ void PetWindow::setMoveRunning(bool running) {
   moveRunning_ = running;
   refresh_->setEnabled(!listRefreshRunning_ && !running);
   refreshDetails_->setEnabled(!detailBatchRunning_ && !running);
+  retryDetails_->setEnabled(!detailBatchRunning_ && !running);
   for (QCheckBox* check : detailEraChecks_) check->setEnabled(!detailBatchRunning_ && !running);
   pauseDetails_->setEnabled(detailBatchRunning_ && !running);
   cancelDetails_->setEnabled(detailBatchRunning_ && !running);

@@ -156,7 +156,7 @@ ObservationValidity ObservationFreshness::observation(const QString& group) cons
     result.reason = sourceReason_.isEmpty() ? QStringLiteral("会话来源变化，旧观察失效") : sourceReason_;
   } else {
     result.state = ObservationValidityState::Current;
-    result.reason = QStringLiteral("上次读取的数值；周期未确认");
+    result.reason = QStringLiteral("最近一次成功读取的数值；服务器重置时间尚未核验");
   }
   return result;
 }
@@ -184,7 +184,7 @@ ObservationValidity ObservationFreshness::status(const QString& group, const QSt
   auto result = observation(group);
   if (result.state == ObservationValidityState::Current) result.state = ObservationValidityState::Unknown;
   if (result.state != ObservationValidityState::Invalidated)
-    result.reason = QStringLiteral("周期未确认；数值是上次读取的结果，可能已变化");
+    result.reason = QStringLiteral("服务器重置时间尚未核验；显示最近读取的结果，跨天/跨周后请重新读取");
   return result;
 }
 bool ObservationFreshness::acceptValidityEvidence(const TrustedObservationValidity& value, QString* error) {

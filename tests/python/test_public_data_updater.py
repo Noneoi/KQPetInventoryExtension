@@ -2,12 +2,15 @@
 import contextlib
 import io
 import json
+import lzma
 from pathlib import Path
+import struct
 import sys
 import tempfile
 import unittest
 from unittest.mock import patch
 import zipfile
+import zlib
 
 sys.dont_write_bytecode = True
 sys.path.insert(0, str(Path(__file__).resolve().parents[2] / "tools"))
@@ -170,18 +173,40 @@ class PublicDataUpdateTests(unittest.TestCase):
     def test_unknown_shop_rules_are_reported_instead_of_claiming_full_coverage(self):
         path = self.baseline / "shop-exchange-data.json"
         catalog = updater.read_object(path)
-        catalog["shops"][0]["goods"] = [{"enhanceType":"11-31-34-33$5-39$1-39$3-89$1-95","raceIds":[1]}]
+        catalog["shops"][0]["goods"] = [{"enhanceType":"11-31-34-33$5-39$1-39$3-89$1-95-34$1-34$7-35$65-35$70-35$71-61-81-82-83-92$1-92$3","raceIds":[1]}]
         updater.atomic_json(path,catalog)
         with patch.object(updater,"runtime_entry",return_value=Path("synthetic-runtime")):
             result = self.subject.run()
         self.assertNotIn("error",result["shop"])
+        self.assertNotIn("unsupportedTypes",result["shop"])
         target = self.root / "catalog/shop-exchange-data.json"
         catalog["shops"][0]["goods"].append({"enhanceType":"777","raceIds":[1]})
         updater.atomic_json(target,catalog)
         with patch.object(updater,"runtime_entry",return_value=Path("synthetic-runtime")):
             result = self.subject.run()
         self.assertEqual(result["shop"]["unsupportedTypes"],["777"])
-        self.assertFalse(updater.read_object(self.root / "catalog/public-update-status.json")["complete"])
+        self.assertNotIn("error", result["shop"])
+        notice, = result["shop"]["notices"]
+        self.assertEqual(notice["kind"], "analysis")
+        self.assertEqual(notice["items"][0]["unsupportedTypes"], ["777"])
+        self.assertTrue(updater.read_object(self.root / "catalog/public-update-status.json")["complete"])
+
+    def test_activity_coverage_notice_is_separate_from_download_failure(self):
+        issue = {"activityName": "新活动", "description": "养成礼包", "reason": "购买条件尚未完整识别"}
+        def scan(_):
+            self.subject.activity_exchange_pending = [issue]
+            return False
+        with patch.object(self.subject, "shop", side_effect=scan):
+            result = self.subject.run({"shop"})["shop"]
+        self.assertEqual(result["status"], "unchanged")
+        self.assertNotIn("error", result)
+        self.assertEqual(result["notices"][0]["items"], [issue])
+        def failed_scan(_):
+            self.subject.activity_exchange_failures = ["新活动：下载超时"]
+            return False
+        with patch.object(self.subject, "shop", side_effect=failed_scan):
+            result = self.subject.run({"shop"})["shop"]
+        self.assertIn("下载超时", result["error"])
 
     def test_activity_merge_keeps_local_id_zero_and_only_replaces_activity_scope(self):
         target = self.root / "catalog/activity-exchange-data.json"
@@ -365,6 +390,24 @@ class PublicDataUpdateTests(unittest.TestCase):
             self.assertEqual(updater.extract_image(self.root, "7529_7529")["status"], "cached")
         self.assertEqual(target.read_bytes(), b"existing image bytes")
 
+    def test_picture_symbol_lookup_accepts_all_official_swf_compressions(self):
+        symbol = b"mmo.pet.peticon17_L"
+        symbols = struct.pack("<HH", 1, 7) + symbol + b"\0"
+        body = (b"\x08\x00\x00\x18\x01\x00" + struct.pack("<HHH", 39 << 6 | 4, 7, 1) +
+                struct.pack("<H", 76 << 6 | len(symbols)) + symbols + b"\0\0")
+        header = b"\x12" + struct.pack("<I", len(body) + 8)
+        compressed = lzma.compress(body, format=lzma.FORMAT_ALONE)
+        zws = b"ZWS" + header + struct.pack("<I", len(compressed) - 13) + compressed[:5] + compressed[13:]
+        for swf in (b"FWS" + header + body, b"CWS" + header + zlib.compress(body), zws):
+            with self.subTest(signature=swf[:3]):
+                self.assertEqual(updater.symbol_character_id(swf, symbol.decode()), 7)
+        for invalid in (zws[:16], zws[:12] + b"\xff" + zws[13:],
+                        zws[:13] + struct.pack("<I", 16 * 1024 * 1024 + 1) + zws[17:],
+                        zws[:4] + struct.pack("<I", len(body) + 7) + zws[8:], zws[:-10]):
+            with self.subTest(invalid=invalid[:17]):
+                with self.assertRaises((ValueError, lzma.LZMAError)):
+                    updater.symbol_character_id(invalid, symbol.decode())
+
     def test_updated_image_failure_retries_next_manual_check_and_retains_old(self):
         target = self.root / "images/pets/7529_7529.png"
         target.parent.mkdir(parents=True)
@@ -376,6 +419,41 @@ class PublicDataUpdateTests(unittest.TestCase):
             updater.refresh_cached_images(self.root, same_index, faces)
         self.assertEqual(fetch_image.call_count, 2)
         self.assertEqual(target.read_bytes(), b"old")
+
+    def test_staged_picture_refresh_uses_shared_runtime_and_retains_old_until_success(self):
+        stage, runtime = self.root / "candidate", self.root / "installed"
+        faces = updater.image_entries(self.versions)
+        updater.atomic_json(stage / "catalog/pet-image-index.json", {"faces": faces})
+        target = stage / "images/pets/7529_7529.png"
+        target.parent.mkdir(parents=True)
+        target.write_bytes(b"old")
+
+        def chunk(tag, data):
+            return struct.pack(">I", len(data)) + tag + data + struct.pack(">I", zlib.crc32(tag + data) & 0xffffffff)
+        png = (b"\x89PNG\r\n\x1a\n" + chunk(b"IHDR", struct.pack(">IIBBBBB", 1, 1, 8, 6, 0, 0, 0)) +
+               chunk(b"IDAT", zlib.compress(bytes([0, 10, 20, 30, 255]))) + chunk(b"IEND", b""))
+        def fetch(_url, path):
+            path.write_bytes(b"synthetic SWF")
+            return {}
+        def export(command, **_kwargs):
+            output = Path(command[-2]) / "1.png"
+            output.parent.mkdir(parents=True)
+            output.write_bytes(png)
+            return updater.subprocess.CompletedProcess(command, 0)
+
+        with patch.object(updater, "installed_runtime", side_effect=lambda root, name: root / "data-tools" / name) as tools, \
+                patch.object(updater, "fetch", side_effect=fetch), \
+                patch.object(updater, "symbol_character_id", return_value=1), \
+                patch.object(updater.subprocess, "run", return_value=updater.subprocess.CompletedProcess([], 1)) as process:
+            with self.assertRaisesRegex(ValueError, "图片解析失败"):
+                updater.extract_image(stage, "7529_7529", replace=True, runtime_root=runtime)
+            self.assertEqual(target.read_bytes(), b"old")
+            process.side_effect = export
+            self.assertEqual(updater.extract_image(stage, "7529_7529", replace=True, runtime_root=runtime)["status"], "saved")
+        self.assertEqual(target.read_bytes(), png)
+        self.assertEqual(updater.read_object(target.with_suffix(".json"))["pngSha256"], updater.digest(target))
+        self.assertTrue(all(call.args[0] == runtime for call in tools.call_args_list))
+        self.assertEqual(list((stage / "data-tools").iterdir()), [])
 
     def test_unchanged_index_skips_hashing_but_still_retries_stale_revisions(self):
         target = self.root / "images/pets/7529_7529.png"

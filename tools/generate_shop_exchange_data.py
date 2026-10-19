@@ -22,6 +22,7 @@ ROOT = Path(__file__).resolve().parents[1]
 OFFICIAL_ROOT = "https://aoqi.100bt.com/play/"
 RESOURCE = "newactivityext/newact20260313/storeexchangeframework/storeexchangeframework"
 CONFIG_CLASS = "mmo.activityext.newact20260313.storeexchangeframework.model.SEFConfig"
+ENHANCEMENT_CODES = r'[1-9]\d*(?:\$[1-9]\d*(?::\d+)*)?(?:-[1-9]\d*(?:\$[1-9]\d*(?::\d+)*)?)*'
 LIMIT_TYPES = [{"index": i, "key": key, "label": label}
                for i, (key, label) in enumerate(zip(
                    ("dl", "wl", "ml", "pl", "tl"), ("日", "周", "月", "期", "总")))]
@@ -71,6 +72,20 @@ def selectable_reward(value, packages=()) -> bool:
             bool(selectable_package_ids(value, packages)))
 
 
+def matching_cultivation(row: dict, raw: str) -> bool:
+    if not isinstance(raw, str) or not raw.startswith('CommonEnhancePrize,'):
+        return False
+    fields = raw.split(',')
+    if len(fields) not in (5, 6) or (len(fields) == 6 and fields[5] not in ('VALID_ALL', 'GAIN_BATCH')):
+        return False
+    if not re.fullmatch(ENHANCEMENT_CODES, fields[3]):
+        return False
+    if not re.fullmatch(r'[1-9]\d*(?:#[1-9]\d*)*(?::(?:false|0))?', fields[4]):
+        return False
+    races = list(dict.fromkeys(map(int, fields[4].split(':')[0].split('#'))))
+    return fields[3] == row.get('enhanceType') and races == row.get('raceIds')
+
+
 def cultivation_alternative(row: dict) -> bool:
     """One explicit cultivation effect OR ordinary materials, not a choice box.
 
@@ -88,22 +103,17 @@ def cultivation_alternative(row: dict) -> bool:
         r'(?:Material|BatchMaterial),[1-9]\d*:[1-9]\d*:[1-9]\d*(?:#[1-9]\d*:[1-9]\d*:[1-9]\d*)*(?:,[1-9]\d*)?', p)]
     if len(enhance) != 1 or len(material) != 1 or package_reward_ids(material[0]):
         return False
-    fields = enhance[0].split(',')
-    if len(fields) not in (5, 6) or (len(fields) == 6 and fields[5] not in ('VALID_ALL', 'GAIN_BATCH')):
-        return False
-    if not re.fullmatch(r'[1-9]\d*(?:\$[1-9]\d*)?(?:-[1-9]\d*(?:\$[1-9]\d*)?)*', fields[3]):
-        return False
-    if not re.fullmatch(r'[1-9]\d*(?:#[1-9]\d*)*(?::(?:false|0))?', fields[4]):
-        return False
-    races = list(dict.fromkeys(map(int, fields[4].split(':')[0].split('#'))))
-    return fields[3] == row.get('enhanceType') and races == row.get('raceIds')
+    return matching_cultivation(row, enhance[0])
 
 
 def excluded_choice(row: dict) -> bool:
     if cultivation_alternative(row):
         return False
-    return (selectable_reward(row.get('rewardRaw'), row.get('selectablePackageIds', ())) or
-            bool(row.get('rewardOptions')) or
+    if selectable_reward(row.get('rewardRaw'), row.get('selectablePackageIds', ())) or row.get('rewardOptions'):
+        return True
+    # Choosing which star to equip is still a verified designated-pet effect.
+    # A promotional title cannot turn that reward into a selection package.
+    return (not matching_cultivation(row, row.get('rewardRaw')) and
             bool(re.search(r'自选|任选|[二三四五六七八九十0-9]+选[一二三四五六七八九十0-9]+', str(row.get('description', '')))))
 
 
@@ -115,7 +125,7 @@ def relevant_good(row: dict) -> bool:
 def targeted_reward(value) -> bool:
     # A known Strengthen effect with a runtime/exclusion filter is a manual
     # candidate; it must not become an unconstrained cultivation rule.
-    return isinstance(value, str) and bool(re.match(r'^Strengthen,[1-9]\d*(?:\$[1-9]\d*)?(?:-[1-9]\d*(?:\$[1-9]\d*)?)*,', value))
+    return isinstance(value, str) and bool(re.match(r'^Strengthen,' + ENHANCEMENT_CODES + ',', value))
 
 
 def relevant_shops(shops: list) -> list:
@@ -164,7 +174,7 @@ def parse_objects(body: str, shop: dict | None = None, *, include_manual: bool =
         automatic = simple[0] == "CommonEnhancePrize"
         if not automatic and not (include_manual and selectable_reward(reward, selectable_packages) and field(block, "cost")):
             continue
-        if automatic and (len(simple) != 5 or not re.fullmatch(r"[1-9]\d*(?:-[1-9]\d*)*", simple[3])
+        if automatic and (len(simple) != 5 or not re.fullmatch(ENHANCEMENT_CODES, simple[3])
                 or not re.fullmatch(r"[1-9]\d*(?:#[1-9]\d*)*", simple[4])):
             raise ValueError("invalid designated-pet CommonEnhancePrize payload")
         races = list(dict.fromkeys(int(x) for x in simple[4].split("#"))) if automatic else []

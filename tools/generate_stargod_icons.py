@@ -11,6 +11,7 @@ import argparse
 from concurrent.futures import ThreadPoolExecutor, as_completed
 import hashlib
 import json
+import lzma
 import os
 from pathlib import Path
 import re
@@ -34,8 +35,8 @@ def sha256(path: Path) -> str:
 
 def symbol_character_id(data: bytes, class_name: str) -> int:
     """Read top-level SWF SymbolClass (76) without decompiling scripts."""
-    if len(data) < 12 or data[:3] not in (b"FWS", b"CWS"):
-        raise ValueError("expected an FWS or CWS file")
+    if len(data) < 12 or data[:3] not in (b"FWS", b"CWS", b"ZWS"):
+        raise ValueError("expected an FWS, CWS or ZWS file")
     expected_length = struct.unpack_from("<I", data, 4)[0]
     if not 12 <= expected_length <= MAX_RESOURCE_BYTES:
         raise ValueError("invalid or excessive uncompressed SWF length")
@@ -44,6 +45,17 @@ def symbol_character_id(data: bytes, class_name: str) -> int:
         body = decompressor.decompress(data[8:], expected_length - 8 + 1)
         if not decompressor.eof or decompressor.unconsumed_tail:
             raise ValueError("invalid compressed SWF")
+        data = data[:8] + body
+    elif data[:3] == b"ZWS":
+        if len(data) < 17:
+            raise ValueError("truncated LZMA SWF")
+        props, dictionary = data[12], struct.unpack_from("<I", data, 13)[0]
+        if props >= 9 * 5 * 5 or dictionary > MAX_RESOURCE_BYTES:
+            raise ValueError("invalid or excessive LZMA SWF parameters")
+        decompressor = lzma.LZMADecompressor(format=lzma.FORMAT_RAW, filters=[{
+            "id": lzma.FILTER_LZMA1, "dict_size": dictionary, "lc": props % 9,
+            "lp": props // 9 % 5, "pb": props // 45}])
+        body = decompressor.decompress(data[17:], max_length=expected_length - 8 + 1)
         data = data[:8] + body
     if len(data) != expected_length:
         raise ValueError("SWF length does not match header")

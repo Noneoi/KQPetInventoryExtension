@@ -55,6 +55,15 @@ ShopExchangeGood findGood(const QList<ShopExchangeShop>& shops, int shopId,
 
 int main(int argc, char* argv[]) {
   QCoreApplication application(argc, argv);
+  // Historical mapping assertions use their own frozen public fixture. The
+  // shipped/current snapshot is verified separately by embedded_catalog_smoke.
+  QTemporaryDir frozenRoot;
+  StorageService frozenStorage(frozenRoot.path());
+  CatalogIoService frozenIo(&frozenStorage);
+  QFile frozen(application.arguments().value(1));
+  if (!frozen.open(QIODevice::ReadOnly) ||
+      !writeCatalogFixture(QDir(frozenRoot.path()).filePath(QStringLiteral("catalog/shop-exchange-data.json")), frozen.readAll()) ||
+      !runCatalogRequest(&frozenIo, CatalogKind::Shop, CatalogRequestMode::Reload)) return 1;
   const ShopExchangeCatalog& catalog = ShopExchangeCatalog::instance();
   bool ok = true;
   ok &= require(catalog.isLoaded(), "shop exchange catalog did not load");

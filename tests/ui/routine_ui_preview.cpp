@@ -25,7 +25,16 @@ int main(int argc, char* argv[]) {
   if (!runCatalogRequest(&catalogIo, CatalogKind::Routine, CatalogRequestMode::OfficialUpdate)) return 1;
 
   auto* window = new RoutineOverviewWindow();
-  window->setCatalogSnapshot(RoutineOverviewCatalog::instance().snapshot());
+  auto catalogRoot = RoutineOverviewCatalog::instance().snapshot()->root;
+  auto activities = catalogRoot.value(QStringLiteral("activities")).toArray();
+  auto firstActivity = activities.first().toObject();
+  firstActivity.insert(QStringLiteral("appearCondition"),QStringLiteral("battlePower=270000+"));
+  firstActivity.insert(QStringLiteral("appearanceDescription"),QStringLiteral("历史最高战力 ≥ 270000"));
+  firstActivity.insert(QStringLiteral("appearanceRule"),QJsonObject{{QStringLiteral("schema"),1},{QStringLiteral("operator"),QStringLiteral("any")}});
+  activities[0] = firstActivity; catalogRoot.insert(QStringLiteral("activities"),activities);
+  const auto annotatedCatalog = RoutineOverviewCatalog::prepare(catalogRoot,QStringLiteral("模拟目录"),{});
+  if (!annotatedCatalog || annotatedCatalog->activities.first().appearanceRule.isEmpty()) return 1;
+  window->setCatalogSnapshot(annotatedCatalog);
   window->setData(
       {{QStringLiteral("av"), 85}, {QStringLiteral("wav"), 574},
        {QStringLiteral("bi"), QJsonArray{true, true, false, false, false}},
@@ -60,7 +69,7 @@ int main(int argc, char* argv[]) {
       auto* activity = window->findChild<QTableWidget*>(QStringLiteral("KQRoutineActivityTable"));
       auto* opportunity = window->findChild<QTableWidget*>(QStringLiteral("KQRoutineOpportunityTable"));
       valid = valid && daily && weekly && daily->columnCount() == 6 &&
-              weekly->columnCount() == 6 && activity && activity->columnCount() == 4 &&
+              weekly->columnCount() == 6 && activity && activity->columnCount() == 5 &&
               opportunity && opportunity->columnCount() == 6 &&
               opportunity->rowCount() == 11 &&
               opportunity->item(0, 2) &&
@@ -77,7 +86,10 @@ int main(int argc, char* argv[]) {
         valid = valid && condition;
       };
       if (!valid) { application.exit(2); return; }
-      check(daily->item(0, 1)->text().contains(QStringLiteral("周期未确认")) &&
+      check(activity->item(0,4)->text()==QStringLiteral("历史最高战力 ≥ 270000") &&
+            activity->item(0,4)->toolTip().contains(QStringLiteral("battlePower=270000+")),
+            "official entry condition was dropped between catalog and activity view");
+      check(daily->item(0, 1)->text().contains(QStringLiteral("重置时间未核验")) &&
             daily->item(0, 1)->foreground().style() == Qt::NoBrush &&
             opportunity->item(0, 2)->foreground().style() == Qt::NoBrush,
             "unproved periods displayed green actionable/completed state");
@@ -104,8 +116,13 @@ int main(int argc, char* argv[]) {
             daily->item(0, 1)->foreground().color() == QColor(QStringLiteral("#087a43")),
             "verified current progress did not preserve completed display");
       auto expired = current; expired.state = ObservationValidityState::Invalidated;
+      auto* retainedTaskCell = daily->item(0,1);
+      auto* retainedOpportunityCell = opportunity->item(0,2);
+      daily->setCurrentCell(0,0);
       expired.reason = QStringLiteral("fixture invalidation"); validity[QStringLiteral("ti:daily")] = expired;
       window->setPeriodValidity(validity);
+      check(daily->item(0,1) == retainedTaskCell && opportunity->item(0,2) == retainedOpportunityCell && daily->currentRow() == 0,
+            "routine freshness update rebuilt cells or changed selection");
       check(daily->item(0, 1)->text().contains(QStringLiteral("已失效")) &&
             daily->item(0, 1)->foreground().style() == Qt::NoBrush,
             "invalidated progress retained its completed color");

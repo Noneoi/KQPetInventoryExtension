@@ -25,8 +25,9 @@ from activity_reward_structures import (normalize_tables, reward_hints, symbolic
 from activity_periods import (period_hints, period_metadata, entry_opening, load_panel_periods,
                              panel_periods_reusable, apply_graph_periods, table_deadlines)
 from activity_trade_facts import table_contracts, enrich_reward_facts
+from activity_navigation import navigation_metadata, apply_navigation_graph
 
-PARSER_VERSION = 18
+PARSER_VERSION = 23
 FILENAME = "activity-exchange-data.json"
 CONFIG_RESOURCE = "config/config"
 EMERGENCY_RESOURCE = "configinemergency/configinemergency"
@@ -63,10 +64,13 @@ def parse_selectable_packages(text):
 
 def load_selectable_packages(updater, versions):
     dependency = {key: versions[key] for key, _ in PACKAGE_RESOURCES if key in versions}
+    hashes = {key: versions.hashes[key] for key in dependency if key in getattr(versions, 'hashes', {})}
     previous = _read(updater.root / "catalog" / FILENAME).get("source", {}).get("selectablePackages", {})
     if len(dependency) != len(PACKAGE_RESOURCES):
         return {"versions": {}, "packages": {}}
-    if previous.get("versions") == dependency and isinstance(previous.get("packages"), dict):
+    if (previous.get("versions") == dependency and isinstance(previous.get("packages"), dict) and
+            all(previous.get('hashes', {}).get(key) == value for key, value in hashes.items()) and
+            'shop' not in getattr(updater, 'force_components', ())):
         return previous
     packages, resources = {}, {}
     for key, cls in PACKAGE_RESOURCES:
@@ -74,28 +78,49 @@ def load_selectable_packages(updater, versions):
         path = updater.export(swf, updater.scratch / ("choice-packages-" + key.rsplit("/",1)[-1]), cls)
         packages.update(parse_selectable_packages(path.read_text(encoding="utf-8-sig")))
         resources[key] = source
-    return {"versions": dependency, "resources": resources,
+    return {"versions": dependency, "resources": resources, "hashes": hashes,
             "packages": {key: row for key, row in packages.items() if row["selectable"]}}
 
 
 def load_reward_support(updater, versions):
     resources = (('library/interfaces', 'mmo.interfaces.strengthencombo.StrengthenComboBasicType'),
                  ('library/interfaces', 'mmo.interfaces.strengthencombo.StrengthenComboDisplayType'),
+                 ('library/interfaces', 'mmo.interfaces.wealthmanager.DirectBuyInfo'),
+                 ('library/interfaces', 'mmo.interfaces.yearpayx.enumerations.YearPayRange'),
+                 ('wealthmanager/wealthmanager', 'mmo.wealthmanager.WealthManagerService'),
                  ('strengthencombo/strengthencomboservice', 'mmo.strengthencombo.update.StrengthenComboContents'),
-                 ('strengthencombo/strengthencomboservice', 'mmo.strengthencombo.util.StrengthenComboDescUtil'))
+                 ('strengthencombo/strengthencomboservice', 'mmo.strengthencombo.util.StrengthenComboDescUtil'),
+                 ('strengthencombo/strengthencomboservice', 'mmo.strengthencombo.model.StrengthenComboModel'),
+                 ('strengthencombo/strengthencomboservice', 'mmo.strengthencombo.util.StrengthenComboUtil'),
+                 ('strengthencombo/strengthencomboservice', 'mmo.strengthencombo.update.StrengthenComboRedirection'),
+                 ('library/util', 'mmo.common.DateUtil'),
+                 *(('strengthencombo/strengthencomboservice', 'mmo.strengthencombo.' + cls) for cls in (
+                     'define.StrengthenComboPriceDefine', 'define.StrengthenComboOverlapPrice',
+                     'define.StrengthenComboDiscount', 'define.StrengthenComboCaseDefine',
+                     'util.StrengthenComboConditionUtil', 'util.conditions.StrengthenComboConditionByDate',
+                     'util.conditions.StrengthenComboConditionByItem', 'util.conditions.StrengthenComboConditionByVip',
+                     'util.conditions.StrengthenComboConditionByDesc', 'config.StrengthenComboConfig',
+                     'payment.StrengthenComboInnerPayment', 'payment.SCPaymentMultipleWithTicket')))
     dependency = {key: versions[key] for key, _ in resources if key in versions}
+    hashes = {key: versions.hashes[key] for key in dependency if key in getattr(versions, 'hashes', {})}
     previous = _read(updater.root / 'catalog' / FILENAME).get('source', {}).get('rewardSupport', {})
-    if previous.get('versions') == dependency and previous.get('schema') == 2 and not previous.get('error'):
+    if (previous.get('versions') == dependency and previous.get('schema') == 5 and not previous.get('error') and
+            all(previous.get('hashes', {}).get(key) == value for key, value in hashes.items()) and
+            'shop' not in getattr(updater, 'force_components', ())):
         return previous
-    result = {'schema': 2, 'versions': dependency, 'basicTypes': {}, 'prices': {}, 'pets': {}, 'descriptions': {}, 'descriptionParameters': {}}
+    result = {'schema': 5, 'versions': dependency, 'hashes': hashes, 'basicTypes': {}, 'prices': {}, 'pets': {}, 'descriptions': {}, 'descriptionParameters': {}}
     if len(dependency) < 2:
         return result
     try:
         emit('更新公共养成奖励与强化类型定义')
+        contracts = {}
         for key, cls in resources:
+            if key not in versions:
+                continue
             swf, _ = updater.resource(key, versions)
             file = updater.export(swf, updater.scratch / 'reward-support', cls)
             source = file.read_text(encoding='utf-8-sig')
+            contracts[cls.rsplit('.', 1)[-1]] = source
             if cls.endswith('StrengthenComboContents'):
                 _, constants = parse_tables({file.name: source})
                 prices = constants.get('StrengthenComboContents.PRICE_CONTENTS')
@@ -113,11 +138,17 @@ def load_reward_support(updater, versions):
                     raise ValueError('公共强化类型定义结构待适配')
             elif cls.endswith('StrengthenComboDescUtil'):
                 result['descriptionParameters'] = description_parameters(source, result['basicTypes'])
-            else:
+            elif cls.endswith('StrengthenComboDisplayType'):
                 match = re.search(r'\bTESTING_HIDDEN\s*:\s*StrengthenComboDisplayType\s*=\s*create\((\d+),', source)
                 if not match:
                     raise ValueError('公共养成测试项目的隐藏规则待适配')
                 result['hiddenDisplayId'] = int(match[1])
+            else:
+                contracts[cls.rsplit('.', 1)[-1]] = source
+        from activity_call_rewards import verify_link_contracts
+        result.update(verify_link_contracts(contracts))
+        from activity_price_rules import shared_price_context
+        result['priceContext'] = shared_price_context(contracts)
     except Exception as error:
         # Independent event tables can still update if a shared dependency
         # fails. Never reuse stale public package contents as current facts.
@@ -239,6 +270,7 @@ def strings_in_swf(body: bytes) -> set[str]:
 
 
 def build_discovery(root: ET.Element, hud_text: str) -> dict:
+    from activity_service_discovery import hud_service_entries
     # The registry keeps historical weeks. Walk only the current official HUD
     # and six most recent release weeks, plus their explicit activity links.
     entries, recent = {}, set()
@@ -247,6 +279,15 @@ def build_discovery(root: ET.Element, hud_text: str) -> dict:
     if not latest:
         raise ValueError("官方活动注册表没有发布日期")
     cutoff = (datetime.strptime(latest, "%Y%m%d") - timedelta(days=35)).strftime("%Y%m%d")
+    # NewActivityConfigReader registers persistent activity/scene/world rows
+    # before release-week rows. They are lookup candidates, never roots merely
+    # because an old registration still exists in the official XML.
+    for container in ('activity/a', 'sceneactivity/scene/a', 'allscene/a'):
+        for node in root.findall(container):
+            alias = node.get('name', '')
+            if re.fullmatch(r'[A-Za-z][A-Za-z0-9_]{2,100}', alias):
+                entries[alias] = {**node.attrib, 'releaseVersion': '', 'registryKind': container.split('/')[0]}
+    permanent_count = len(entries)
     # An alias can be reissued in a later week.  Preserve the newest official
     # row and the week that supplied it instead of relying on XML traversal
     # order (which used to make "new activity" detection ambiguous).
@@ -276,7 +317,9 @@ def build_discovery(root: ET.Element, hud_text: str) -> dict:
     for alias, value in hud_entries.items():
         evidence[alias] = {"kind": "hud", "date": value.get("startTime", "") or latest}
     return {"latestRelease": latest, "recentSince": cutoff, "entries": entries,
+            "permanentEntries": permanent_count,
             "hud": hud_entries, "rootEvidence": evidence,
+            "serviceEntries": hud_service_entries(hud_text),
             "roots": sorted(recent | set(hud_entries))}
 
 
@@ -515,7 +558,7 @@ def parse_tables(scripts: dict[str, str]) -> tuple[dict, dict]:
                 pass
     for filename, text in scripts.items():
         cls = Path(filename).stem
-        match = re.search(r"function\s+" + re.escape(cls) + r"\s*\([^)]*\)\s*\{", text)
+        match = re.search(r"function\s+" + re.escape(cls) + r"\s*\(([^)]*)\)\s*\{", text)
         if not match:
             continue
         try:
@@ -528,7 +571,19 @@ def parse_tables(scripts: dict[str, str]) -> tuple[dict, dict]:
             if getter[2] in fields:
                 mapping[getter[1]] = int(fields[getter[2]][5:]) - 1
         if mapping:
-            constructors[cls] = mapping
+            # Defaults are part of the constructor contract. Omitted optional
+            # arguments are not missing fields, but computed defaults remain
+            # symbolic. Reject overwritten fields instead of guessing.
+            defaults = {}
+            for index, parameter in enumerate(_arguments(match[1])):
+                if '=' in parameter:
+                    try:
+                        defaults[index] = LiteralReader(parameter.split('=', 1)[1].strip()).parse()
+                    except (ValueError, IndexError):
+                        pass
+            if any(len(re.findall(r'this\.' + re.escape(field) + r'\s*=', body)) != 1 for field in fields):
+                continue
+            constructors[cls] = mapping, defaults
     for filename, text in scripts.items():
         cls = Path(filename).stem
         for match in STATIC_DECLARATION.finditer(text):
@@ -553,10 +608,14 @@ def parse_tables(scripts: dict[str, str]) -> tuple[dict, dict]:
             return {"$ref": "static-resolution-depth"}
         if isinstance(value, dict):
             if set(value) == {"$new", "$args"}:
-                mapping = constructors.get(value["$new"].rsplit(".", 1)[-1])
-                if not mapping or any(index >= len(value["$args"]) for index in mapping.values()):
+                constructor = constructors.get(value["$new"].rsplit(".", 1)[-1])
+                if not constructor:
                     return {"$ref": "unresolved-constructor"}
-                return {field: resolve(value["$args"][index], namespace, stack) for field, index in mapping.items()}
+                mapping, defaults = constructor
+                args = {**defaults, **dict(enumerate(value["$args"]))}
+                if any(index not in args for index in mapping.values()):
+                    return {"$ref": "unresolved-constructor"}
+                return {field: resolve(args[index], namespace, stack) for field, index in mapping.items()}
             if set(value) == {"$ref"}:
                 name = value["$ref"]
                 if arguments and name in arguments:
@@ -617,7 +676,7 @@ def supported_enhancement_expression(value) -> bool:
     # pending until an official table gives them a concrete meaning.
     # The official return/new-player tables use 35$<star-definition-id>.
     # Preserve the parameter; do not treat it as the general red-star effect.
-    token = r"(?:[1-9]\d*|(?:33|35)\$[1-9]\d*|39\$(?:1|3)|89\$1)"
+    token = r"(?:[1-9]\d*|(?:33|34|92)\$[1-9]\d*|(?:25|35|37|53)\$[1-9]\d*(?::\d+)*|39\$(?:1|3)|89\$1)"
     return isinstance(value, str) and bool(re.fullmatch(token + r"(?:-" + token + r")*", value))
 
 
@@ -1067,10 +1126,10 @@ def constructed_reward_tables(scripts: dict[str, str], tables: dict, constants: 
     return tables
 
 
-def parse_module(scripts: dict[str, str], module: str, activity: dict, expand=None, *, include_manual=False, selectable_packages=(), reward_support=None) -> tuple[list, list, bool]:
+def parse_module(scripts: dict[str, str], module: str, activity: dict, expand=None, *, include_manual=False, selectable_packages=(), reward_support=None, resolve_shared=None) -> tuple[list, list, bool]:
     tables, constants = parse_tables(scripts)
     tables = constructed_reward_tables(scripts, tables, constants)
-    tables, structural_issues = normalize_tables(scripts, tables, constants, reward_support)
+    tables, structural_issues = normalize_tables(scripts, tables, constants, reward_support, resolve_shared)
     contracts = table_contracts(scripts, tables, constants)
     table_ends = table_deadlines(scripts, tables, constants)
     # A dynamically constructed shop can still contain complete literal bonus
@@ -1102,6 +1161,17 @@ def parse_module(scripts: dict[str, str], module: str, activity: dict, expand=No
                         continue
                 if rows:
                     tables[table + ".staticPackageRewards"] = (filename,rows)
+    if activity.get('serviceBody'):
+        # A current service class may retain old shop versions. Require an
+        # actual call/table-consumer link for service-body rewards; discovery
+        # separately records its current activity navigation.
+        def consumed(value):
+            if isinstance(value, dict):
+                return bool(value.get('_callEvidence')) or any(consumed(child) for child in value.values())
+            return isinstance(value, list) and any(consumed(child) for child in value)
+        activity['serviceUnboundTables'] = sorted(key for key, (_, value) in tables.items()
+            if not consumed(value) and re.search(r'CommonEnhancePrize|"rewardType"|"simpleParams"', json.dumps(value)))
+        tables = {key: pair for key, pair in tables.items() if consumed(pair[1])}
     pending = [{**issue, 'module': module, 'activityName': activity.get('activityName', '')}
                for issue in structural_issues]
     shops = []
@@ -1131,11 +1201,11 @@ def parse_module(scripts: dict[str, str], module: str, activity: dict, expand=No
                     re.fullmatch(r"btnNewAct_[A-Za-z0-9]+_[A-Za-z0-9_]+", value)}
     direct_navigation = next(iter(direct_links)) if len(direct_links) == 1 else activity.get("navigationLink", "")
     navigation_source = "module" if len(direct_links) == 1 else "activity" if direct_navigation else ""
-    has_evolution = False
+    has_evolution = any('.showPanelCombo' in source for source in scripts.values())
     for filename, text in scripts.items():
         for match in STATIC_DECLARATION.finditer(text):
             key = Path(filename).stem + "." + match[1]
-            if key in tables:
+            if key in tables or activity.get('serviceBody'):
                 continue
             end = text.find(";", match.end())
             expression = text[match.end():end if end >= 0 else len(text)]
@@ -1248,6 +1318,8 @@ def parse_module(scripts: dict[str, str], module: str, activity: dict, expand=No
                     apply_activity_period(item, activity)
                     if row.get('_structure'):
                         item['rewardStructure'] = row['_structure']
+                        if row.get('_callEvidence'):
+                            item['source']['callEvidence'] = row['_callEvidence']
                         item['rewardOptions'] = row.get('_rewardOptions', [])
                         item['targetingRaw'] = row.get('_targeting')
                         item['officialRewardRaw'] = row.get('_rawReward', '')
@@ -1277,7 +1349,29 @@ def parse_module(scripts: dict[str, str], module: str, activity: dict, expand=No
                         day = row.get("day", row.get("days"))
                         if kind in ("signin", "progress") and str(day).isdigit() and 0 < int(day) <= 366:
                             item["costDescription"] += f"；活动天数：{int(day)} 天"
+                    identity_includes_reward = item['manualSelectionRequired']
                     enrich_reward_facts(item, row, table, contracts, profile)
+                    if item['manualSelectionRequired'] != identity_includes_reward:
+                        item['selectionIdentityIncludesReward'] = identity_includes_reward
+                    price_issues = item.get('priceRule', {}).get('unresolved', [])
+                    if price_issues and row.get('publicPriceContext'):
+                        pending.append({'module': module, 'activityName': activity.get('activityName', ''),
+                                        'table': table, 'itemId': identity, 'reason': '；'.join(price_issues)})
+                    if row.get('_structure') == 'constructed-cultivation' and item.get('costKnown') and item['cost'].startswith('8:2:'):
+                        item['exchangeKind'] = 'diamond'
+                        item['costDescription'] = '钻石 ×' + item['cost'].split(':')[-1]
+                    if row.get('_offerPriceRule'):
+                        item['priceRule'] = row['_offerPriceRule']
+                        item['cost'] = ''
+                        item['costKnown'] = False
+                        item['priceOptions'] = [
+                            {'cost': '8:2:' + str(case['amount']), 'when': case['when'],
+                             'label': '升阶需源兽材料' if case['when']['requiresEquipment'] else '升阶无需源兽材料'}
+                            for case in item['priceRule']['cases']]
+                        item['costDescription'] = '；'.join(
+                            option['label'] + '：' + option['cost'].split(':')[-1] + ' 钻石'
+                            for option in item['priceOptions'])
+                        item['exchangeKind'] = 'diamond'
                     if any(previous["itemServerId"] == identity for previous in goods):
                         raise ValueError("同表兑换编号重复，不能合并不同条目")
                     goods.append(item)
@@ -1327,7 +1421,10 @@ def parse_module(scripts: dict[str, str], module: str, activity: dict, expand=No
         if unresolved_rewards(value) and not any(p.get('table') == table for p in pending):
             pending.append({'module': module, 'activityName': activity.get('activityName', ''),
                             'table': table, 'reason': '相关奖励包含未解析的动态参数或选项'})
-    if not shops and not pending and re.search(r'\.show(?:StrengthenPanel|PanelCombo)\(', all_text):
+    # showPanelCombo with a runtime-selected pet is a navigation entry into
+    # shared cultivation, not a separate unparsed activity reward table.
+    # Explicit pet links are resolved (or diagnosed) by normalize_tables.
+    if not shops and not pending and re.search(r'\.showStrengthenPanel\(', all_text):
         pending.append({'module': module, 'activityName': activity.get('activityName', ''),
                         'reason': '发现精灵强化入口，奖励由公共服务或运行时配置提供，尚未提取完整奖励表'})
     return shops, pending, has_evolution
@@ -1336,6 +1433,8 @@ def parse_module(scripts: dict[str, str], module: str, activity: dict, expand=No
 def export_scripts(updater, swf: Path, target: Path) -> dict[str, str]:
     if hasattr(updater, "activity_exporter"):
         return updater.activity_exporter(swf, target)
+    if getattr(updater, 'extract_cache', None) is not None:
+        return updater.export_scripts(swf, target)
     from public_data_updater import runtime_entry
     if updater.runtimes is None:
         updater.runtimes = (runtime_entry(updater.tools, "java", updater.scratch), runtime_entry(updater.tools, "ffdec", updater.scratch))
@@ -1382,10 +1481,14 @@ def preserve_pending_rows(previous: dict, shops: list, pending: list) -> list:
 
 def update_activity_exchanges(updater, versions: dict) -> bool:
     from public_icon_updater import loader_default
-    from activity_evolution_selector import dependency_revision
+    from activity_evolution_selector import dependency_revision, RESOURCES as EVOLUTION_RESOURCES
+    from activity_service_discovery import (discover_service_roots, unresolved_alias_status,
+                                            service_module_entries, select_service_scripts)
     cache_path = updater.root / "catalog" / FILENAME
     on_disk = _read(cache_path)
     current = on_disk
+    if 'shop' in getattr(updater, 'force_components', ()):
+        current = {**current, 'parserVersion': -1}
     if not cache_path.exists():
         baseline = _read(updater.baseline / FILENAME)
         if (baseline.get("schema") == 1 and baseline.get("parserVersion") == PARSER_VERSION and
@@ -1407,8 +1510,11 @@ def update_activity_exchanges(updater, versions: dict) -> bool:
         raise ValueError("官方活动目录资源版本缺失")
     discovery = previous_source.get("discovery", {})
     discovery_versions = {key: versions[key] for key in (CONFIG_RESOURCE, EMERGENCY_RESOURCE, BLOCK_RESOURCE) if key in versions}
-    reward_dependencies = {key: versions[key] for key in ('library/interfaces', 'library/gameconst', 'library/common', 'library/util', 'strengthencombo/strengthencomboservice') if key in versions}
-    if previous_source.get("discoveryVersions") != discovery_versions or not discovery.get("entries") or current.get("parserVersion") != PARSER_VERSION:
+    discovery_hashes = {key: versions.hashes[key] for key in discovery_versions if key in getattr(versions, 'hashes', {})}
+    reward_dependencies = {key: versions[key] for key in ('library/interfaces', 'library/gameconst', 'library/common', 'library/util', 'strengthencombo/strengthencomboservice', 'wealthmanager/wealthmanager') if key in versions}
+    if (previous_source.get("discoveryVersions") != discovery_versions or not discovery.get("entries") or
+            'permanentEntries' not in discovery or 'serviceEntries' not in discovery or current.get("parserVersion") != PARSER_VERSION or
+            any(previous_source.get('discoveryHashes', {}).get(key) != value for key, value in discovery_hashes.items())):
         emit("更新官方活动入口与当前发布目录")
         swf, config_source = updater.resource(CONFIG_RESOURCE, versions)
         hud = updater.export(swf, updater.scratch / "activity-hud", "mmo.config.CommonHudConfig")
@@ -1417,16 +1523,39 @@ def update_activity_exchanges(updater, versions: dict) -> bool:
     else:
         config_source = previous_source.get("configResource", {})
         override_resources = previous_source.get("overrideResources", {})
+    service_discovery = discover_service_roots(updater, versions, discovery, previous_source.get('serviceDiscovery'))
+    service_entries = service_module_entries(service_discovery, discovery.get('latestRelease', ''))
     default = previous_source.get("loaderDefault", {})
-    queue = [(alias, 0) for alias in discovery["roots"]]
-    visited, modules, pending, shops = set(), {}, [], []
+    current_roots = set(discovery["roots"]) | set(service_discovery['roots']) | {
+        key for key, item in service_entries.items() if item['trace'].get('status') != 'pending'}
+    retained_roots = set(service_discovery.get('retainedRoots', [])) | (set(service_entries) - current_roots)
+    queue = [(alias, 0) for alias in sorted(current_roots | retained_roots)]
+    visited, modules, pending, shops = set(), {}, list(service_discovery['pending']), []
+    entry_coverage = {}
+    service_tab_roots = {alias for record in service_discovery['records'].values()
+                         for alias, links in record.get('links', {}).items()
+                         if any(link.get('kind') == 'consumed-tab' for link in links)}
     checked = 0
     while queue:
         alias, depth = queue.pop(0)
-        resolved = resolve_alias(alias, discovery)
+        if alias in entry_coverage:
+            continue
+        service_entry = service_entries.get(alias)
+        resolved = (service_entry['module'], service_entry['activity']) if service_entry else resolve_alias(alias, discovery)
         if not resolved:
+            state = unresolved_alias_status(alias, discovery)
+            entry_coverage[alias] = {'status': state}
+            # An optional hasActivityConfig reference can name an officially
+            # absent event. Keep it in coverage, without declaring a lost
+            # reward. Active root/tab failures must never silently disappear.
+            if state not in ('blocked', 'offline') and (alias in discovery['roots'] or alias in service_tab_roots):
+                pending.append({'activityName': discovery.get('hud', {}).get(alias, {}).get('name') or alias,
+                                'module': '', 'alias': alias, 'reason': '当前官方入口尚未关联到活动资源：' + state})
             continue
         module, activity = resolved
+        entry_coverage[alias] = {'status': 'scanned', 'module': module}
+        if module == MAIN_SHOP_RESOURCE:
+            entry_coverage[alias]['status'] = 'covered-by-common-shop'
         if module == MAIN_SHOP_RESOURCE or module in visited:
             continue
         if len(visited) >= MAX_MODULES:
@@ -1442,14 +1571,23 @@ def update_activity_exchanges(updater, versions: dict) -> bool:
         # when the official registry changes, not on every manual button press.
         token = version if module in versions else version + "@" + json.dumps(discovery_versions, sort_keys=True, separators=(",", ":"))
         previous = previous_modules.get(module, {})
+        service_trace = service_entry['signature'] if service_entry else ''
         evo_version = dependency_revision(versions)
+        observed = getattr(versions, 'hashes', {})
+        hashes = {key: observed[key] for key in {*reward_dependencies, module, *discovery_versions, *packages.get('versions', {}),
+                  *(key for _, key, _ in EVOLUTION_RESOURCES)} if key in observed}
         reusable = (current.get("parserVersion") == PARSER_VERSION and previous.get("versionToken") == token and
+                    not previous.get('discoveryRetained') and
+                    previous.get('serviceTrace', '') == service_trace and
+                    all(previous.get('dependencyHashes', {}).get(key) == value for key, value in hashes.items()) and
                     not reward_support.get('error') and
                     panel_periods_reusable(previous, versions, activity) and
                     previous.get('rewardDependencies', {}) == reward_dependencies and
                     (not previous.get("hasSelectablePackage") or previous.get("packageVersions") == packages["versions"]) and
                     (not previous.get("hasEvolutionSelector") or previous.get("evolutionVersion") == evo_version))
-        if reusable and previous.get("status") != "failed":
+        if service_entry and service_entry['trace'].get('status') == 'pending':
+            record = {**copy.deepcopy(previous), 'status': 'pending', 'discoveryRetained': True}
+        elif reusable and previous.get("status") != "failed":
             record = copy.deepcopy(previous)
             # A HUD rename or explicit opening date can change while its
             # versioned exchange module stays byte-identical.
@@ -1492,23 +1630,34 @@ def update_activity_exchanges(updater, versions: dict) -> bool:
                 resource = updater.fetch("https://aoqi.100bt.com/play/" + module + "~" + version + ".swf", path)
                 body = swf_body(path.read_bytes())
                 strings = strings_in_swf(body)
-                references = set()
-                for value in strings:
-                    if value in discovery["entries"]:
-                        references.add(value)
-                    references.update(re.findall(r"btnNewAct_([A-Za-z0-9]+)_", value))
+                references = set(service_entry['trace']['aliases']) if service_entry else set()
+                if not service_entry:
+                    for value in strings:
+                        if value in discovery["entries"]:
+                            references.add(value)
+                        references.update(re.findall(r"btnNewAct_([A-Za-z0-9]+)_", value))
                 module_shops, unsupported, has_evolution = [], [], False
-                timing, panels = {}, []
-                if reward_hints(strings) or period_hints(strings):
+                timing, panels, navigation = {}, [], {}
+                if service_entry or reward_hints(strings) or period_hints(strings):
                     scripts = export_scripts(updater, path, updater.scratch / ("activity-export-" + hashlib.sha256(module.encode()).hexdigest()[:20]))
+                    if service_entry:
+                        scripts = select_service_scripts(scripts, service_entry['trace'])
                     timing = period_metadata(scripts, activity)
+                    navigation = navigation_metadata(scripts, activity, timing, strings)
                     references.update(tab['targetAlias'] for tab in timing['tabs'])
-                if reward_hints(strings):
+                if service_entry or reward_hints(strings):
                     def expand(seeds):
                         from activity_evolution_selector import expand_selector
                         return expand_selector(updater, versions, seeds)
+                    def resolve_shared(seeds):
+                        from activity_evolution_selector import resolve_shared_cultivation
+                        if not reward_support.get('sharedPanelRuleVerified'):
+                            raise ValueError('官方公共养成入口跳转规则尚未验证')
+                        if any(race in reward_support.get('sharedRedirectRaces', []) for race in seeds):
+                            raise ValueError('该公共养成入口另有活动跳转，不能套用普通养成套餐')
+                        return resolve_shared_cultivation(updater, versions, seeds, reward_support['pets'])
                     module_shops, unsupported, has_evolution = parse_module(scripts, module, activity, expand, include_manual=True,
-                                                                          selectable_packages=packages["packages"], reward_support=reward_support)
+                                                                          selectable_packages=packages["packages"], reward_support=reward_support, resolve_shared=resolve_shared)
                     module_shops = relevant_shops(preserve_pending_rows(previous, module_shops, unsupported))
                 if module_shops or timing.get('tabs'):
                     panels = load_panel_periods(updater, versions, scripts, module, activity, previous)
@@ -1516,13 +1665,15 @@ def update_activity_exchanges(updater, versions: dict) -> bool:
                         if panel.get('error'):
                             updater.activity_exchange_failures.append(activity.get('activityName', alias) + '：有效期面板读取失败，保留已确认的截止时间：' + panel['error'])
                 record = {"versionToken": token, "version": version, "source": resource,
+                          "serviceTrace": service_trace,
+                          "dependencyHashes": hashes,
                           "status": "partial" if module_shops and unsupported else "supported" if module_shops else "pending" if unsupported else "no-relevant-rewards",
                           "diagnostic": ("已解析部分相关奖励，仍有未支持结构，原因见 pending" if module_shops and unsupported else
                                          "已解析指定精灵养成奖励，包含明确的养成或材料分支" if module_shops else
                                          "发现相关奖励但尚未完整解析，原因见 pending" if unsupported else
                                          "未发现非自选的指定精灵养成奖励；自选、普通奖励和仅导航/宣传的页面不列入手动添加"),
                           "shops": module_shops, "pending": unsupported, "references": sorted(references),
-                          'periodMetadata': timing, 'panelPeriods': panels,
+                          'periodMetadata': timing, 'panelPeriods': panels, 'navigationMetadata': navigation,
                           "hasSelectablePackage": any(re.search(r'(?:^|[,#])139:', value) for value in strings),
                           "packageVersions": packages["versions"],
                           "rewardDependencies": reward_dependencies,
@@ -1531,6 +1682,8 @@ def update_activity_exchanges(updater, versions: dict) -> bool:
                 record = {**previous, "status": "failed", "error": str(error)}
                 updater.activity_exchange_failures.append(activity.get("activityName", alias) + "：" + str(error))
         record["shops"] = relevant_shops(record.get("shops", []))
+        if service_entry and reusable and 'serviceUnboundTables' in previous.get('activity', {}):
+            activity['serviceUnboundTables'] = copy.deepcopy(previous['activity']['serviceUnboundTables'])
         record['activity'] = activity
         if excluded_activity(module):
             record['pending'] = []
@@ -1543,15 +1696,50 @@ def update_activity_exchanges(updater, versions: dict) -> bool:
         # cycles/work; a new event behind four tabs must not silently vanish.
         queue.extend((name, depth + 1) for name in record.get("references", []))
     apply_graph_periods(modules, discovery)
+    # A temporary service/selector failure must not delete the last confirmed
+    # catalog. Mark only modules with no current root path as retained, then
+    # force their normal parsing again after discovery recovers.
+    active_modules, active_aliases = set(), set()
+    active_queue = list(current_roots)
+    while active_queue:
+        active_alias = active_queue.pop()
+        if active_alias in active_aliases:
+            continue
+        active_aliases.add(active_alias)
+        active_module = entry_coverage.get(active_alias, {}).get('module')
+        if active_module in modules:
+            active_modules.add(active_module)
+            active_queue.extend(modules[active_module].get('references', []))
+    for module, record in modules.items():
+        if module in active_modules:
+            continue
+        record['discoveryRetained'] = True
+        for shop in record.get('shops', []):
+            for good in shop.get('goods', []):
+                good.update(catalogStale=True, availableKnown=False, costKnown=False,
+                            unlock='当前官方服务入口待确认，保留上次目录；费用与可用状态待确认')
+    apply_navigation_graph(modules, discovery)
+    for value in entry_coverage.values():
+        if value.get('module') in modules:
+            value['status'] = modules[value['module']].get('status', 'pending')
     result = {"schema": 1, "parserVersion": PARSER_VERSION,
               "selection": "designated-pet cultivation, including a verified cultivation-or-material alternative; exclude pet/material choices and selectable packages",
               "source": {"kind": "aoqi-official-activity-registry", "configVersion": config_version,
-                         "configResource": config_source, "discoveryVersions": discovery_versions,
+                         "configResource": config_source, "discoveryVersions": discovery_versions, "discoveryHashes": discovery_hashes,
                          "selectablePackages": packages,
                          "rewardSupport": reward_support,
+                         "serviceDiscovery": service_discovery,
                          "overrideResources": override_resources, "loaderDefault": default, "discovery": discovery},
               "shops": sorted(shops, key=lambda shop: shop["sourceKey"]), "pending": pending,
               "modules": modules, "coverage": {"activityModules": len(modules), "shops": len(shops),
+                          "navigationAvailable": sum(bool(shop.get('navigationLink')) for shop in shops),
+                          "navigationMissing": sum(not shop.get('navigationLink') for shop in shops),
+                          "serviceEntries": len(service_discovery['entries']),
+                          "scannedServiceEntries": sum(record.get('status') == 'scanned' for record in service_discovery['records'].values()),
+                          "pendingServiceEntries": len(service_discovery['entries']) - sum(record.get('status') == 'scanned' for record in service_discovery['records'].values()),
+                          "serviceReferencedActivities": len(service_discovery['roots']),
+                          "entryReferences": entry_coverage,
+                          "unregisteredReferences": sum(value.get('status') == 'missing-registration' for value in entry_coverage.values()),
                           "goods": sum(len(shop["goods"]) for shop in shops), "pending": len(pending),
                           "partialModules": sum(record.get('status') == 'partial' for record in modules.values()),
                           "pendingModules": sum(record.get('status') == 'pending' for record in modules.values()),
@@ -1563,5 +1751,5 @@ def update_activity_exchanges(updater, versions: dict) -> bool:
     activity_goods = sum(1 for shop in shops for good in shop.get("goods", []) if good.get("exchangeKind") != "diamond")
     diamond_goods = sum(1 for shop in shops for good in shop.get("goods", []) if good.get("exchangeKind") == "diamond")
     emit(f"活动兑换：活动商店 {activity_goods} 项、钻石兑换 {diamond_goods} 项；本次检查 {checked} 个变更模块" +
-         (f"；{len(pending)} 项规则待适配" if pending else ""))
+         (f"；{len(pending)} 条配置关联有提示，具体条目见资料提示" if pending else ""))
     return changed

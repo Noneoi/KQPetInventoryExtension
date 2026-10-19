@@ -409,6 +409,9 @@ int main(int argc, char* argv[]) {
   const auto restoreFixtureSource = [&]() {
     deliver(&repository, {{QStringLiteral("_cmd"), QStringLiteral("21_1")},
         {QStringLiteral("info"), QJsonObject{{QStringLiteral("n"), QStringLiteral("move-test")}}}});
+    // Reauthentication starts asynchronous cache reads. These host-submission
+    // cases require stable preflight input, not a race with that source reload.
+    ok &= require(waitForRepositoryIdle(&repository), "restored fixture source did not finish its cache reload");
   };
   const auto drainStorage = [&]() {
     return waitUntil([&] { return storage.state().outstandingTasks == 0; }, 10000);

@@ -15,6 +15,8 @@ add_library(KQPetBridge STATIC
   src/bridge/inline_hook.h
   src/bridge/original_bridge.cpp
   src/bridge/original_bridge.h
+  src/bridge/game_navigation_script.cpp
+  src/bridge/game_navigation_script.h
 )
 target_compile_definitions(KQPetBridge PRIVATE UNICODE _UNICODE NOMINMAX WIN32_LEAN_AND_MEAN)
 target_compile_options(KQPetBridge PRIVATE $<$<CXX_COMPILER_ID:MSVC>:/utf-8 /wd4828>)
@@ -25,6 +27,7 @@ add_library(KQPet::Bridge ALIAS KQPetBridge)
 # --- UI: windows, models and renderers --------------------------------------
 # Allowed dependencies are enforced by tools/build/check_ui_boundary.py.
 add_library(KQPetUi STATIC
+  src/ui/common/table_update.h
   src/ui/workbench/workbench_types.h
   src/ui/workbench/workbench_window.h
   src/ui/workbench/workbench_window.cpp
@@ -63,6 +66,12 @@ add_library(KQPetUi STATIC
   src/ui/analysis/asset_analysis_model.h
   src/ui/analysis/asset_analysis_window.cpp
   src/ui/analysis/asset_analysis_window.h
+  src/ui/analysis/cultivation_material_panel.cpp
+  src/ui/analysis/cultivation_material_panel.h
+  src/ui/analysis/cultivation_material_display.cpp
+  src/ui/analysis/cultivation_material_display.h
+  src/ui/analysis/cultivation_material_delegate.cpp
+  src/ui/analysis/cultivation_material_delegate.h
   src/ui/analysis/recommendation_model.cpp
   src/ui/analysis/recommendation_model.h
   src/ui/analysis/snapshot_history_model.cpp
@@ -88,8 +97,9 @@ add_custom_command(OUTPUT "${KQPET_RCC_BINARY}"
           assets/attribute-icons.png assets/shop-exchange-data.json ${KQPET_STARGOD_ICON_FILES}
           assets/activity-exchange-data.json
           tools/cache-manager.ps1 tools/public_data_updater.py tools/bootstrap-public-data.ps1
+          tools/public_update_support.py tools/public_update_store.py tools/public_data_retention.py
           tools/public_names_updater.py tools/public_icon_updater.py tools/public_routine_updater.py assets/stargod-icons/sources.json
-          tools/public_activity_exchange_updater.py tools/activity_evolution_selector.py tools/activity_reward_structures.py tools/activity_periods.py tools/activity_trade_facts.py
+          tools/public_activity_exchange_updater.py tools/activity_evolution_selector.py tools/activity_reward_structures.py tools/activity_call_rewards.py tools/activity_periods.py tools/activity_navigation.py tools/activity_trade_facts.py
           tools/generate_pet_detail_data.py tools/generate_pet_skill_data.py tools/public_skill_updater.py
           tools/generate_shop_exchange_data.py tools/generate_stargod_icons.py VERBATIM)
 configure_file(src/extension/embedded_resources.rc.in

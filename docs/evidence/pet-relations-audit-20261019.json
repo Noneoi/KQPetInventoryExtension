@@ -1,0 +1,342 @@
+{
+  "status": "passed",
+  "method": "Actual saved official pure JS modules executed in isolated vm; raw-sheet adapters only; final pairs assigned in audited official load order.",
+  "groups": {
+    "summon": {
+      "sourceCount": 551,
+      "finalPairs": 19740,
+      "legacyPairs": 19735,
+      "addedPairs": 5,
+      "removedPairs": 0,
+      "overriddenPairs": 241,
+      "visibleUnownedPairs": 6656,
+      "roles": {
+        "0": 19740
+      },
+      "addedExamples": [
+        {
+          "sourceRaceId": 1466,
+          "targetRaceId": 1389,
+          "baseRaceId": 1389,
+          "originalName": "青龙",
+          "listedWithoutOwnership": false,
+          "type": 0,
+          "isShow": false
+        },
+        {
+          "sourceRaceId": 1466,
+          "targetRaceId": 1457,
+          "baseRaceId": 1457,
+          "originalName": "魔瞳",
+          "listedWithoutOwnership": false,
+          "type": 0,
+          "isShow": false
+        },
+        {
+          "sourceRaceId": 1466,
+          "targetRaceId": 1458,
+          "baseRaceId": 1458,
+          "originalName": "暗月魔瞳",
+          "listedWithoutOwnership": false,
+          "type": 0,
+          "isShow": false
+        },
+        {
+          "sourceRaceId": 1466,
+          "targetRaceId": 1488,
+          "baseRaceId": 1488,
+          "originalName": "魔尊",
+          "listedWithoutOwnership": false,
+          "type": 0,
+          "isShow": false
+        },
+        {
+          "sourceRaceId": 1466,
+          "targetRaceId": 381,
+          "baseRaceId": 381,
+          "originalName": "千鸟丸",
+          "listedWithoutOwnership": false,
+          "type": 0,
+          "isShow": false
+        }
+      ],
+      "removedExamples": []
+    },
+    "carry": {
+      "sourceCount": 99,
+      "finalPairs": 2355,
+      "legacyPairs": 2202,
+      "addedPairs": 153,
+      "removedPairs": 0,
+      "overriddenPairs": 496,
+      "visibleUnownedPairs": 721,
+      "roles": {
+        "4": 1654,
+        "8": 382,
+        "16": 319
+      },
+      "addedExamples": [
+        {
+          "sourceRaceId": 4995,
+          "targetRaceId": 7603,
+          "baseRaceId": 6307,
+          "originalName": "[神运]终湮魔契·路因加德",
+          "listedWithoutOwnership": false,
+          "type": 8,
+          "isShow": true
+        },
+        {
+          "sourceRaceId": 4997,
+          "targetRaceId": 7603,
+          "baseRaceId": 6307,
+          "originalName": "[神运]终湮魔契·路因加德",
+          "listedWithoutOwnership": false,
+          "type": 8,
+          "isShow": true
+        },
+        {
+          "sourceRaceId": 4999,
+          "targetRaceId": 7603,
+          "baseRaceId": 6307,
+          "originalName": "[神运]终湮魔契·路因加德",
+          "listedWithoutOwnership": false,
+          "type": 8,
+          "isShow": true
+        },
+        {
+          "sourceRaceId": 5003,
+          "targetRaceId": 7603,
+          "baseRaceId": 6307,
+          "originalName": "[神运]终湮魔契·路因加德",
+          "listedWithoutOwnership": false,
+          "type": 8,
+          "isShow": true
+        },
+        {
+          "sourceRaceId": 6303,
+          "targetRaceId": 7603,
+          "baseRaceId": 6307,
+          "originalName": "[神运]终湮魔契·路因加德",
+          "listedWithoutOwnership": false,
+          "type": 8,
+          "isShow": true
+        },
+        {
+          "sourceRaceId": 6764,
+          "targetRaceId": 7347,
+          "baseRaceId": 7346,
+          "originalName": "[灵初]万界寻观·塔梨",
+          "listedWithoutOwnership": false,
+          "type": 16,
+          "isShow": true
+        },
+        {
+          "sourceRaceId": 6764,
+          "targetRaceId": 7348,
+          "baseRaceId": 7346,
+          "originalName": "[灵初]万界寻观·塔梨",
+          "listedWithoutOwnership": false,
+          "type": 16,
+          "isShow": true
+        },
+        {
+          "sourceRaceId": 6764,
+          "targetRaceId": 7349,
+          "baseRaceId": 7346,
+          "originalName": "[灵初]万界寻观·塔梨",
+          "listedWithoutOwnership": false,
+          "type": 16,
+          "isShow": true
+        },
+        {
+          "sourceRaceId": 6764,
+          "targetRaceId": 7350,
+          "baseRaceId": 7346,
+          "originalName": "[灵初]万界寻观·塔梨",
+          "listedWithoutOwnership": false,
+          "type": 16,
+          "isShow": true
+        },
+        {
+          "sourceRaceId": 6764,
+          "targetRaceId": 7351,
+          "baseRaceId": 7346,
+          "originalName": "[灵初]万界寻观·塔梨",
+          "listedWithoutOwnership": false,
+          "type": 16,
+          "isShow": true
+        },
+        {
+          "sourceRaceId": 6764,
+          "targetRaceId": 7352,
+          "baseRaceId": 7346,
+          "originalName": "[灵初]万界寻观·塔梨",
+          "listedWithoutOwnership": false,
+          "type": 16,
+          "isShow": true
+        },
+        {
+          "sourceRaceId": 6764,
+          "targetRaceId": 7353,
+          "baseRaceId": 7346,
+          "originalName": "[灵初]万界寻观·塔梨",
+          "listedWithoutOwnership": false,
+          "type": 16,
+          "isShow": true
+        }
+      ],
+      "removedExamples": []
+    }
+  },
+  "limitations": [
+    "Only the frozen official version was audited; no account or live purchase actions.",
+    "Official absence of a relation is distinct from unavailable raw source sheets."
+  ],
+  "sources": {
+    "https://aoqi.100bt.com/h5/start~1792326629990.json": {
+      "path": "raw\\h5-start.json",
+      "sha256": "98d0ce9e3d5f9b1dde398ca7726b3873df9f3192280bdf4c61d8f12b2004a45f",
+      "bytes": 489
+    },
+    "https://aoqi.100bt.com/h5/version~202610151792075047.json": {
+      "path": "raw\\h5-version.json",
+      "sha256": "2d3b51055f326bf0f256fdcbb38b69bed5b358d4baef11334de18644ad89caa5",
+      "bytes": 380430
+    },
+    "https://aoqi.100bt.com/h5/config/formation~2026101525310563.aqz": {
+      "path": "raw\\formation.aqz",
+      "sha256": "c2e28364fdb155721ffa4df230a861a972b765267cd2eb9b37b174dfda28d493",
+      "bytes": 84258
+    },
+    "https://aoqi.100bt.com/h5/config/petdata.json~2026101525310563.aqz": {
+      "path": "raw\\petdata.json.aqz",
+      "sha256": "c0f2fe034e5583d4d12b8720921d9863424bcc224fd072e38314830d634a5fba",
+      "bytes": 114677
+    },
+    "https://aoqi.100bt.com/h5/config/relation~2026101525310563.aqz": {
+      "path": "raw\\relation.aqz",
+      "sha256": "144a04641c6018dc7091d3dec27afb9a3df52084f229a8514cb39b9132f0bc31",
+      "bytes": 17389
+    },
+    "https://aoqi.100bt.com/h5/config/changepetskin~2026101525310563.aqz": {
+      "path": "raw\\changepetskin.aqz",
+      "sha256": "3a95f0648eee1c681e0072185585a844958077fab67c37bb96425aa4eb81a701",
+      "bytes": 358458
+    },
+    "https://aoqi.100bt.com/h5/config/battleconfig~2026101525310563.aqz": {
+      "path": "raw\\battleconfig.aqz",
+      "sha256": "1da16c5aca3f95285955124a0ee26497c9d671b2eace6a51ad23d8e030bb3652",
+      "bytes": 906924
+    },
+    "https://aoqi.100bt.com/h5/config/equipment4pet~2026082769761852.aqz": {
+      "path": "raw\\equipment4pet.aqz",
+      "sha256": "9656ccf3652fc346d9f477f813c642ddac86b9ab2973426192fd7f5ae2eb3fd1",
+      "bytes": 21646
+    },
+    "https://aoqi.100bt.com/h5/config/pet/petinfoconfig~2026101525310563.json": {
+      "path": "raw\\petinfoconfig.json",
+      "sha256": "1a3eb12bfbecbc22665ee0132947317adaaf994fc6e2ed0c713f3bd9964bd195",
+      "bytes": 206863
+    },
+    "https://aoqi.100bt.com/h5/config/pet/petevoconfig~2026101525310563.json": {
+      "path": "raw\\petevoconfig.json",
+      "sha256": "7989cee416306aa194a83699b96f78c5b351af8840b14274dca6c5e25abaada9",
+      "bytes": 73584
+    },
+    "https://aoqi.100bt.com/h5/config/pet/tiebaconfig~2026101525310563.json": {
+      "path": "raw\\tiebaconfig.json",
+      "sha256": "70d1ccd6ae2e51749a2beb6073a7a692171f5117ecb8cb91c424585244a2e8f3",
+      "bytes": 148106
+    },
+    "https://aoqi.100bt.com/h5/config/petdictionarydata.json~2026101525310563.aqz": {
+      "path": "raw\\petdictionarydata.json.aqz",
+      "sha256": "244921e3f196fcbe8f966fec33d2716e921ea2fb15911505c2cb3705d93ef001",
+      "bytes": 1212736
+    },
+    "https://aoqi.100bt.com/play/pet/petdictionarydataservice~2026082767617311.swf": {
+      "path": "raw\\petdictionarydataservice.swf",
+      "sha256": "724db82a4466ae7ed12de8c1783c393cd79811ffb49c11e41036ace6e4a0dc85",
+      "bytes": 4899
+    },
+    "https://aoqi.100bt.com/play/battleconfig/battleconfig~2026101571078066.swf": {
+      "path": "raw\\battleconfig.swf",
+      "sha256": "52017cb727af58a7fea7de8f7f5d971da1c85d15b60791bb03ded2f29c850932",
+      "bytes": 735105
+    },
+    "https://aoqi.100bt.com/play/equipment4petver2/equipment4petver2service~2026082767617311.swf": {
+      "path": "raw\\equipment4petver2service.swf",
+      "sha256": "3f06bbe72d8310e133612e184b54c3b1e8306c0357a09f31eb6de4609e32b3e9",
+      "bytes": 78177
+    },
+    "https://aoqi.100bt.com/h5/js/aqlib~20261016151527.js": {
+      "path": "raw\\aqlib.js",
+      "sha256": "cdcdf487c9cf7bd1ea7110f373e8afbf933e5595fc9e3e6bfd66620ab058094a",
+      "bytes": 2014640
+    },
+    "https://aoqi.100bt.com/h5/js/services/petcollection~2026101525310563.js": {
+      "path": "raw\\petcollection.js",
+      "sha256": "6f90c31eefa1f5c7f4031ccb51d3ee21bb082763c2333b8fe784c2724bb104ae",
+      "bytes": 69926
+    },
+    "https://aoqi.100bt.com/h5/js/services/petdataservice~2026070999690739.js": {
+      "path": "raw\\petdataservice.js",
+      "sha256": "a1f443ef1817c1619567a389d3f48e3d52111f281860f1494a4b2c6ef33e64b2",
+      "bytes": 73093
+    },
+    "https://aoqi.100bt.com/play/library/materialdataupdate~2026101571078066.swf": {
+      "bytes": 275416,
+      "sha256": "a4163eabd7ff5c4f490ebe1695977a69bb7c60afb2843a1cafaf8f6a253710fc",
+      "path": "raw/materialdataupdate.swf",
+      "acquisition": "Reused exact official version, verified original raw SHA-256; independently exported here."
+    },
+    "https://aoqi.100bt.com/play/library/materialdata~2026101571078066.swf": {
+      "bytes": 325045,
+      "sha256": "eada602528048e6dd5b5519acc77d8e51402b309b2eb883d7391a6a262458dd7",
+      "path": "raw/materialdata.swf",
+      "acquisition": "Reused exact official version, verified original raw SHA-256; independently exported here."
+    },
+    "https://aoqi.100bt.com/play/stargodv3/stargodservice~2026071654057650.swf": {
+      "bytes": 244197,
+      "sha256": "e0831d3b8a1e72adcaf1f7e0c3ec646c2c7f5c83409e5399d7e7c86dd1b3d941",
+      "path": "raw/stargodservice.swf",
+      "acquisition": "Reused exact official version, verified original raw SHA-256; independently exported here."
+    },
+    "https://aoqi.100bt.com/play/pet/petdictionarydata~2026073181080477.swf": {
+      "bytes": 626943,
+      "sha256": "fc86e5396a3269ffccd93721ba770fb4d3a1e4c51803d7388da3114d3e56f666",
+      "path": "raw/petdictionarydata.swf",
+      "acquisition": "Reused exact official version, verified original raw SHA-256; independently exported here."
+    },
+    "https://aoqi.100bt.com/play/pet/petdictionarydataupdate~261016621390751.swf": {
+      "bytes": 47994,
+      "sha256": "9e706bffb925117178b1f332c602fa1e6ab06a67b6b61129a4f32164385383d3",
+      "path": "raw/petdictionarydataupdate.swf",
+      "acquisition": "Reused exact official version, verified original raw SHA-256; independently exported here."
+    },
+    "https://aoqi.100bt.com/play/library/common~2026101571078066.swf": {
+      "bytes": 778366,
+      "sha256": "ab97b9d84ee716f763493c8ec21fbcce07eb0af4acaa3f24ef2106453bdfb575",
+      "path": "raw/common.swf",
+      "acquisition": "Reused same-version official raw hash; fresh selected-class JPEXS export."
+    },
+    "https://aoqi.100bt.com/h5/config/multipleformpet~2026091718114724.aqz": {
+      "path": "raw\\multipleformpet.aqz",
+      "sha256": "cb29fba78467092bb45b91085cc26d5810c93081917f35366d05b394622a80f3",
+      "bytes": 1046
+    },
+    "https://aoqi.100bt.com/h5/js/services/changepetskinservice~2026101525310563.js": {
+      "path": "raw\\changepetskinservice.js",
+      "sha256": "0fe3859db60f240134faee7951c0902c8890158be890c58ac817843df140b891",
+      "bytes": 108658
+    },
+    "https://aoqi.100bt.com/h5/js/services/multipleformpetservice~2026091718114724.js": {
+      "path": "raw\\multipleformpetservice.js",
+      "sha256": "352bf108c069c61368a226cd5e97ca02a91287a5c65b3fc0391a81a8e2ba9ef3",
+      "bytes": 10244
+    }
+  },
+  "productHashes": {
+    "tools\\public_pet_relations.py": "55e31aaa909645c6148d1c591dc0b3bb71d8c0de737ab393dd97c9c4378d9c24",
+    "tools\\generate_pet_skill_data.py": "f8391412aa12c2b0d88c07fe9c6e43d494c92958357c2b690e0d40424bbf2cfa"
+  }
+}

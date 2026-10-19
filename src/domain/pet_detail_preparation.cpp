@@ -4,6 +4,7 @@
 #include "checked_json_numbers.h"
 #include "pet_identity.h"
 #include "pet_metadata_view.h"
+#include "pet_relation_options.h"
 #include <QElapsedTimer>
 #include <QJsonArray>
 #include <QSet>
@@ -72,11 +73,11 @@ DetailOwnership ownershipOf(bool present, const QJsonObject& related) {
   if (!present) return DetailOwnership::Missing;
   const auto location = related.value(QStringLiteral("_location")).toString();
   if (location == QStringLiteral("backpack")) return DetailOwnership::Backpack;
-  if (location != QStringLiteral("warehouse")) return DetailOwnership::Unknown;
+  if (location != QStringLiteral("warehouse")) return DetailOwnership::OwnedLocationUnknown;
   const auto group = related.value(QStringLiteral("_warehouseGroup")).toString();
   if (group == QStringLiteral("elite")) return DetailOwnership::WarehouseElite;
   if (group == QStringLiteral("goodbye")) return DetailOwnership::WarehouseGoodbye;
-  return DetailOwnership::WarehouseNormal;
+  return group == QStringLiteral("normal") ? DetailOwnership::WarehouseNormal : DetailOwnership::WarehouseUnknown;
 }
 DetailEntry invalidEntry(const QString& name, const QString& reason) {
   DetailEntry value; value.name = name; value.state = DetailKnowledge::Invalid; value.problem = reason; return value;
@@ -85,6 +86,7 @@ DetailEntry invalidEntry(const QString& name, const QString& reason) {
 
 quint64 preparedPetDetailRetainedBytes(const PreparedPetDetail& detail) {
   quint64 bytes = sizeof(detail) + 512 + textBytes(detail.version.facts.record.account) + quint64(detail.version.related.capacity()) * sizeof(DetailRelatedRevision);
+  bytes += quint64(detail.version.skillDigest.capacity());
   const auto& identity = detail.identity;
   for (const auto& text : {identity.name,identity.originalName,identity.customName,identity.attributes,identity.jobs,identity.era,identity.visualKey}) bytes += textBytes(text);
   bytes += fieldBytes(identity.level);
@@ -101,7 +103,7 @@ quint64 preparedPetDetailRetainedBytes(const PreparedPetDetail& detail) {
     for (const auto& material : item.materials) bytes += textBytes(material.name) + textBytes(material.scope);
   }
   for (const auto& page : detail.pages) {
-    bytes += sizeof(page) + textBytes(page.problem);
+    bytes += sizeof(page) + textBytes(page.problem) + textBytes(page.relationCatalogProblem);
     for (const auto& entry : page.entries) bytes += entryBytes(entry);
   }
   // battlePower's implicitly shared strings/lists retain the original facts lease.
@@ -147,6 +149,11 @@ struct PetDetailPreparation::Impl {
   QVector<PendingRelation> pendingRelations;
   QHash<qint64, DetailRelatedSummary> summaries;
   QVector<qint64> needs;
+  PetRelationCandidateOptions relationOptions;
+  int nextRelationFamily = 0;
+  qint64 selectedRelationId = 0;
+  int selectedRelationRaceId = 0;
+  bool officialRelationCandidates = false;
   Impl(FrozenDetailInputs value, DetailSection section, int pageNumber, DetailPreparationLimits requestedLimits)
       : input(std::move(value)), limits(requestedLimits), metadata(input.metadata), requested(section), requestedPage(pageNumber) {}
   QJsonValue value(const char* name) const {
@@ -155,6 +162,20 @@ struct PetDetailPreparation::Impl {
     if (input.raw && input.raw->brief.contains(key)) return input.raw->brief.value(key);
     return input.raw ? input.raw->object().value(key) : QJsonValue(QJsonValue::Undefined);
   }
+  DetailCarryKind carryKind(int race) const {
+    const auto skillSigns = input.skills ? input.skills->root.value(QStringLiteral("pets")).toObject()
+        .value(QString::number(race)).toObject().value(QStringLiteral("signs")) : QJsonValue(QJsonValue::Undefined);
+    // This is the same official snapshot as relationRules. An explicitly empty
+    // string is authoritative too; only absent/malformed fields use metadata.
+    const QString signs = skillSigns.isString() ? skillSigns.toString() :
+        metadata.pet(race).value(QStringLiteral("sign")).toString();
+    const auto tokens = signs.split(QLatin1Char(','));
+    const bool companion = tokens.contains(QStringLiteral("携同技"));
+    const bool almighty = tokens.contains(QStringLiteral("天觉者"));
+    const bool swallow = tokens.contains(QStringLiteral("吞噬技"));
+    if (int(companion) + int(almighty) + int(swallow) != 1) return DetailCarryKind::Unknown;
+    return companion ? DetailCarryKind::Companion : almighty ? DetailCarryKind::Almighty : DetailCarryKind::Swallow;
+  }
   bool initialize() {
     if (!input.raw || !input.facts || !input.metadata || input.summaryRevision == 0 ||
         !(input.raw->key == input.facts->key.record) || input.metadata->revision != input.facts->key.metadataRevision ||
@@ -162,6 +183,10 @@ struct PetDetailPreparation::Impl {
         (input.raw->complete && !input.raw->payload) || requestedPage < 0 || requestedPage > 1000000 ||
         (requested == DetailSection::CarryRelations && requestedPage != 0) || limits.maximumExpandedCarryItems <= 0 || input.brief.size() > 64) {
       failure = QStringLiteral("detail inputs do not share a valid record/metadata/summary version"); return false;
+    }
+    if (input.relationRoster && (input.relationRoster->account != input.raw->key.account ||
+        input.relationRoster->epoch != input.raw->key.epoch || input.relationRoster->revision == 0)) {
+      failure = QStringLiteral("relation roster belongs to a different account or session"); return false;
     }
     if ((input.raw->complete && relationId(input.raw->object()) != input.raw->key.instanceId) ||
         (input.brief.contains(QStringLiteral("id")) && relationId(input.brief) != input.raw->key.instanceId)) {
@@ -180,6 +205,9 @@ struct PetDetailPreparation::Impl {
     astrolabeBreakthroughApplicable = eraHasAstrolabeBreakthrough(era);
     systems = systemsForEra(era);
     out.version.facts = input.facts->key; out.version.summaryRevision = input.summaryRevision;
+    out.version.skillRevision = input.skills ? input.skills->revision : 0;
+    out.version.skillDigest = input.skills ? input.skills->contentDigest : QByteArray{};
+    out.version.relationRosterRevision = input.relationRoster ? input.relationRoster->revision : 0;
     out.sourceVerified = input.sourceVerified && input.raw->sourceKnown && input.facts->facts.asset.observationVerified;
     out.visualMismatch = value("_visualMismatch").toBool() || (input.raw->complete && petRaceId(input.raw->object()) > 0 && petRaceId(input.raw->object()) != input.facts->facts.asset.raceId);
     out.detailKnown = input.raw->complete && input.facts->facts.asset.detailAvailable && !out.visualMismatch;
@@ -387,6 +415,7 @@ struct PetDetailPreparation::Impl {
   }
   void beginSection() {
     sectionInitialized = true; sourceIndex = tokenStart = tokenPosition = relationGroup = 0; encoded.clear(); array = {}; groups.clear(); seen.clear();
+    relationOptions = {}; nextRelationFamily = 0; selectedRelationId = 0; selectedRelationRaceId = 0; officialRelationCandidates = false;
     auto& p = result->pages[page];
     if (p.section == DetailSection::Astrolabe) {
       activatedCount = selectedCount = 0; activatedCountKnown = selectedCountKnown = false;
@@ -397,7 +426,8 @@ struct PetDetailPreparation::Impl {
       status.fields.append(field(QStringLiteral("选中数量"),QStringLiteral("待确认"),DetailKnowledge::Unknown));
       append(std::move(status));
     }
-    if (!result->detailKnown) { p.problem = QStringLiteral("详情待确认"); return; }
+    const bool relationSection = p.section == DetailSection::SummonRelations || p.section == DetailSection::CarryRelations;
+    if (!result->detailKnown && !relationSection) { p.problem = QStringLiteral("详情待确认"); return; }
     const char* key = p.section == DetailSection::Badges ? "badge" : p.section == DetailSection::Astrolabe ? "astrolabe" : p.section == DetailSection::EquippedStargods ? "sgs" : "sgsp";
     if (p.section == DetailSection::SummonRelations || p.section == DetailSection::CarryRelations) {
       p.state = DetailKnowledge::Known;
@@ -438,12 +468,28 @@ struct PetDetailPreparation::Impl {
         else if (!absent) groups.append({label,QJsonArray{reference},race});
         else groups.append({label,QJsonArray{QJsonObject{{QStringLiteral("ri"),race}}},race});
       };
+      const auto selectedInstance = [&](const char* embeddedKey, const char* primary, const char* fallback = nullptr) {
+        const auto embedded = value(embeddedKey);
+        if (!embedded.isUndefined() && !embedded.isNull() && !embedded.isObject()) return qint64(0);
+        const qint64 embeddedId = relationId(embedded);
+        if (embedded.toObject().contains(QStringLiteral("id")) && embeddedId <= 0) return qint64(0);
+        qint64 referenceId = relationId(value(primary));
+        if (referenceId <= 0 && fallback) referenceId = relationId(value(fallback));
+        if (embeddedId > 0 && referenceId > 0 && embeddedId != referenceId) return qint64(0);
+        return embeddedId > 0 ? embeddedId : referenceId;
+      };
       if (p.section == DetailSection::SummonRelations) {
         appendOne("sppl","sepi","sdpi",DetailRelationGroup::summoned()); appendArray("asps",DetailRelationGroup::summonList());
+        selectedRelationId = selectedInstance("sppl","sepi","sdpi");
+        p.summonCandidatesKnown = value("asps").isArray();
+        p.hasSummonCandidates = !value("asps").toArray().isEmpty();
+        p.summonCandidateCount = p.summonCandidatesKnown ? value("asps").toArray().size() : -1;
         qint64 race = 0; number(value("srri"),&race,1); appendOne(nullptr,"srpi",nullptr,DetailRelationGroup::summoner(),int(race));
       } else {
+        p.carryKind = carryKind(result->identity.raceId);
         const qsizetype beforeCarried = groups.size();
         appendOne("cppl","cepi",nullptr,DetailRelationGroup::carriedEnvoy());
+        selectedRelationId = selectedInstance("cppl","cepi");
         const bool carriesOne = groups.size() > beforeCarried;
         const qsizetype beforeCarriers = groups.size();
         appendArray("crpis",DetailRelationGroup::carrierOwner());
@@ -461,12 +507,39 @@ struct PetDetailPreparation::Impl {
         p.contractCarrierRole = carriesOne || p.hasCarryCandidates;
         if (p.carryCandidatesExpanded) appendArray("acps",DetailRelationGroup::carryCandidate());
       }
+      if (input.skills) {
+        relationOptions = petRelationCandidateOptions(input.skills->root,result->identity.raceId,p.section == DetailSection::CarryRelations);
+        officialRelationCandidates = relationOptions.available;
+        p.officialRelationCandidates = officialRelationCandidates;
+        if (officialRelationCandidates) {
+          const auto candidateGroup = p.section == DetailSection::SummonRelations ? DetailRelationGroup::summonList() : DetailRelationGroup::carryCandidate();
+          for (int index = groups.size() - 1; index >= 0; --index)
+            if (groups[index].label == candidateGroup) groups.removeAt(index);
+          if (p.section == DetailSection::SummonRelations) {
+            p.summonCandidatesKnown = true; p.hasSummonCandidates = !relationOptions.families.isEmpty(); p.summonCandidateCount = 0;
+          } else {
+            p.carryCandidatesKnown = true; p.hasCarryCandidates = !relationOptions.families.isEmpty(); p.carryCandidateCount = 0;
+            p.carryCandidatesExpanded = requested == DetailSection::CarryRelations;
+            p.contractCarrierRole |= !relationOptions.families.isEmpty();
+          }
+        } else {
+          const auto source = input.skills->root.value(QStringLiteral("pets")).toObject().value(QString::number(result->identity.raceId)).toObject();
+          bool summonRole = false;
+          for (const auto& relation : source.value(QStringLiteral("summons")).toArray())
+            summonRole |= relation.toObject().value(QStringLiteral("role")).toString() == QStringLiteral("summoner");
+          if (!groups.isEmpty() || p.hasCarryCandidates || p.carryKind != DetailCarryKind::Unknown ||
+              (p.section == DetailSection::SummonRelations && summonRole))
+            p.relationCatalogProblem = QStringLiteral("官方配对资料尚未就绪；保留已记录的关联");
+        }
+      }
       // A pet outside both systems keeps no relation row and no candidate list.
       // Its section is reported as not applicable instead of shown empty.
       qint64 relationValues = 0;
       for (const auto& group : groups) relationValues += group.values.size();
-      p.relationsApplicable = relationValues > 0 || p.hasCarryCandidates;
-      if (groups.isEmpty() && !hadRelationFields) { p.state = DetailKnowledge::Unknown; p.problem = QStringLiteral("没有返回关系字段"); }
+      p.relationsApplicable = relationValues > 0 || p.hasCarryCandidates || p.hasSummonCandidates || !p.relationCatalogProblem.isEmpty();
+      if (!p.relationCatalogProblem.isEmpty() && p.section == DetailSection::CarryRelations && p.carryKind != DetailCarryKind::Unknown)
+        p.contractCarrierRole = true;
+      if (groups.isEmpty() && !hadRelationFields && !officialRelationCandidates) { p.state = DetailKnowledge::Unknown; p.problem = QStringLiteral("没有返回关系字段"); }
       return;
     }
     const auto v = value(key);
@@ -562,14 +635,21 @@ struct PetDetailPreparation::Impl {
       for (const auto& key : keys) if (pending.embedded.contains(key)) related.insert(key,pending.embedded.value(key));
       const int race = petRaceId(related) > 0 ? petRaceId(related) : pending.race;
       if (petRaceId(related) <= 0 && race > 0) related.insert(QStringLiteral("ri"),race);
-      DetailEntry e; e.group = pending.label; e.name = related.value(QStringLiteral("customName")).toString();
-      if (e.name.isEmpty()) e.name = related.value(QStringLiteral("n")).toString(); if (e.name.isEmpty()) e.name = metadata.petName(race); if (e.name.isEmpty()) e.name = QStringLiteral("未知精灵");
+      DetailEntry e; e.group = pending.label;
+      e.name = metadata.resolvedOriginalName(related);
+      if (e.name.isEmpty()) e.name = metadata.petName(race);
+      if (e.name.isEmpty()) e.name = QStringLiteral("名称未收录");
       e.relatedInstanceId = pending.id;
-      // The original name only earns its own text when it says something the
-      // shown name does not; a renamed pet is the case that needs both.
-      const QString original = metadata.resolvedOriginalName(related);
-      if (original != e.name) e.originalName = original;
-      e.ownership = ownershipOf(summary.present, related);
+      e.originalName = e.name;
+      e.ownership = summaries.contains(pending.id) ? ownershipOf(summary.present, related) : DetailOwnership::Unknown;
+      e.selected = pending.id > 0 && pending.id == selectedRelationId;
+      if (e.selected && (pending.label == DetailRelationGroup::summoned() || pending.label == DetailRelationGroup::carriedEnvoy()))
+        selectedRelationRaceId = race;
+      if (p.section == DetailSection::CarryRelations) {
+        e.carryKind = pending.label == DetailRelationGroup::carrierOwner() ? carryKind(race) : p.carryKind;
+        for (const auto& family : relationOptions.families)
+          if (family.targetRaceIds.contains(race)) { e.relationType = family.targetType; break; }
+      }
       const bool badId = pending.id <= 0 && pending.embedded.contains(QStringLiteral("id"));
       if (badId) { e.state = DetailKnowledge::Invalid; e.problem = QStringLiteral("嵌入实例 ID 无效"); p.state = DetailKnowledge::Invalid; }
       // The expanded carry list shows names, original names and where the
@@ -591,6 +671,7 @@ struct PetDetailPreparation::Impl {
     while (relationGroup < groups.size() && sourceIndex >= groups[relationGroup].values.size()) { ++relationGroup; sourceIndex = 0; seen.clear(); }
     if (relationGroup >= groups.size()) return false;
     const auto& group = groups[relationGroup]; const auto raw = group.values[sourceIndex++]; const auto embedded = raw.toObject(); const qint64 id = relationId(raw);
+    if (id > 0 && id == selectedRelationId && (group.label == DetailRelationGroup::carryCandidate() || group.label == DetailRelationGroup::summonList())) return true;
     if (id > 0 && seen.contains(id)) return true;
     if (id > 0) seen.insert(id);
     auto& p = result->pages[page]; const bool visible = wanted(p.totalItems++);
@@ -599,6 +680,46 @@ struct PetDetailPreparation::Impl {
     if (id == 0 && embedded.isEmpty()) { pendingRelations.append({{},0,0,group.label,QStringLiteral("实例 ID 无效，不能关联另一只精灵")}); return true; }
     pendingRelations.append({embedded,id,petRaceId(embedded) > 0 ? petRaceId(embedded) : group.fallbackRace,group.label});
     if (id > 0 && !summaries.contains(id) && !needs.contains(id)) needs.append(id);
+    return true;
+  }
+  bool processRelationFamily() {
+    if (!officialRelationCandidates || nextRelationFamily >= relationOptions.families.size()) return false;
+    const auto& family = relationOptions.families[nextRelationFamily++];
+    auto& p = result->pages[page];
+    QVector<DetailRelationInstance> held;
+    QSet<qint64> found;
+    if (input.relationRoster) for (int race : family.targetRaceIds) {
+      const auto instances = input.relationRoster->byRace.value(race);
+      for (const auto& instance : instances) {
+        if (instance.instanceId <= 0 || instance.raceId != race) { failure = QStringLiteral("relation roster has inconsistent instance/race fields"); return false; }
+        if (found.contains(instance.instanceId)) continue;
+        found.insert(instance.instanceId); held.append(instance);
+      }
+    }
+    if (held.isEmpty() && !family.listedWithoutOwnership) return true;
+    // The current association can be present in the detail while its instance
+    // is absent from the loaded rosters. That evidence already identifies this
+    // family; do not offer the same family again as an unlocated placeholder.
+    if (held.isEmpty() && selectedRelationId > 0 && family.targetRaceIds.contains(selectedRelationRaceId)) return true;
+    const auto add = [&](const DetailRelationInstance* instance) {
+      // A selected instance stays in the explicit current-relation block. A
+      // second owned instance of the same species can still be a candidate.
+      if (instance && instance->instanceId == selectedRelationId) return;
+      if (p.section == DetailSection::CarryRelations) ++p.carryCandidateCount;
+      else ++p.summonCandidateCount;
+      if (p.section == DetailSection::CarryRelations && !p.carryCandidatesExpanded) return;
+      DetailEntry entry;
+      entry.group = p.section == DetailSection::SummonRelations ? DetailRelationGroup::summonList() : DetailRelationGroup::carryCandidate();
+      entry.name = entry.originalName = family.originalName;
+      if (entry.name.isEmpty()) entry.name = entry.originalName = metadata.originalName(family.baseRaceId);
+      if (entry.name.isEmpty()) entry.name = QStringLiteral("名称未收录");
+      entry.relationType = family.targetType; entry.carryKind = p.carryKind;
+      entry.relatedInstanceId = instance ? instance->instanceId : 0;
+      entry.ownership = instance ? instance->ownership : input.relationRoster ? DetailOwnership::Missing : DetailOwnership::Unknown;
+      append(std::move(entry));
+    };
+    if (held.isEmpty()) add(nullptr);
+    else for (const auto& instance : held) add(&instance);
     return true;
   }
   DetailStep unit() {
@@ -612,6 +733,8 @@ struct PetDetailPreparation::Impl {
       }
       more = processRelation();
       if (!more && !pendingRelations.isEmpty()) { if (!needs.isEmpty()) return DetailStep::NeedSummaries; flushRelations(); }
+      if (!more) more = processRelationFamily();
+      if (!failure.isEmpty()) return DetailStep::Failed;
     } else if (p.section == DetailSection::StargodBackpack) {
       if (sourceIndex < array.size()) { append(star(array[sourceIndex++],false)); more = true; }
     } else if (!encoded.isEmpty() && tokenStart < encoded.size()) {
@@ -629,6 +752,10 @@ struct PetDetailPreparation::Impl {
       return DetailStep::Failed;
     }
     if (!more) {
+      if (officialRelationCandidates) {
+        p.hasSummonCandidates = p.summonCandidateCount > 0;
+        p.hasCarryCandidates = p.carryCandidateCount > 0;
+      }
       if (p.section == DetailSection::Astrolabe && p.pageIndex == 0 && !p.entries.isEmpty()) {
         for (auto& statusField : p.entries[0].fields) {
           if (statusField.label == QStringLiteral("点亮数量"))
@@ -659,6 +786,8 @@ DetailStep PetDetailPreparation::step(const std::atomic_bool& cancelled) {
   const qint64 span = timer.nsecsElapsed(); impl_->progress.activeNanoseconds += span; impl_->progress.maximumSliceNanoseconds = qMax(span,impl_->progress.maximumSliceNanoseconds);
   impl_->progress.resultBytes = preparedPetDetailRetainedBytes(*impl_->result);
   impl_->progress.retainedWorkingBytes = impl_->progress.resultBytes + quint64(impl_->seen.size()) * 64 + quint64(impl_->summaries.size()) * 4096 + 8192;
+  for (const auto& family : impl_->relationOptions.families)
+    impl_->progress.retainedWorkingBytes += sizeof(family) + textBytes(family.originalName) + quint64(family.targetRaceIds.capacity()) * sizeof(int);
   const quint64 resultLimit = impl_->requested == DetailSection::CarryRelations ? impl_->limits.expandedCarryResultBytes : impl_->limits.resultBytes;
   if (impl_->progress.resultBytes > resultLimit || impl_->progress.retainedWorkingBytes > impl_->limits.workingBytes) { impl_->failure = QStringLiteral("detail preparation exceeds its bounded working/result capacity"); return DetailStep::Failed; }
   return result;

@@ -11,6 +11,7 @@
 #include <QJsonArray>
 #include <QJsonDocument>
 #include <QJsonObject>
+#include "storage/public_catalog_store.h"
 #include <QLockFile>
 #include <QMutex>
 #include <QMutexLocker>
@@ -265,9 +266,20 @@ public:
     }
     for (auto it = values.begin(); it != values.end();)
       if (!allowedUrl(it.value())) it = values.erase(it); else ++it;
-    const QString indexPath = QDir(options_.dataRoot).filePath(QStringLiteral("catalog/pet-image-index.json"));
+    QString indexPath;
+    try {
+      indexPath = PublicCatalogStore::catalogPath(options_.dataRoot, "pet-image-index.json");
+      const auto iconPath = PublicCatalogStore::catalogPath(options_.dataRoot, "public-icon-index.json");
+      iconIndex_ = QFileInfo::exists(iconPath) ? PublicCatalogStore::object(iconPath) : QJsonObject{};
+      if (!QFileInfo::exists(indexPath)) indexPath = QStringLiteral(":/kqpet/pet-image-index.json");
+      if (!QFileInfo::exists(iconPath)) {
+        QFile embedded(QStringLiteral(":/kqpet/public-icon-index.json"));
+        if (embedded.open(QIODevice::ReadOnly) && embedded.size() <= 16 * 1024 * 1024)
+          iconIndex_ = QJsonDocument::fromJson(embedded.readAll()).object();
+      }
+    } catch (const std::exception&) { return previousDirectory_.isEmpty() ? values : previousDirectory_; }
     QFile index(indexPath);
-    if (safeExistingChain(indexPath) && index.open(QIODevice::ReadOnly) && index.size() <= 16 * 1024 * 1024) {
+    if ((indexPath.startsWith(QLatin1Char(':')) || safeExistingChain(indexPath)) && index.open(QIODevice::ReadOnly) && index.size() <= 16 * 1024 * 1024) {
       const auto root = QJsonDocument::fromJson(index.readAll()).object();
       if (root.value(QStringLiteral("schemaVersion")).toInt() == 1) {
         for (const auto& value : root.value(QStringLiteral("faceIdExceptions")).toArray()) {
@@ -290,6 +302,7 @@ public:
         }
       }
     }
+    previousDirectory_ = values;
     return values;
   }
   QStringList localPaths(const QString& visualKey) const {
@@ -357,10 +370,16 @@ public:
     }
     if (source->localCandidates.isEmpty() && !source->forceNetwork) {
       if (attribute || stargod) {
-        const QString disk = QDir(options_.dataRoot).filePath(attribute
-            ? QStringLiteral("images/attributes/%1.png").arg(source->request.attributeId)
-            : QStringLiteral("images/stargods/%1.png").arg(source->request.stargodId));
-        if (safeExistingChain(disk)) source->localCandidates.append(disk);
+        const QString section = attribute ? QStringLiteral("attributes") : QStringLiteral("stargods");
+        const int id = attribute ? source->request.attributeId : source->request.stargodId;
+        const auto record = iconIndex_.value(section).toObject().value(QString::number(id)).toObject();
+        const QString relative = record.value("file").toString(QStringLiteral("images/%1/%2.png").arg(section).arg(id));
+        try {
+          if (relative.startsWith("images/") || relative.startsWith("public/objects/")) {
+            const QString disk = PublicCatalogStore::safePath(options_.dataRoot, relative);
+            if (safeExistingChain(disk)) source->localCandidates.append(disk);
+          }
+        } catch (const std::exception&) { /* Keep the bundled icon available. */ }
         // The bundled attribute sprite has a fixed, known set. An unknown ID
         // must not silently inherit the normal attribute's picture.
         if (stargod || source->request.attributeId <= 28) source->localCandidates.append(path);
@@ -567,6 +586,8 @@ public:
   }
 private:
   ImageServiceOptions options_;
+  QJsonObject iconIndex_;
+  QHash<QString, QString> previousDirectory_;
   QNetworkAccessManager network_;
   QSet<QNetworkReply*> replies_;
   QSet<QProcess*> processes_;
@@ -606,6 +627,8 @@ struct ImageService::Impl {
   int batchTotal = 0;
   int batchCompleted = 0;
   int batchFailed = 0;
+  QMap<QString, ImageRequest> batchRequests;
+  QSet<QString> failedBatchKeys;
   bool batchPaused = false;
   bool batchRunning = false;
   quint64 batchGeneration = 0;
@@ -713,7 +736,8 @@ struct ImageService::Impl {
   void accountBatch(const QString& key, bool success) {
     if (!batchRunning || !batchActive.remove(key)) return;
     ++batchCompleted;
-    if (!success) ++batchFailed;
+    if (!success) { ++batchFailed; failedBatchKeys.insert(key); }
+    else failedBatchKeys.remove(key);
     const QPointer<ImageService> owner(q);
     emit q->batchProgress(batchCompleted, batchTotal, batchFailed);
     if (owner && !closing) batchTimer.start(0);
@@ -1263,6 +1287,7 @@ void ImageService::requestBatch(const QList<ImageRequest>& requests) {
   cancelBatch();
   if (!lifetime) return;
   impl_->batchTotal = 0; impl_->batchCompleted = 0; impl_->batchFailed = 0;
+  impl_->batchRequests.clear(); impl_->failedBatchKeys.clear();
   impl_->batchPaused = false; impl_->batchRunning = true;
   ++impl_->batchGeneration;
   QSet<QString> seen;
@@ -1273,18 +1298,27 @@ void ImageService::requestBatch(const QList<ImageRequest>& requests) {
     const QString key = requestKey(request, impl_->options.resourceVersion);
     if (seen.contains(key)) continue;
     seen.insert(key); ++impl_->batchTotal;
+    impl_->batchRequests.insert(key, request);
     // A bundled icon has no account cache entry, so a batch would have nothing
     // to persist for it. Reject it here instead of waiting for a receipt that
     // can never exist.
     bool valid = safeVisualKey(request.visualKey) && request.candidateNames.size() <= 8 &&
         request.attributeId < 0 && request.stargodId <= 0;
     for (const auto& name : request.candidateNames) valid &= name.size() <= 512;
-    if (!valid) { ++impl_->batchCompleted; ++impl_->batchFailed; continue; }
+    if (!valid) { ++impl_->batchCompleted; ++impl_->batchFailed; impl_->failedBatchKeys.insert(key); continue; }
     impl_->batchWaiting.append(request);
   }
   const QPointer<ImageService> owner(this);
   emit batchProgress(impl_->batchCompleted, impl_->batchTotal, impl_->batchFailed);
   if (owner && !impl_->closing) impl_->batchTimer.start(0);
+}
+void ImageService::retryFailedBatch() {
+  if (impl_->batchRunning) return;
+  QList<ImageRequest> requests;
+  for (const auto& key : impl_->failedBatchKeys) {
+    auto request = impl_->batchRequests.value(key); request.retry = true; requests.append(request);
+  }
+  requestBatch(requests);
 }
 void ImageService::pauseBatch(bool paused) {
   Q_ASSERT(thread() == QThread::currentThread());
@@ -1294,6 +1328,8 @@ void ImageService::pauseBatch(bool paused) {
 void ImageService::cancelBatch() {
   Q_ASSERT(thread() == QThread::currentThread());
   if (!impl_->batchRunning) return;
+  impl_->failedBatchKeys.unite(impl_->batchActive);
+  for (const auto& request : impl_->batchWaiting) impl_->failedBatchKeys.insert(requestKey(request, impl_->options.resourceVersion));
   impl_->batchRunning = false; impl_->batchTimer.stop();
   // Later persistence receipts must not be accounted against a future batch.
   ++impl_->batchGeneration;

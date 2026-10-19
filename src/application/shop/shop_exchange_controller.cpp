@@ -1,4 +1,5 @@
 #include "shop_exchange_controller.h"
+#include "domain/official_period_rules.h"
 #include "shop_exchange_controller_internal.h"
 
 #include "diagnostics/diagnostic_logger.h"
@@ -133,7 +134,12 @@ void ShopExchangeController::setCatalogIoService(CatalogIoService* service) {
   catalogIo_ = service;
   if (!service) return;
   connect(service, &CatalogIoService::catalogUpdated, this, [this](CatalogKind kind, quint64) {
-    if (kind == CatalogKind::Shop) emit catalogUpdated();
+    if (kind == CatalogKind::Shop) {
+      quotaCatalogRevisions_.clear();
+      freshness_.invalidateObservations(QStringLiteral("商店配置已更新，请重新读取次数以确认对应配置"));
+      emit catalogUpdated();
+      publishFreshness();
+    }
   });
   connect(service, &CatalogIoService::finished, this,
       [this](quint64, CatalogKind kind, StorageStatus status, const QString& error) {
@@ -158,6 +164,7 @@ void ShopExchangeController::publishFreshness() {
 void ShopExchangeController::observeGroup(const QString& group) {
   freshness_.observe(group, lastInboundSequence_, capturedMonotonicMs_);
   observedAt_.insert(group, freshness_.observedAt(group));
+  if (group.startsWith(QStringLiteral("si"))) quotaCatalogRevisions_.insert(group, ShopExchangeCatalog::instance().snapshot()->revision);
 }
 bool ShopExchangeController::checkFreshness() {
   const quint64 before = freshness_.revision();
@@ -206,7 +213,18 @@ QHash<QString, ShopCondition> ShopExchangeController::quotaValiditySnapshot() co
   for (auto group = packet_.begin(); group != packet_.end(); ++group) {
     if (!group.key().startsWith(QStringLiteral("si")) || !group.value().isObject()) continue;
     for (const QString& period : {QStringLiteral("dl"), QStringLiteral("wl"), QStringLiteral("ml"), QStringLiteral("pl"), QStringLiteral("tl")}) {
-      const auto validity = freshness_.status(group.key(), period);
+      auto validity = freshness_.status(group.key(), period);
+      // SEF's total counter has no calendar reset. Bind its meaning to this
+      // catalog and this live observation; never invent a far-future expiry.
+      if (period == QStringLiteral("tl") && quotaCatalogRevisions_.contains(group.key()) &&
+          quotaCatalogRevisions_.value(group.key()) == ShopExchangeCatalog::instance().snapshot()->revision) {
+        validity = freshness_.observation(group.key());
+        if (validity.current()) {
+          validity.reason = sefResetRule(period);
+          validity.evidenceReference = QStringLiteral("official/SEF/limit-tooltip/total; catalog=%1").arg(quotaCatalogRevisions_.value(group.key()));
+        }
+      }
+      if (!validity.current()) validity.reason += QStringLiteral("；") + sefResetRule(period);
       ShopCondition condition;
       condition.state = validity.current() ? ShopConditionState::Satisfied : ShopConditionState::Unknown;
       condition.freshness = validity.current() ? ShopConditionFreshness::Current

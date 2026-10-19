@@ -5,6 +5,7 @@
 #include <QDialog>
 #include <QJsonObject>
 #include <QPointer>
+#include <QMap>
 #include <memory>
 
 class QSpinBox;
@@ -20,6 +21,7 @@ class QNetworkReply;
 class QProcess;
 class QDialogButtonBox;
 class ShopSelectionDialog;
+class QTableWidget;
 struct ShopCatalogSnapshot;
 struct PetDetailCatalogSnapshot;
 
@@ -34,6 +36,7 @@ public:
   void setCacheRoot(const QString& root);
   void applyCacheResult(const QString& action, const QJsonObject& result);
   void setDataUpdateStatus(const QString& message, bool busy);
+  void setDataUpdateReport(const QJsonObject& report);
   void setShopSelection(std::shared_ptr<const ShopCatalogSnapshot> catalog, bool editable, const QString& message);
   void setImageBatchProgress(int completed, int total, int failed);
   void finishImageBatch(bool cancelled, int failed);
@@ -42,9 +45,11 @@ signals:
   void cacheActionRequested(const QString& action, const QJsonObject& options);
   // Empty: update everything. Otherwise the selected public data parts.
   void dataUpdateRequested(const QStringList& components);
+  void dataUpdateActionRequested(const QString& action);
   void shopSelectionRequested();
   void shopSelectionSaveRequested(const QStringList& selected, const QStringList& excludedAutomatic);
   void missingImagesRequested();
+  void failedImagesRequested();
   void imageBatchPauseRequested(bool paused);
   void imageBatchCancelRequested();
 
@@ -87,6 +92,10 @@ private:
   QCheckBox* restoreOverwrite_ = nullptr;
   QLabel* dataUpdateStatus_ = nullptr;
   QPushButton* dataUpdateButton_ = nullptr;
+  QTableWidget* dataResults_ = nullptr;
+  QLabel* dataPhase_ = nullptr;
+  QJsonObject dataReport_;
+  QMap<QString, QPushButton*> dataActions_;
   QList<QPushButton*> partialUpdateButtons_;
   QPointer<ShopSelectionDialog> shopSelectionDialog_;
   std::shared_ptr<const ShopCatalogSnapshot> shopCatalog_;
@@ -94,6 +103,7 @@ private:
   bool shopSelectionEditable_ = false;
   QString shopSelectionMessage_;
   QPushButton* missingImagesButton_ = nullptr;
+  QPushButton* failedImagesButton_ = nullptr;
   QProgressBar* imageProgress_ = nullptr;
   QLabel* imageStatus_ = nullptr;
   QPushButton* imagePause_ = nullptr;

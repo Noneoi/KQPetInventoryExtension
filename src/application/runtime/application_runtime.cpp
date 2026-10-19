@@ -226,12 +226,24 @@ protected:
       }, QStringLiteral("data-update")); });
       QObject::connect(services.dataUpdater, &DataUpdateService::finished, services.root,
           [state, services](bool, const QStringList& components, const QString& text) {
-        if (components.contains(QStringLiteral("pets"))) services.catalogs->requestReload(CatalogKind::PetDetail);
-        if (components.contains(QStringLiteral("skills"))) services.catalogs->requestReload(CatalogKind::PetSkill);
-        if (components.contains(QStringLiteral("shop"))) services.catalogs->requestReload(CatalogKind::Shop);
-        if (components.contains(QStringLiteral("routines"))) services.catalogs->requestReload(CatalogKind::Routine);
-        if (components.contains(QStringLiteral("images")) || components.contains(QStringLiteral("icons"))) services.images->reloadImageIndex();
+        Q_UNUSED(components);
         notify(state, [text](ApplicationRuntime* target) { emit target->dataUpdateStatusChanged(text, false); }, QStringLiteral("data-update"));
+      });
+      QObject::connect(services.dataUpdater, &DataUpdateService::reportChanged, services.root,
+          [state](const QJsonObject& report) { notify(state, [report](ApplicationRuntime* target) {
+        emit target->dataUpdateReportChanged(report);
+      }, QStringLiteral("data-update-report")); });
+      QObject::connect(services.dataUpdater, &DataUpdateService::prepared, services.root,
+          [services](const QJsonObject& report) {
+        if (!services.catalogs->applyPublicVersion(report)) {
+          auto result = report; result.insert("state", "applyFailed"); result.insert("error", "载入队列暂不可用，可重新载入");
+          services.dataUpdater->applicationFinished(result);
+        }
+      });
+      QObject::connect(services.catalogs, &CatalogIoService::publicVersionApplied, services.root,
+          [services](const QJsonObject& report) {
+        if (report.value("sessionApplied").toBool() && !report.value("unchangedVersion").toBool()) services.images->reloadImageIndex();
+        services.dataUpdater->applicationFinished(report);
       });
       QObject::connect(services.cacheManager, &CacheManagementService::finished, services.root,
           [state](const QString& action, const QJsonObject& result) { notify(state, [action, result](ApplicationRuntime* target) {
@@ -406,7 +418,7 @@ protected:
           [state, services](bool running, bool paused, int completed, int total, int succeeded, int failed,
                              qint64 instance, int seconds) {
         RuntimeDetailProgress value{services.repo->accountKey(), services.repo->sessionGeneration(), running, paused,
-                                    completed, total, succeeded, failed, instance, seconds};
+                                    completed, total, succeeded, failed, instance, seconds, services.refresh->resumableDetailCount()};
         notify(state, [value](ApplicationRuntime* target) { emit target->detailProgressChanged(value); }, QStringLiteral("detail-progress"));
       });
       QObject::connect(services.refresh, &PetRefreshController::detailRequestFinished, services.root,
@@ -667,6 +679,18 @@ void ApplicationRuntime::requestDataUpdate(const QStringList& components) {
     }
   })) emit dataUpdateStatusChanged(QStringLiteral("当前无法开始数据更新，请稍后重试。"), false);
 }
+void ApplicationRuntime::requestDataUpdateAction(const QString& action) {
+  const auto state = state_;
+  if (!postUnscoped([state, action](const CoreServices& services) {
+    const bool readOrCancel = action == "status" || action == "cancel";
+    if ((!readOrCancel && (services.cacheManager->busy() || state->imageBatchRunning)) || !services.dataUpdater->requestAction(action)) {
+      const bool busy = services.dataUpdater->busy();
+      notify(state, [busy](ApplicationRuntime* target) {
+        emit target->dataUpdateStatusChanged(QStringLiteral("当前操作未开始：请先完成正在进行的更新、补图或缓存任务"), busy);
+      });
+    }
+  })) emit dataUpdateStatusChanged(QStringLiteral("当前无法受理操作，请稍后重试"), false);
+}
 
 void ApplicationRuntime::requestCacheAction(const QString& action, const QJsonObject& options) {
   const auto state = state_;
@@ -726,6 +750,15 @@ void ApplicationRuntime::requestMissingImages() {
 
 void ApplicationRuntime::pauseImageBatch(bool paused) {
   postUnscoped([paused](const CoreServices& services) { services.images->pauseBatch(paused); });
+}
+void ApplicationRuntime::requestFailedImages() {
+  const auto state = state_;
+  if (!postUnscoped([state](const CoreServices& services) {
+    if (services.cacheManager->busy() || services.dataUpdater->busy() || state->imageBatchRunning) {
+      notify(state, [](ApplicationRuntime* target) { emit target->imageBatchFinished(true, 0); }); return;
+    }
+    state->imageBatchRunning = true; services.images->retryFailedBatch();
+  })) emit imageBatchFinished(true, 0);
 }
 void ApplicationRuntime::cancelImageBatch() {
   postUnscoped([](const CoreServices& services) { services.images->cancelBatch(); });

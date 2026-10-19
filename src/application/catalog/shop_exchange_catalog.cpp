@@ -1,4 +1,6 @@
 #include "shop_exchange_catalog.h"
+#include "contracts/game_navigation.h"
+#include "embedded_public_data.h"
 #include "domain/checked_json_numbers.h"
 #include "domain/shop_limit_facts.h"
 #include <QFile>
@@ -46,7 +48,7 @@ QString cultivationDescription(const QString& description, QString codes, const 
       {QStringLiteral("85"),QStringLiteral("满普通星迹")}, {QStringLiteral("86"),QStringLiteral("满星迹")},
       {QStringLiteral("89"),QStringLiteral("星迹突破")}, {QStringLiteral("91"),QStringLiteral("源兽神觉升至满星")},
       {QStringLiteral("92"),QStringLiteral("源兽神觉提升#level#阶")}, {QStringLiteral("94"),QStringLiteral("源兽神觉升至满阶")}};
-  static const QRegularExpression tokenPattern(QStringLiteral("^([1-9][0-9]*)(?:\\$([1-9][0-9]*))?$"));
+  static const QRegularExpression tokenPattern(QStringLiteral("^([1-9][0-9]*)(?:\\$([1-9][0-9]*(?::[0-9]+)*))?$"));
   QStringList effects;
   const auto names = support.value(QStringLiteral("descriptions")).toObject();
   const auto parameters = support.value(QStringLiteral("descriptionParameters")).toObject();
@@ -60,8 +62,10 @@ QString cultivationDescription(const QString& description, QString codes, const 
       auto rule = parameters.value(code).toObject();
       if (rule.isEmpty() && code == QStringLiteral("92")) rule = {{QStringLiteral("index"),0},{QStringLiteral("default"),1}};
       if (!rule.contains(QStringLiteral("index")) || !rule.contains(QStringLiteral("default"))) return description;
-      const auto level = !match.captured(2).isEmpty() && rule.value(QStringLiteral("index")).toInt() == 0
-          ? match.captured(2) : QString::number(rule.value(QStringLiteral("default")).toInt());
+      const auto arguments = match.captured(2).split(QLatin1Char(':'),Qt::SkipEmptyParts);
+      const int index = rule.value(QStringLiteral("index")).toInt(-1);
+      const auto level = index >= 0 && index < arguments.size()
+          ? arguments[index] : QString::number(rule.value(QStringLiteral("default")).toInt());
       name.replace(QStringLiteral("#level#"),level);
     }
     if (name.contains(QRegularExpression(QStringLiteral("#[A-Za-z]+#")))) return description;
@@ -92,7 +96,7 @@ bool cultivationAlternative(const QJsonObject& row) {
   if (parts.size() != 3) return false;
   static const QRegularExpression material(QStringLiteral("^(?:Material|BatchMaterial),[1-9][0-9]*:[1-9][0-9]*:[1-9][0-9]*(?:#[1-9][0-9]*:[1-9][0-9]*:[1-9][0-9]*)*(?:,[1-9][0-9]*)?$"));
   static const QRegularExpression package(QStringLiteral("(?:^|[,#])139:"));
-  static const QRegularExpression codes(QStringLiteral("^[1-9][0-9]*(?:\\$[1-9][0-9]*)?(?:-[1-9][0-9]*(?:\\$[1-9][0-9]*)?)*$"));
+  static const QRegularExpression codes(QStringLiteral("^[1-9][0-9]*(?:\\$[1-9][0-9]*(?::[0-9]+)*)?(?:-[1-9][0-9]*(?:\\$[1-9][0-9]*(?::[0-9]+)*)?)*$"));
   static const QRegularExpression targets(QStringLiteral("^[1-9][0-9]*(?:#[1-9][0-9]*)*(?::(?:false|0))?$"));
   QString enhance;
   int materials = 0;
@@ -172,6 +176,9 @@ bool isDiamondCost(const QString& cost) {
 }
 
 bool hasDiamondEvidence(const QJsonObject& good) {
+  const auto rule = good.value(QStringLiteral("priceRule")).toObject();
+  if (rule.value(QStringLiteral("schema")).toInt() == 1 && rule.value(QStringLiteral("currency")).toString() == QStringLiteral("8:2") &&
+      QStringList{QStringLiteral("shared-cultivation"), QStringLiteral("constructed-cultivation")}.contains(rule.value(QStringLiteral("kind")).toString())) return true;
   if (isDiamondCost(good.value(QStringLiteral("cost")).toString())) return true;
   for (const auto& value : good.value(QStringLiteral("priceOptions")).toArray())
     if (isDiamondCost(value.toObject().value(QStringLiteral("cost")).toString())) return true;
@@ -179,9 +186,7 @@ bool hasDiamondEvidence(const QJsonObject& good) {
 }
 
 bool validNavigationLink(const QString& link) {
-  static const QRegularExpression expression(
-      QStringLiteral("^btnNewAct_[A-Za-z][A-Za-z0-9]{1,100}(?:_[A-Za-z0-9]{1,64}){1,8}$"));
-  return link.size() <= 256 && expression.match(link).hasMatch();
+  return GameNavigation::isAllowedLink(link);
 }
 
 QJsonObject embeddedRoot() {
@@ -202,7 +207,7 @@ ShopExchangeCatalog& ShopExchangeCatalog::instance() {
 }
 
 ShopExchangeCatalog::ShopExchangeCatalog() {
-  snapshot_ = prepare(embeddedRoot(), QStringLiteral("程序内置官方配置"), {}, nullptr);
+  snapshot_ = prepare(embeddedRoot(), embeddedPublicDataLabel(QStringLiteral("程序内置官方配置")), embeddedPublicDataVerifiedAt(), nullptr);
   if (!snapshot_) snapshot_ = std::make_shared<ShopCatalogSnapshot>();
 }
 
@@ -271,7 +276,7 @@ std::shared_ptr<const ShopCatalogSnapshot> ShopExchangeCatalog::prepare(const QJ
       good.rewardRaw = goodObject.value(QStringLiteral("rewardRaw")).toString();
       static const QRegularExpression selectable(QStringLiteral("(?:^!?|\\|!?)(?:Choice|SelectPrizes),[^\\n]+"));
       static const QRegularExpression namedChoice(QStringLiteral("自选|任选|[二三四五六七八九十0-9]+选[一二三四五六七八九十0-9]+"));
-      static const QRegularExpression targeted(QStringLiteral("^Strengthen,[1-9][0-9]*(?:\\$[1-9][0-9]*)?(?:-[1-9][0-9]*(?:\\$[1-9][0-9]*)?)*,"));
+      static const QRegularExpression targeted(QStringLiteral("^Strengthen,[1-9][0-9]*(?:\\$[1-9][0-9]*(?::[0-9]+)*)?(?:-[1-9][0-9]*(?:\\$[1-9][0-9]*(?::[0-9]+)*)?)*,"));
       bool hasSelectablePackage = false;
       for (const auto& value : goodObject.value(QStringLiteral("selectablePackageIds")).toArray()) {
         int id = 0;
@@ -291,6 +296,9 @@ std::shared_ptr<const ShopCatalogSnapshot> ShopExchangeCatalog::prepare(const QJ
            goodObject.value(QStringLiteral("raceIds")).toArray().isEmpty()) &&
           !targeted.match(good.rewardRaw).hasMatch()) continue;
       good.acquisitionKind = goodObject.value(QStringLiteral("acquisitionKind")).toString();
+      if (goodObject.contains(QStringLiteral("selectionIdentityIncludesReward")) &&
+          !goodObject.value(QStringLiteral("selectionIdentityIncludesReward")).isBool()) return invalid();
+      good.selectionIdentityIncludesReward = goodObject.value(QStringLiteral("selectionIdentityIncludesReward")).toBool(true);
       if (!QStringList{QString{},QStringLiteral("exchange"),QStringLiteral("signin"),QStringLiteral("progress"),
           QStringLiteral("reward"),QStringLiteral("lottery"),QStringLiteral("activity"),QStringLiteral("unknown")}.contains(good.acquisitionKind) ||
           (!good.acquisitionKind.isEmpty() && good.acquisitionKind != QStringLiteral("exchange") && !good.manualSelectionRequired)) return invalid();
@@ -312,6 +320,9 @@ std::shared_ptr<const ShopCatalogSnapshot> ShopExchangeCatalog::prepare(const QJ
         if (goodObject.contains(QStringLiteral("observationWhen")) && !goodObject.value(QStringLiteral("observationWhen")).isObject()) return invalid();
         good.costDescription = goodObject.value(QStringLiteral("costDescription")).toString();
         good.activityCosts = goodObject.value(QStringLiteral("activityCosts")).toArray();
+        if (goodObject.contains(QStringLiteral("priceRule")) && (!goodObject.value(QStringLiteral("priceRule")).isObject() ||
+            QJsonDocument(goodObject.value(QStringLiteral("priceRule")).toObject()).toJson(QJsonDocument::Compact).size() > 32768)) return invalid();
+        good.priceRule = goodObject.value(QStringLiteral("priceRule")).toObject();
       good.priceOptions = goodObject.value(QStringLiteral("priceOptions")).toArray();
         good.quotaObservation = goodObject.value(QStringLiteral("quotaObservation")).toObject();
       good.observationWhen = goodObject.value(QStringLiteral("observationWhen")).toObject();
@@ -348,6 +359,11 @@ std::shared_ptr<const ShopCatalogSnapshot> ShopExchangeCatalog::prepare(const QJ
       good.cost = goodObject.value(QStringLiteral("cost")).toString();
       if (goodObject.value(QStringLiteral("costKnown")).isBool() &&
           !goodObject.value(QStringLiteral("costKnown")).toBool()) good.cost.clear();
+      if (goodObject.value(QStringLiteral("catalogStale")).toBool()) {
+        good.cost.clear(); good.priceRule = {}; good.priceOptions = {}; good.activityCosts = {};
+        good.quotaObservation = {}; good.limitCount = -1;
+        good.costDescription = QStringLiteral("沿用上次目录，当前价格尚未确认；") + good.costDescription;
+      }
       good.enhanceType = goodObject.value(QStringLiteral("enhanceType")).toString();
       good.description = cultivationDescription(good.description, good.enhanceType, good.rewardRaw,
                                                 root.value(QStringLiteral("rewardDescriptions")).toObject());

@@ -1,4 +1,5 @@
 #include "activity_shop_observation.h"
+#include "public_price_rule.h"
 #include "checked_json_numbers.h"
 #include <QCryptographicHash>
 #include <QJsonDocument>
@@ -127,13 +128,21 @@ QJsonValue activityObservedValue(const ShopExchangeGood& good,const QJsonObject&
   return value;
 }
 
-ActivityShopObservation observeActivityShopGood(const ShopExchangeGood& good,const QJsonObject& packet) {
+ActivityShopObservation observeActivityShopGood(const ShopExchangeGood& good,const QJsonObject& packet,
+    const QDateTime& at, const AccountResourceView* resources) {
   ActivityShopObservation result;
   result.standardCost = good.cost; result.priceKnown = !good.cost.isEmpty() || good.provenFree;
   result.priceCurrent = result.priceKnown;
   if (good.sourceKey.isEmpty()) return result;
   if (!good.observationWhen.isEmpty()) result.applicable = conditionMatches(good,good.observationWhen,packet,&result.applicabilityKnown);
-  if (!good.priceOptions.isEmpty()) {
+  if (!good.priceRule.isEmpty()) {
+    const auto quote = evaluatePublicPriceRule(good.priceRule, at, resources);
+    result.priceKnown = result.priceCurrent = quote.known;
+    result.standardCost = quote.known && quote.amount > 0 ? QStringLiteral("8:2:%1").arg(quote.amount) : QString{};
+    result.priceReason = quote.reason;
+    result.optionalPayment = quote.optionalPayment;
+    if (quote.availabilityKnown && !quote.available) result.applicable = false;
+  } else if (!good.priceOptions.isEmpty()) {
     int matches = 0; bool allKnown = true,allCurrent = true; QString price;
     for (const auto& value : good.priceOptions) {
       const auto option = value.toObject(); bool known = false,current = false;
@@ -167,7 +176,7 @@ ActivityShopObservation observeActivityShopGood(const ShopExchangeGood& good,con
     cost.key = good.sourceKey + QStringLiteral(":activity-cost:") + activityRequestSignature(identity).left(20);
     result.costs.append(cost);
   }
-  if (good.cost.isEmpty() && good.priceOptions.isEmpty() && !result.costs.isEmpty() && result.costs.size() == good.activityCosts.size()) {
+  if (good.cost.isEmpty() && good.priceOptions.isEmpty() && good.priceRule.isEmpty() && !result.costs.isEmpty() && result.costs.size() == good.activityCosts.size()) {
     result.priceKnown = true; result.priceCurrent = true;
   }
   return result;

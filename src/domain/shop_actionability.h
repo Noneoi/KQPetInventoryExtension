@@ -34,6 +34,7 @@ struct ShopCondition {
 // Callers may supply only already verified expression facts, with their source.
 // This API neither interprets catalog strings nor requests new server data.
 struct ShopConditionContext {
+  QDateTime priceEvaluationAt;
   bool shopPacketKnown = true;
   QString shopSource;
   QDateTime shopObservedAt;

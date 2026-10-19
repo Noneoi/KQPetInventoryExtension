@@ -1,4 +1,5 @@
 #include "pet_skill_catalog.h"
+#include "embedded_public_data.h"
 
 #include <QCryptographicHash>
 #include <QFile>
@@ -43,7 +44,7 @@ PetSkillCatalog::PetSkillCatalog() {
   QJsonParseError parseError{};
   const auto document = QJsonDocument::fromJson(bytes, &parseError);
   if (parseError.error != QJsonParseError::NoError || !document.isObject()) return;
-  auto value = prepare(document.object(), QStringLiteral("程序内置官方技能资料"), {}, nullptr);
+  auto value = prepare(document.object(), embeddedPublicDataLabel(QStringLiteral("程序内置官方技能资料")), embeddedPublicDataVerifiedAt(), nullptr);
   if (!value) return;
   auto embedded = std::make_shared<PetSkillCatalogSnapshot>(*value);
   embedded->contentDigest = QCryptographicHash::hash(bytes, QCryptographicHash::Sha256);

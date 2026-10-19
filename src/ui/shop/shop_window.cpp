@@ -2,6 +2,7 @@
 #include <QComboBox>
 
 #include "diagnostics/build_info.h"
+#include "ui/common/table_update.h"
 #include "ui/common/ui_preferences.h"
 
 #include "domain/pet_identity.h"
@@ -42,8 +43,10 @@
 #include <QScrollBar>
 
 #include <algorithm>
+#include <atomic>
 
 namespace {
+std::atomic<quint64> nextUsableVisitToken{0};
 
 QTableWidget* makeTable(QWidget* parent, const QStringList& headers) {
   auto* table = new QTableWidget(parent);
@@ -263,6 +266,11 @@ ShopWindow::ShopWindow(InventoryReadView* repository, QWidget* parent, PetImageC
   petTable_->horizontalHeader()->setSectionsClickable(true);
   petTable_->horizontalHeader()->setSortIndicatorShown(false);
   petLayout->addWidget(petTitle_);
+  usableDetailStatus_ = new QLabel(petPane);
+  usableDetailStatus_->setObjectName(QStringLiteral("KQShopEligibleDetailStatus"));
+  usableDetailStatus_->setWordWrap(true);
+  usableDetailStatus_->setStyleSheet(QStringLiteral("color:#667085;"));
+  petLayout->addWidget(usableDetailStatus_);
   petLayout->addWidget(petTable_, 1);
 
   auto* detailTabs = new QTabWidget(horizontal);
@@ -343,6 +351,7 @@ ShopWindow::ShopWindow(InventoryReadView* repository, QWidget* parent, PetImageC
   connect(moveToBackpack_, &QPushButton::clicked, this,
           &ShopWindow::moveCurrentToBackpack);
   connect(shopTabs_, &QTabWidget::currentChanged, this, [this]() {
+    stopUsableDetailRefresh();
     updateCurrencySummary();
     updateOpenShopButton();
     currentEligibility_.clear();
@@ -359,7 +368,10 @@ ShopWindow::ShopWindow(InventoryReadView* repository, QWidget* parent, PetImageC
     updateMoveButton();
   });
   if (repository_) {
-    connect(repository_, &InventoryReadView::dataChanged, this, [this] { petIndexDirty_ = true; scheduleRebuild(); });
+    connect(repository_, &InventoryReadView::dataChanged, this, [this] {
+      if (!repository_->isAuthenticated()) stopUsableDetailRefresh();
+      petIndexDirty_ = true; scheduleRebuild();
+    });
     connect(repository_, &InventoryReadView::detailChanged, this,
             &ShopWindow::updateCurrentDetail);
     connect(repository_, &InventoryReadView::accountSessionChanged, this,
@@ -374,7 +386,10 @@ ShopWindow::ShopWindow(InventoryReadView* repository, QWidget* parent, PetImageC
   scheduleRebuild();
 }
 
+ShopWindow::~ShopWindow() { stopUsableDetailRefresh(); }
+
 void ShopWindow::resetSessionContext() {
+  stopUsableDetailRefresh();
   cancelPetRows();
   if (repository_) repository_->watchDetail(1, 0);
   packet_ = {};
@@ -415,7 +430,9 @@ void ShopWindow::resetSessionContext() {
 }
 
 bool ShopWindow::event(QEvent* event) {
+  if (event->type() == QEvent::Hide || event->type() == QEvent::Close) stopUsableDetailRefresh();
   const bool result = QDialog::event(event);
+  if (event->type() == QEvent::Show) scheduleUsableDetail();
   if (imageCache_ && (event->type() == QEvent::Show || event->type() == QEvent::ScreenChangeInternal ||
                      event->type() == QEvent::DevicePixelRatioChange))
     imageCache_->setDevicePixelRatio(devicePixelRatioF());
@@ -537,6 +554,7 @@ void ShopWindow::setCatalogSnapshot(std::shared_ptr<const ShopCatalogSnapshot> c
       if (!shop.goods.isEmpty()) visibleShops_.append(std::move(shop));
     }
   }
+  petIndexDirty_ = true;
   compiledCatalog_ = CompiledShopCatalog::compile(goods);
   compiledGoodsByKey_.clear();
   for (qsizetype index = 0; index < compiledCatalog_.goods().size(); ++index)
@@ -645,6 +663,8 @@ ShopWindow::ResourceStatus ShopWindow::resourceStatus(const ShopExchangeGood& go
     const auto cached = activityGoods_.constFind(&good == &currentGood_ ? currentGoodKey_ : good.stableKey());
     if (cached == activityGoods_.cend())
       return {QStringLiteral("未读取"), QStringLiteral("点击“刷新兑换次数”读取活动价格和余额。"), {}};
+    if (!cached->observation.priceKnown && !good.priceRule.isEmpty())
+      return {QStringLiteral("条件报价"), cached->observation.priceReason + QStringLiteral("\n") + good.costDescription, {}};
     if (!cached->observation.priceKnown && !good.priceOptions.isEmpty())
       return {QStringLiteral("价格档位未读取"),
               QStringLiteral("该商品按活动购买次数分档计价，刷新兑换次数后才能判断资源是否足够。"), {}};
@@ -652,7 +672,7 @@ ShopWindow::ResourceStatus ShopWindow::resourceStatus(const ShopExchangeGood& go
     for (const auto& cost : cached->observation.costs)
       balances.append({cost.name, cost.required, cost.ownedKnown ? cost.owned : -1, cost.current});
     if (balances.isEmpty())
-      return good.provenFree ? ResourceStatus{QStringLiteral("无需资源"), pending, QStringLiteral("#087a43")}
+      return good.provenFree || (cached->observation.priceKnown && !good.priceRule.isEmpty() && cached->observation.standardCost.isEmpty()) ? ResourceStatus{QStringLiteral("无需资源"), pending, QStringLiteral("#087a43")}
                              : ResourceStatus{QStringLiteral("活动内查看"), QStringLiteral("活动没有提供可读取的价格。"), {}};
   } else {
     const auto* compiled = compiledGood(good);
@@ -718,19 +738,23 @@ void ShopWindow::applyGoodSearch(bool selectMatchingTab) {
 
 void ShopWindow::rebuildActivityGoods(const QJsonObject& packet) {
   activityGoods_.clear();
+  const auto now = QDateTime::currentDateTimeUtc();
+  const AccountResourceView priceResources(materialCounts_, hasMaterialCounts_);
   for (const auto& compiled : compiledCatalog_.goods()) {
     const auto& good = compiled.good;
     if (good.sourceKey.isEmpty()) continue;
     CachedActivityGood value;
-    value.observation = observeActivityShopGood(good,packet);
+    value.observation = observeActivityShopGood(good,packet,now,&priceResources);
     activityObservedValue(good,good.quotaObservation,packet,nullptr,&value.quotaVerified);
     const auto parse = [&good](const QString& cost) {
       auto priced = good; priced.cost = cost;
       return CompiledShopCatalog::compile({priced});
     };
     QStringList costs;
-    if (value.observation.priceKnown && (!value.observation.standardCost.isEmpty() || good.provenFree)) {
-      const auto current = parse(value.observation.standardCost);
+    if (value.observation.priceKnown && (!value.observation.standardCost.isEmpty() || good.provenFree || !good.priceRule.isEmpty())) {
+      auto priced = good; priced.cost = value.observation.standardCost;
+      priced.provenFree = priced.cost.isEmpty();
+      const auto current = CompiledShopCatalog::compile({priced});
       const auto& price = current.goods().first();
       if (price.costCondition.effectiveState() == ShopConditionState::Satisfied) {
         value.currencyRequirements = price.requirements;
@@ -739,6 +763,7 @@ void ShopWindow::rebuildActivityGoods(const QJsonObject& packet) {
         if (price.requirements.isEmpty()) costs.append(QStringLiteral("无需资源（目录已确认）"));
       } else costs.append(QStringLiteral("价格格式无法读取：%1").arg(value.observation.standardCost));
       if (!good.priceOptions.isEmpty() && !value.observation.priceCurrent) costs.prepend(QStringLiteral("上次读取的档位"));
+      if (value.observation.optionalPayment) costs.append(QStringLiteral("券与优惠券需在支付面板选择"));
     } else if (!good.priceOptions.isEmpty()) {
       costs.append(good.costDescription.isEmpty() ? QStringLiteral("当前价格档位未读取") : good.costDescription);
       // Price tiers can differ in quantity while using the same currencies.
@@ -752,6 +777,8 @@ void ShopWindow::rebuildActivityGoods(const QJsonObject& packet) {
     for (const auto& cost : value.observation.costs)
       costs.append(QStringLiteral("%1 ×%2").arg(cost.name).arg(cost.required));
     if (costs.isEmpty()) costs.append(good.costDescription.isEmpty() ? QStringLiteral("活动内查看") : good.costDescription);
+    if (!good.priceRule.isEmpty() && !value.observation.priceKnown && !value.observation.priceReason.isEmpty())
+      costs.prepend(value.observation.priceReason);
     value.costText = costs.join(QStringLiteral(" ＋ "));
     activityGoods_.insert(compiled.stableKey,std::move(value));
   }
@@ -802,7 +829,8 @@ QString ShopWindow::shopCurrencyText(const ShopExchangeShop& shop) const {
 }
 
 void ShopWindow::rebuild() {
-  cancelPetRows();
+  const bool refreshPets = petIndexDirty_;
+  const bool detailsExpanded = compactDetails_;
   QJsonObject observedPacket = packet_;
   for (auto group = readOnlyShopPacket_.begin(); group != readOnlyShopPacket_.end(); ++group)
     observedPacket.insert(group.key(), group.value());
@@ -819,23 +847,33 @@ void ShopWindow::rebuild() {
   const QPair<int, int> petScroll{petTable_->verticalScrollBar()->value(), petTable_->horizontalScrollBar()->value()};
   const QPair<int, int> detailScroll{petDetail_->verticalScrollBar()->value(), petDetail_->horizontalScrollBar()->value()};
   const QSignalBlocker tabSignals(shopTabs_);
-  while (shopTabs_->count() > 0) {
-    QWidget* page = shopTabs_->widget(0);
-    shopTabs_->removeTab(0);
-    delete page;
+  bool sameStructure = shopTabs_->count() == visibleShops_.size() && shopRows_.size() == visibleShops_.size();
+  for (int i = 0; sameStructure && i < visibleShops_.size(); ++i) {
+    const auto& shop = visibleShops_[i];
+    sameStructure = shopRows_[i].size() == shop.goods.size();
+    for (int row = 0; sameStructure && row < shop.goods.size(); ++row)
+      sameStructure = shopRows_[i][row].stableKey == shop.goods[row].stableKey();
   }
+  if (!sameStructure) {
+    setProperty("structureRebuildCount", property("structureRebuildCount").toInt() + 1);
+    while (shopTabs_->count() > 0) {
+      QWidget* page = shopTabs_->widget(0); shopTabs_->removeTab(0); delete page;
+    }
+  }
+  if (!sameStructure || refreshPets) cancelPetRows();
   shopRows_.clear();
   goodLocations_.clear(); highlightedGoodKey_.clear();
   rebuildEligiblePetIndex();
   const auto& shops = visibleShops_;
   shopRows_.reserve(shops.size());
   for (const ShopExchangeShop& shop : shops) {
-    auto* table = makeTable(shopTabs_,
+    auto* table = sameStructure ? qobject_cast<QTableWidget*>(shopTabs_->widget(shopRows_.size())) : makeTable(shopTabs_,
                             {QStringLiteral("兑换项目"), QStringLiteral("所需资源"),
                              QStringLiteral("次数规则"), QStringLiteral("已用 / 剩余"),
                              QStringLiteral("对应个体"), QStringLiteral("拥有 / 缺口")});
     table->setObjectName(shop.sourceKey.isEmpty() ? QStringLiteral("KQShopGoodsTable-%1").arg(shop.shopId)
         : QStringLiteral("KQActivityGoodsTable-%1-%2").arg(shop.sourceKey).arg(shop.shopId));
+    if (!sameStructure) {
     table->horizontalHeader()->setSectionResizeMode(QHeaderView::Interactive);
     table->horizontalHeader()->setSectionResizeMode(0, QHeaderView::Stretch);
     table->setColumnWidth(1, 220);
@@ -843,17 +881,18 @@ void ShopWindow::rebuild() {
     table->setColumnWidth(3, 150);
     table->setColumnWidth(4, 90);
     table->setColumnWidth(5, 240);
+    }
     QList<GoodRow> rows;
     table->setRowCount(shop.goods.size());
     int row = 0;
     for (const ShopExchangeGood& good : shop.goods) {
       const bool readOnly = good.sourceKey.isEmpty() && readOnlyShopPacket_.contains(QStringLiteral("si%1").arg(good.shopId));
       const int remaining = hasPacket_ || readOnly ? shopRemainingCount(observedPacket, good) : -1;
-      table->setItem(row, 0, textItem(good.displayName()));
-      table->setItem(row, 1, textItem(costText(good)));
+      updateTableItem(table, row, 0, textItem(good.displayName()));
+      updateTableItem(table, row, 1, textItem(costText(good)));
       const auto period = quotaValidity_.value(shopQuotaValidityKey(good));
       const bool current = !readOnly && period.state == ShopConditionState::Satisfied && period.freshness == ShopConditionFreshness::Current;
-      table->setItem(row, 2, textItem(good.provenUnlimited ? QStringLiteral("不限次")
+      updateTableItem(table, row, 2, textItem(good.provenUnlimited ? QStringLiteral("不限次")
           : !good.quotaDescription.isEmpty() ? good.quotaDescription
           : good.limitCount > 0 ? QStringLiteral("%1限 %2 次").arg(good.limitLabel).arg(good.limitCount) : QStringLiteral("未标注")));
       const int used = remaining >= 0 && good.limitCount >= remaining ? good.limitCount - remaining : -1;
@@ -864,7 +903,7 @@ void ShopWindow::rebuild() {
         quota->setForeground(QBrush(QColor(QStringLiteral("#718096"))));
         quota->setToolTip(period.reason.isEmpty() ? QStringLiteral("次数周期未确认，数值是上次读取的结果，可能已变化") : period.reason);
       }
-      table->setItem(row, 3, quota);
+      quota = updateTableItem(table, row, 3, quota);
       // The blue row answers only "is there a displayed exchange left?".
       // Period freshness remains visible through the grey quota text/tooltip,
       // but must not suppress the user's requested whole-row marker.
@@ -888,13 +927,13 @@ void ShopWindow::rebuild() {
         title->setToolTip(good.shopName + QStringLiteral("\n识别依据：") + evidenceText(shop) +
             (good.shelfDate.isValid() ? QString{} : QStringLiteral("\n活动配置未标注起始日期；是否仍开放以游戏内入口为准")));
       }
-      table->setItem(row, 4, textItem(good.raceIds.isEmpty() ? good.acquisitionLabel()
+      updateTableItem(table, row, 4, textItem(good.raceIds.isEmpty() ? good.acquisitionLabel()
                                                           : QString::number(eligiblePetCount(good))));
       const ResourceStatus balance = resourceStatus(good);
       auto* balanceItem = textItem(balance.text);
       balanceItem->setToolTip(balance.tip);
       if (!balance.color.isEmpty()) balanceItem->setForeground(QBrush(QColor(balance.color)));
-      table->setItem(row, 5, balanceItem);
+      updateTableItem(table, row, 5, balanceItem);
       styleAvailableExchangeRow(table, row, hasRemainingQuota);
       const QString stableKey = good.stableKey();
       goodLocations_.insert(stableKey,{int(shopRows_.size()),row});
@@ -902,7 +941,7 @@ void ShopWindow::rebuild() {
       ++row;
     }
     table->setProperty("shopIndex", shopRows_.size());
-    connect(table, &QTableWidget::cellClicked, this, [this, table](int row, int) {
+    if (!sameStructure) connect(table, &QTableWidget::cellClicked, this, [this, table](int row, int) {
       const int shopIndex = table->property("shopIndex").toInt();
       if (shopIndex < 0 || shopIndex >= shopRows_.size() || row < 0 ||
           row >= shopRows_.at(shopIndex).size()) return;
@@ -911,7 +950,8 @@ void ShopWindow::rebuild() {
     });
     const QString currency = shopCurrencyText(shop);
     table->setProperty("currencyText",currency);
-    const int tabIndex = shopTabs_->addTab(table, shop.name);
+    const int tabIndex = sameStructure ? shopRows_.size() : shopTabs_->addTab(table, shop.name);
+    if (sameStructure && shopTabs_->tabText(tabIndex) != shop.name) shopTabs_->setTabText(tabIndex, shop.name);
     const QString evidence = evidenceText(shop);
     shopTabs_->setTabToolTip(tabIndex, currency.isEmpty()
         ? QStringLiteral("%1｜%2").arg(shop.name, evidence)
@@ -929,7 +969,9 @@ void ShopWindow::rebuild() {
         const auto& row = shopRows_.at(restoredLocation->first).at(restoredLocation->second);
         petScrollAfterRows_ = petScroll; detailScrollAfterRows_ = detailScroll;
         pendingDetailId_ = detailWasPending ? selectedInstanceId : 0;
-        showGoodPets(row.good,row.stableKey,selectedInstanceId,true);
+        if (!sameStructure || refreshPets) showGoodPets(row.good,row.stableKey,selectedInstanceId,true);
+        else { currentGood_ = row.good; updatePetTitle(); updateSelectedGoodEmphasis(); }
+        compactDetails_ = detailsExpanded; updateWorkbenchPanels();
         restoredGood = true;
   }
   updateMoveButton();
@@ -1013,19 +1055,28 @@ void ShopWindow::updateCurrencySummary() {
           : QStringLiteral("%1 · %2 · 账号拥有：%3").arg(shops.at(index).name, evidence, currency));
 }
 
+void ShopWindow::setNavigationRunning(bool running) {
+  navigationRunning_ = running;
+  updateOpenShopButton();
+}
+
 void ShopWindow::updateOpenShopButton() {
   if (!openShop_ || !shopTabs_) return;
   const int index = shopTabs_->currentIndex();
   const bool available = index >= 0 && index < visibleShops_.size() &&
       !visibleShops_.at(index).navigationLink.isEmpty();
-  openShop_->setEnabled(available);
+  openShop_->setEnabled(available && !navigationRunning_);
+  const bool activity = available && !visibleShops_.at(index).sourceKey.isEmpty();
+  openShop_->setText(navigationRunning_ ? QStringLiteral("正在跳转……") :
+      activity ? QStringLiteral("直达活动页面") : QStringLiteral("直达游戏商店"));
   if (!available) {
     openShop_->setToolTip(QStringLiteral("当前目录没有经过验证的游戏内入口"));
     return;
   }
   const auto& shop = visibleShops_.at(index);
-  openShop_->setToolTip(QStringLiteral("通过游戏自己的活动按钮入口打开“%1”\n%2")
-                            .arg(shop.name, evidenceText(shop)));
+  openShop_->setToolTip(QStringLiteral("通过游戏自己的入口打开“%1”\n%2%3")
+                            .arg(shop.name, evidenceText(shop), activity
+                                ? QStringLiteral("\n进入对应活动页面；具体兑换项目和开放条件以游戏内为准") : QString()));
 }
 
 void ShopWindow::ensureImageCache() {
@@ -1048,7 +1099,14 @@ QList<qint64> ShopWindow::eligiblePets(const ShopExchangeGood& good) {
 
 void ShopWindow::showGoodPets(const ShopExchangeGood& good, const QString& stableKey, qint64 preserveInstanceId, bool restoreScroll) {
   const QString key = good.hasIdentity() ? (stableKey.isEmpty() ? good.stableKey() : stableKey) : QString();
-  if (!restoreScroll && !key.isEmpty() && key == currentGoodKey_) { updateSelectedGoodEmphasis(); return; }
+  if (!restoreScroll && !key.isEmpty() && key == currentGoodKey_) {
+    updateSelectedGoodEmphasis();
+    // A repeated click joins an active round; a later explicit entry starts a
+    // fresh round. Restoration/rebuild never reaches this branch.
+    if (!usableVisitInFlight_ && usableVisitQueue_.isEmpty() && !petRowsPreparing_) beginUsableDetailRefresh();
+    return;
+  }
+  if (key != currentGoodKey_ || key.isEmpty()) stopUsableDetailRefresh();
   const bool pendingDetail = preserveInstanceId > 0 && pendingDetailId_ == preserveInstanceId;
   if (repository_) repository_->watchDetail(1, 0);
   currentGood_ = good;
@@ -1058,9 +1116,10 @@ void ShopWindow::showGoodPets(const ShopExchangeGood& good, const QString& stabl
   currentInstanceId_ = 0;
   pendingDetailId_ = pendingDetail ? preserveInstanceId : 0;
   currentVisualKey_.clear();
-  petDetail_->setHtml(QStringLiteral("<p style='color:#718096'>点击左下方精灵会立即显示本地缓存，并按实例 ID 在后台刷新一次详情。</p>"));
+  petDetail_->setHtml(QStringLiteral("<p style='color:#718096'>打开项目后，仅为当前可以提升的精灵逐只读取一次最新详情。点击精灵显示本地数据。</p>"));
   rawDetail_->clearJson();
   restoreScrollAfterRows_ = restoreScroll;
+  if (!restoreScroll && good.hasIdentity()) beginUsableDetailRefresh();
   rebuildPetRows(preserveInstanceId);
   updatePetTitle();
   updateMoveButton();
@@ -1108,14 +1167,22 @@ void ShopWindow::rebuildPetRows(qint64 preserveInstanceId) {
   pendingPetIds_ = std::move(pets); pendingPetRow_ = 0; preservePetId_ = preserveInstanceId;
   synchronousPetRows_ = pendingPetIds_.size() <= 32 && petTable_->rowCount() <= 32;
   petRowsPreparing_ = true; petTable_->setEnabled(false);
+  // ResizeToContents can synchronously scan cells on every setItem(). Freeze
+  // widths while filling a batch; restore automatic sizing on finish/cancel.
+  petTable_->horizontalHeader()->setSectionResizeMode(QHeaderView::Fixed);
   const auto generation = petRowsGeneration_;
   if (synchronousPetRows_) continuePetRows(generation);
   else QTimer::singleShot(0,this,[this,generation] { continuePetRows(generation); });
 }
 
 void ShopWindow::cancelPetRows() {
+  const bool wasPreparing = petRowsPreparing_;
   ++petRowsGeneration_; petRowsPreparing_ = false; pendingPetIds_.clear(); pendingPetRow_ = 0;
   preservePetId_ = 0; visiblePetRows_.clear();
+  if (wasPreparing) {
+    petTable_->horizontalHeader()->setSectionResizeMode(QHeaderView::ResizeToContents);
+    petTable_->horizontalHeader()->setSectionResizeMode(0, QHeaderView::Stretch);
+  }
   petTable_->setEnabled(true);
 }
 
@@ -1133,6 +1200,7 @@ void ShopWindow::continuePetRows(quint64 generation) {
     while (pendingPetRow_ < pendingPetIds_.size() && (synchronousPetRows_ || (units < 32 && slice.elapsed() < 4))) {
       const qint64 id = pendingPetIds_[pendingPetRow_];
       const auto eligibility = eligibilityFor(id); currentEligibility_.insert(id,eligibility);
+      considerUsableDetail(id, eligibility);
       fillPetRow(pendingPetRow_,cachedPetRow(id).brief,eligibility);
       visiblePetRows_.insert(id,pendingPetRow_); ++pendingPetRow_; ++units;
     }
@@ -1145,6 +1213,8 @@ void ShopWindow::continuePetRows(quint64 generation) {
     QTimer::singleShot(0,this,[this,generation] { continuePetRows(generation); }); return;
   }
   petRowsPreparing_ = false; pendingPetIds_.clear(); petTable_->setEnabled(true);
+  petTable_->horizontalHeader()->setSectionResizeMode(QHeaderView::ResizeToContents);
+  petTable_->horizontalHeader()->setSectionResizeMode(0, QHeaderView::Stretch);
   if (preservePetId_ > 0 && visiblePetRows_.contains(preservePetId_)) {
     petTable_->selectRow(visiblePetRows_.value(preservePetId_)); showPetDetail(preservePetId_,false);
   }
@@ -1157,6 +1227,91 @@ void ShopWindow::continuePetRows(quint64 generation) {
     restoreScrollAfterRows_ = false;
   }
   updatePetTitle(); updateMoveButton();
+  updateUsableDetailStatus(); scheduleUsableDetail();
+}
+
+void ShopWindow::beginUsableDetailRefresh() {
+  stopUsableDetailRefresh();
+  if (!repository_ || !currentGood_.hasIdentity()) return;
+  if (!repository_->isAuthenticated()) {
+    usableDetailStatus_->setText(QStringLiteral("当前未在线，仅展示本地数据。"));
+    return;
+  }
+  usableVisitToken_ = ++nextUsableVisitToken;
+  usableVisitGoodKey_ = currentGoodKey_;
+  const auto ids = eligiblePets(currentGood_);
+  usableVisitCandidates_ = QSet<qint64>(ids.begin(), ids.end());
+  for (auto it = currentEligibility_.cbegin(); it != currentEligibility_.cend(); ++it)
+    considerUsableDetail(it.key(), it.value());
+  updateUsableDetailStatus(); scheduleUsableDetail();
+}
+
+void ShopWindow::stopUsableDetailRefresh() {
+  const quint64 token = usableVisitToken_;
+  if (pendingDetailId_ == usableVisitInFlight_) pendingDetailId_ = 0;
+  usableVisitToken_ = 0; usableVisitGoodKey_.clear();
+  usableVisitCandidates_.clear(); usableVisitAttempted_.clear(); usableVisitRejected_.clear();
+  usableVisitQueued_.clear(); usableVisitQueue_.clear(); usableVisitInFlight_ = 0;
+  usableVisitCompleted_ = usableVisitFailed_ = 0; usableDispatchScheduled_ = false;
+  if (usableDetailStatus_) usableDetailStatus_->clear();
+  if (token) emit usableDetailRequestsCancelled(token);
+}
+
+void ShopWindow::considerUsableDetail(qint64 id, const ShopPetEligibility& eligibility) {
+  if (!usableVisitToken_ || usableVisitGoodKey_ != currentGoodKey_ ||
+      !usableVisitCandidates_.contains(id) || usableVisitAttempted_.contains(id) || usableVisitRejected_.contains(id)) return;
+  if (eligibility.state == ShopPetEligibilityState::NotUsable) {
+    usableVisitRejected_.insert(id);
+    usableVisitQueued_.remove(id); usableVisitQueue_.removeAll(id);
+  } else if (eligibility.state == ShopPetEligibilityState::Usable && !usableVisitQueued_.contains(id)) {
+    usableVisitQueue_.append(id); usableVisitQueued_.insert(id);
+  }
+}
+
+void ShopWindow::scheduleUsableDetail() {
+  if (!usableVisitToken_ || usableDispatchScheduled_ || usableVisitInFlight_ || usableVisitQueue_.isEmpty()) return;
+  usableDispatchScheduled_ = true;
+  const auto token = usableVisitToken_;
+  QTimer::singleShot(0, this, [this, token] {
+    if (token != usableVisitToken_) return;
+    usableDispatchScheduled_ = false;
+    sendNextUsableDetail(token);
+  });
+}
+
+void ShopWindow::sendNextUsableDetail(quint64 token) {
+  if (!token || token != usableVisitToken_ || usableVisitGoodKey_ != currentGoodKey_ || usableVisitInFlight_) return;
+  if (!repository_ || !repository_->isAuthenticated()) { stopUsableDetailRefresh(); return; }
+  if (!isVisible() || moveRunning_) return;
+  while (!usableVisitQueue_.isEmpty()) {
+    const qint64 id = usableVisitQueue_.takeFirst(); usableVisitQueued_.remove(id);
+    if (!visiblePetRows_.contains(id) && !petRowsPreparing_) continue;
+    currentEligibility_.remove(id);
+    const auto eligibility = eligibilityFor(id); currentEligibility_.insert(id, eligibility);
+    if (eligibility.state != ShopPetEligibilityState::Usable) {
+      if (eligibility.state == ShopPetEligibilityState::NotUsable) usableVisitRejected_.insert(id);
+      continue; // Unknown waits for a local facts update, never a blind read.
+    }
+    usableVisitAttempted_.insert(id); usableVisitInFlight_ = id;
+    if (currentInstanceId_ == id) { pendingDetailId_ = id; showPetDetail(id, false); }
+    updateUsableDetailStatus();
+    emit usableDetailRequested(id, token);
+    return;
+  }
+  updateUsableDetailStatus();
+}
+
+void ShopWindow::updateUsableDetailStatus() {
+  if (!usableDetailStatus_ || !usableVisitToken_) return;
+  const int total = usableVisitAttempted_.size() + usableVisitQueued_.size();
+  const int waiting = usableVisitCandidates_.size() - usableVisitAttempted_.size() -
+      usableVisitRejected_.size() - usableVisitQueued_.size();
+  QString text = total > 0 ? QStringLiteral("可提升精灵详情：已完成 %1/%2").arg(usableVisitCompleted_).arg(total)
+                          : QStringLiteral("没有已确认可提升的精灵需要读取。");
+  if (usableVisitFailed_) text += QStringLiteral("，失败 %1（保留本地数据）").arg(usableVisitFailed_);
+  if (usableVisitInFlight_) text += QStringLiteral("，正在读取实例 %1").arg(usableVisitInFlight_);
+  if (waiting > 0) text += QStringLiteral("；%1 只等待本地判定，未发送请求").arg(waiting);
+  usableDetailStatus_->setText(text);
 }
 
 ShopPetEligibility ShopWindow::eligibilityFor(qint64 id) {
@@ -1258,28 +1413,22 @@ void ShopWindow::updatePetTitle() {
           .arg(petTable_->rowCount()).arg(usableCount));
 }
 
-void ShopWindow::showPetDetail(qint64 instanceId, bool requestLatest) {
+void ShopWindow::showPetDetail(qint64 instanceId, bool userSelection) {
   if (!repository_ || instanceId <= 0) return;
   repository_->watchDetail(1, instanceId);
   const auto raw = repository_->rawRecordHandle(instanceId);
   currentInstanceId_ = instanceId;
-  if (requestLatest && workbenchCompact_) {
+  if (userSelection && workbenchCompact_) {
     compactDetails_ = true;
     updateWorkbenchPanels();
   }
-  const bool willRefresh = requestLatest && repository_->isAuthenticated();
-  if (willRefresh)
-    pendingDetailId_ = instanceId;
-  else if (requestLatest)
-    pendingDetailId_ = 0;
+  // Row selection is a cached view, even for an already complete pet. The
+  // explicit project visit owns the only automatic network-read round.
+  pendingDetailId_ = usableVisitInFlight_ == instanceId ? instanceId : 0;
   const QJsonObject pet = repository_->detailFor(instanceId);
   if (pet.isEmpty()) {
     petDetail_->setHtml(
-        willRefresh
-            ? QStringLiteral("<p>该实例没有本地数据，正在按实例 ID %1 获取详情……</p>")
-                  .arg(instanceId)
-            : QStringLiteral("<p>实例 ID %1 没有本地详情；登录账号后点击可刷新。</p>")
-                  .arg(instanceId));
+        QStringLiteral("<p>实例 ID %1 暂无本地详情。仅在本项目判定为可提升后才会读取最新详情。</p>").arg(instanceId));
     rawDetail_->clearJson();
   } else {
     const PetMetadataView catalog(repository_->metadataSnapshot());
@@ -1313,14 +1462,6 @@ void ShopWindow::showPetDetail(qint64 instanceId, bool requestLatest) {
     rawDetail_->setRecord(pet, raw);
   }
   updateMoveButton();
-  if (willRefresh) {
-    setStatus(QStringLiteral("已显示实例 %1 的本地数据，正在获取最新详情……")
-                  .arg(instanceId));
-    emit detailRequested(instanceId);
-  } else if (requestLatest) {
-    setStatus(QStringLiteral("账号尚未在线：已显示实例 %1 的本地缓存，本次未发送详情请求。")
-                  .arg(instanceId));
-  }
 }
 
 void ShopWindow::updateCurrentDetail(qint64 instanceId) {
@@ -1345,9 +1486,11 @@ void ShopWindow::updateCurrentDetail(qint64 instanceId) {
     const ShopPetEligibility eligibility = eligibilityFor(instanceId);
     currentEligibility_.insert(instanceId, eligibility);
     fillPetRow(visiblePetRows_.value(instanceId), pet, eligibility);
+    considerUsableDetail(instanceId, eligibility);
   }
   if (pendingDetailId_ == instanceId) pendingDetailId_ = 0;
   updatePetTitle();
+  updateUsableDetailStatus(); scheduleUsableDetail();
   if (currentInstanceId_ == instanceId) {
     showPetDetail(instanceId, false);
     setStatus(QStringLiteral("实例 %1 的缓存视图已更新。")
@@ -1363,6 +1506,12 @@ void ShopWindow::updateCurrentImage(const QString& visualKey,
 
 void ShopWindow::finishDetailRefresh(qint64 instanceId, bool succeeded,
                                      const QString& reason) {
+  if (usableVisitToken_ && usableVisitInFlight_ == instanceId) {
+    usableVisitInFlight_ = 0; ++usableVisitCompleted_;
+    if (!succeeded) ++usableVisitFailed_;
+    updateCurrentDetail(instanceId);
+    updateUsableDetailStatus(); scheduleUsableDetail();
+  }
   if (pendingDetailId_ != instanceId) return;
   pendingDetailId_ = 0;
   if (currentInstanceId_ == instanceId) showPetDetail(instanceId, false);
@@ -1373,6 +1522,7 @@ void ShopWindow::finishDetailRefresh(qint64 instanceId, bool succeeded,
 
 void ShopWindow::setMoveRunning(bool running) {
   moveRunning_ = running;
+  if (!running) scheduleUsableDetail();
   updateMoveButton();
 }
 

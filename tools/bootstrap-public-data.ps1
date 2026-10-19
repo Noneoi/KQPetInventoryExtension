@@ -1,9 +1,12 @@
-param(
+﻿param(
   [Parameter(Mandatory=$true)][string]$DataRoot,
   [switch]$ExtractImage,
   [string]$VisualKey,
   # Comma-separated subset (pets,skills,shop,images,icons,routines); empty checks all.
-  [string]$Components = ''
+  [string]$Components = '',
+  [string]$Attempt = '',
+  [switch]$PrepareOnly,
+  [switch]$VerifyAll
 )
 $ErrorActionPreference = 'Stop'
 $ProgressPreference = 'SilentlyContinue'
@@ -20,11 +23,17 @@ $markerPath = Join-Path $pythonRoot 'verified.json'
 function Send-Progress([string]$Message) {
   @{event='progress'; message=$Message} | ConvertTo-Json -Compress | Write-Output
 }
+function File-Sha256([string]$Path) {
+  $stream = [IO.File]::OpenRead($Path)
+  $algorithm = [Security.Cryptography.SHA256]::Create()
+  try { return [BitConverter]::ToString($algorithm.ComputeHash($stream)).Replace('-', '').ToLowerInvariant() }
+  finally { $algorithm.Dispose(); $stream.Dispose() }
+}
 function Test-Python {
   if (!(Test-Path -LiteralPath $pythonExe -PathType Leaf) -or !(Test-Path -LiteralPath $markerPath -PathType Leaf)) { return $false }
   try {
     $marker = Get-Content -LiteralPath $markerPath -Raw | ConvertFrom-Json
-    return $marker.archiveSha256 -eq $expectedArchive -and $marker.entrySha256 -eq (Get-FileHash -LiteralPath $pythonExe -Algorithm SHA256).Hash
+    return $marker.archiveSha256 -eq $expectedArchive -and $marker.entrySha256 -eq (File-Sha256 $pythonExe)
   } catch { return $false }
 }
 
@@ -46,7 +55,7 @@ try {
     $client = New-Object Net.WebClient
     try { $client.DownloadFile('https://www.python.org/ftp/python/3.12.10/python-3.12.10-embed-amd64.zip', $archivePath) }
     finally { $client.Dispose() }
-    if ((Get-Item -LiteralPath $archivePath).Length -gt 33554432 -or (Get-FileHash -LiteralPath $archivePath -Algorithm SHA256).Hash -ne $expectedArchive) {
+    if ((Get-Item -LiteralPath $archivePath).Length -gt 33554432 -or (File-Sha256 $archivePath) -ne $expectedArchive) {
       throw 'Python download checksum mismatch.'
     }
     $stagedRoot = Join-Path $scratchPath 'python'
@@ -56,7 +65,7 @@ try {
     if (!(Test-Path -LiteralPath $stagedExe -PathType Leaf)) { throw 'Python entry missing.' }
     # The script imports its colocated parsers explicitly. The embedded runtime
     # stays isolated from site packages, registry paths, and user PYTHONPATH.
-    $markerJson = @{archiveSha256=$expectedArchive;entrySha256=(Get-FileHash -LiteralPath $stagedExe -Algorithm SHA256).Hash} | ConvertTo-Json -Compress
+    $markerJson = @{archiveSha256=$expectedArchive;entrySha256=(File-Sha256 $stagedExe)} | ConvertTo-Json -Compress
     [IO.File]::WriteAllText((Join-Path $stagedRoot 'verified.json'), $markerJson, (New-Object Text.UTF8Encoding($false)))
     if (Test-Path -LiteralPath $pythonRoot) {
       $checkedRoot = [IO.Path]::GetFullPath($pythonRoot)
@@ -69,6 +78,9 @@ try {
   $pythonArgs = @('-B', '-u', $helperPath, '--data-root', $resolvedRoot, '--baseline', (Join-Path $PSScriptRoot 'baseline'))
   if ($ExtractImage) { $pythonArgs += @('--extract-image', '--visual-key', $VisualKey) }
   elseif ($Components) { $pythonArgs += @('--components', $Components) }
+  if ($Attempt) { $pythonArgs += @('--attempt', $Attempt) }
+  if ($PrepareOnly) { $pythonArgs += '--prepare-only' }
+  if ($VerifyAll) { $pythonArgs += '--verify-all' }
   & $pythonExe @pythonArgs
   exit $LASTEXITCODE
 } catch {

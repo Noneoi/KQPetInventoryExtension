@@ -21,6 +21,7 @@
 PetRefreshController::PetRefreshController(PetRepository* repository, QObject* parent)
     : QObject(parent), repository_(repository) {
   loadTimings();
+  initializeDetailTaskStorage();
   dispatchReceiptTimer_.setInterval(10);
   connect(&dispatchReceiptTimer_, &QTimer::timeout, this, &PetRefreshController::expirePendingDispatches);
   connect(repository_, &PetRepository::sessionTrustChanged, this,
@@ -340,6 +341,10 @@ void PetRefreshController::onAccountSessionChanged(const QString& account,
 
 void PetRefreshController::resetForAccount(const QString& account,
                                            quint64 sessionGeneration) {
+  incompleteDetailIds_.clear();
+  detailTaskPending_.clear();
+  deferredDetailIds_.clear();
+  detailTaskWritable_ = false;
   QScopedValueRollback<bool> terminalGuard(terminalNotificationGuard_, true);
   listGapTimer_.stop();
   backpackTimeoutTimer_.stop();
@@ -387,6 +392,7 @@ void PetRefreshController::resetForAccount(const QString& account,
   moveVerificationAttempts_ = 0;
   account_ = account;
   sessionGeneration_ = sessionGeneration;
+  detailTaskStorage_->start(repository_->storageContext(), account_, sessionGeneration_);
   pendingList_ = PendingList::None;
   if (listRunning_) emit listRefreshRunningChanged(false);
   listRunning_ = false;
@@ -586,8 +592,10 @@ void PetRefreshController::finishCurrentDetail(bool succeeded, const QString& re
   if (countedForBatch) {
     ++batchCompleted_;
     if (succeeded) ++batchSucceeded_;
-    else ++batchFailed_;
+    else { ++batchFailed_; incompleteDetailIds_.insert(finishedId); }
   }
+  if (succeeded) incompleteDetailIds_.remove(finishedId);
+  if (succeeded && detailTaskPending_.remove(finishedId)) saveDetailTask();
   if (succeeded) {
     DiagnosticLogger::info(QStringLiteral("detail"),
                            QStringLiteral("completed instance=%1").arg(finishedId));

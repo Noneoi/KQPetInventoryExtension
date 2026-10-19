@@ -10,7 +10,7 @@
 #include <QApplication>
 #include <QCheckBox>
 #include <QComboBox>
-#include <QPlainTextEdit>
+#include <QTextBrowser>
 #include <QFontDatabase>
 #include <QJsonArray>
 #include <QJsonDocument>
@@ -240,13 +240,36 @@ int main(int argc, char* argv[]) {
       const auto category = window->findChild<QComboBox*>(QStringLiteral("KQCultivationCategoryFilter"));
       const auto era = window->findChild<QComboBox*>(QStringLiteral("KQCultivationEraFilter"));
       const auto rating = window->findChild<QComboBox*>(QStringLiteral("KQCultivationRatingFilter"));
-      const auto totals = window->findChild<QPlainTextEdit*>(QStringLiteral("KQCultivationTotals"));
+      const auto totals = window->findChild<QTextBrowser*>(QStringLiteral("KQCultivationTotals"));
+      const auto selectedOnly = window->findChild<QCheckBox*>(QStringLiteral("KQCultivationSelectedOnly"));
+      const auto refreshMaterials = window->findChild<QPushButton*>(QStringLiteral("KQCultivationRefreshMaterials"));
       bool filtersValid = category && era && rating && totals && category->count() == 5 && era->count() == 3 && rating->count() == 6;
       if (filtersValid) {
-        filtersValid = totals->toPlainText().contains(QStringLiteral("神源兽"));
+        filtersValid &= selectedOnly && refreshMaterials;
+        if (selectedOnly && refreshMaterials) {
+          int refreshCount = 0;
+          const auto connection = QObject::connect(window, &AssetAnalysisWindow::cultivationMaterialsRefreshRequested,
+              window, [&] { ++refreshCount; });
+          selectedOnly->setChecked(true);
+          filtersValid &= totals->toPlainText().contains(QStringLiteral("请选择")) || totals->toPlainText().contains(QStringLiteral("请在下方"));
+          selectedOnly->setChecked(false);
+          MaterialInventorySnapshot inventory; inventory.knownTypes.insert(24);
+          inventory.knownExtraGroups.insert(QStringLiteral("24:1"));
+          inventory.observedAt = QDateTime::currentDateTimeUtc();
+          window->setCultivationMaterials(inventory);
+          filtersValid &= totals->toPlainText().contains(QStringLiteral("库存"));
+          refreshMaterials->click(); filtersValid &= refreshCount == 1;
+          inventory.running = true; window->setCultivationMaterials(inventory);
+          filtersValid &= !refreshMaterials->isEnabled();
+          inventory.running = false; window->setCultivationMaterials(inventory);
+          QObject::disconnect(connection);
+        }
+        filtersValid &= totals->toPlainText().contains(QStringLiteral("材料清单"));
         category->setCurrentIndex(2);
         filtersValid &= totals->toPlainText().contains(QStringLiteral("星轮精华")) && !totals->toPlainText().contains(QStringLiteral("神源兽"));
+        filtersValid &= diagnostics->model()->headerData(AssetAnalysisModel::Gaps,Qt::Horizontal).toString() == QStringLiteral("星轮缺口");
         category->setCurrentIndex(0);
+        filtersValid &= diagnostics->model()->headerData(AssetAnalysisModel::Gaps,Qt::Horizontal).toString() == QStringLiteral("主要培养缺口");
         for (auto tabs : window->findChildren<QTabWidget*>())
           for (int index = 0; index < tabs->count(); ++index)
             if (tabs->tabText(index).contains(QStringLiteral("诊断"))) tabs->setCurrentIndex(index);

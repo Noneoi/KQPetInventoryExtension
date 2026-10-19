@@ -38,6 +38,8 @@ private:
   void detailDependenciesChanged(const QSet<qint64>& ids);
   QSet<qint64> changedSelectedRecords();
   quint64 summaryRevision(qint64 id, const QJsonObject& brief);
+  bool refreshRelationRoster();
+  void invalidateRelationDetails();
   PetRepository* repository_;
   InventoryProjection* projection_;
   bool scheduled_ = false;
@@ -64,4 +66,6 @@ private:
   struct SummaryStamp { QJsonObject value; quint64 revision = 0; };
   QHash<qint64, SummaryStamp> summaryStamps_;
   quint64 nextSummaryRevision_ = 0;
+  std::shared_ptr<const DetailRelationRoster> relationRoster_;
+  quint64 relationInventoryRevision_ = 0, nextRelationRosterRevision_ = 0;
 };

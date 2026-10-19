@@ -524,6 +524,20 @@ int main(int argc, char* argv[]) {
     while (compact.step(nullptr,16,7) == RecommendationSession::Status::Running) {}
     const auto originalRows = original.takeResults(); const auto compactRows = compact.takeResults();
     const auto originalOverview = original.takeOverview(); const auto compactOverview = compact.takeOverview();
+    QList<QByteArray> frames;
+    for (const auto& fact : facts) frames.append(packPetAnalysisFacts(fact));
+    RecommendationSession streamed(raw.account,header,small,{},nullptr,false,nullptr,
+        [&frames](qsizetype index) { return unpackPetAnalysisFacts(frames.at(index)); });
+    while (streamed.step(nullptr,16,2) == RecommendationSession::Status::Running) {}
+    ok &= require(streamed.status() == RecommendationSession::Status::Complete &&
+        equivalentRows(originalRows,streamed.takeResults()) && equivalentOverview(originalOverview,streamed.takeOverview()),
+        "streamed compact frames changed full-account cultivation judgments or rankings");
+    frames[2] = QByteArray::fromHex("ffffffff00");
+    RecommendationSession corrupt(raw.account,header,small,{},nullptr,false,nullptr,
+        [&frames](qsizetype index) { return unpackPetAnalysisFacts(frames.at(index)); });
+    while (corrupt.step(nullptr,16,2) == RecommendationSession::Status::Running) {}
+    ok &= require(corrupt.status() == RecommendationSession::Status::InvalidInput && corrupt.takeOverview().pets.isEmpty() &&
+        corrupt.takeResults().isEmpty(), "corrupt middle frame published a partial result or admitted oversized expansion");
     ok &= require(original.status() == RecommendationSession::Status::Complete &&
         compact.status() == RecommendationSession::Status::Complete && equivalentRows(originalRows,compactRows) &&
         equivalentOverview(originalOverview,compactOverview),"compact facts changed rankings, classification, unknowns or overview values");

@@ -117,10 +117,10 @@ bool cacheValidation(const QString& root) {
   // immutable bundled version even after an unknown local overlay was loaded.
   QJsonObject future = olderOfficial;
   QJsonObject futureSource = olderSource;
-  futureSource.insert(QStringLiteral("shopVersion"), QStringLiteral("2026091764897007"));
+  futureSource.insert(QStringLiteral("shopVersion"), QStringLiteral("2099123164897007"));
   futureSource.insert(QStringLiteral("resources"), QJsonObject{{QStringLiteral("shop"), QJsonObject{
       {QStringLiteral("url"), QStringLiteral("https://aoqi.100bt.com/play/newactivityext/newact20260313/"
-          "storeexchangeframework/storeexchangeframework~2026091764897007.swf")}}}});
+          "storeexchangeframework/storeexchangeframework~2099123164897007.swf")}}}});
   future.insert(QStringLiteral("source"), futureSource);
   writeCatalogFixture(shopPath, QJsonDocument(future).toJson());
   ok &= check(runCatalogRequest(&service, CatalogKind::Shop, CatalogRequestMode::Reload),
@@ -152,7 +152,7 @@ bool cacheValidation(const QString& root) {
   ok &= check(oldDetailFile.open(QIODevice::ReadOnly) && oldDetailFile.readAll() == oldDetailBytes,
       "superseding old pet metadata modified the existing cache file");
   oldDetailFile.close();
-  auto futureDetail = versionedDetail(initialDetail->root,QStringLiteral("2026091764897007"));
+  auto futureDetail = versionedDetail(initialDetail->root,QStringLiteral("2099123164897007"));
   auto futurePets = futureDetail.value(QStringLiteral("pets")).toObject();
   futurePets.insert(QStringLiteral("990003"), QJsonObject{
       {QStringLiteral("name"),QStringLiteral("未来官方皮肤名")},

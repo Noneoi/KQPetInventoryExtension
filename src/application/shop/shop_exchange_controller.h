@@ -143,6 +143,7 @@ private:
   QStringList requestWarnings_;
   QHash<QString, PacketFieldState> fieldStates_;
   QHash<QString, QDateTime> observedAt_;
+  QHash<QString, quint64> quotaCatalogRevisions_;
   QJsonObject unverifiedPackets_;
   quint64 lastInboundSequence_ = 0;
   qint64 capturedMonotonicMs_ = -1;

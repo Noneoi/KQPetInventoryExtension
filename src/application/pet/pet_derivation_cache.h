@@ -86,6 +86,7 @@ signals:
   void failed(quint64 taskId, const PetDerivationKey& key, PetDerivationStatus status, const QString& error);
   void indexStatus(const PetDerivationKey& key, StorageStatus status, const QString& error);
   void stateChanged();
+  void cacheCleared();
 
 private:
   friend struct PetDerivationInternal::State;

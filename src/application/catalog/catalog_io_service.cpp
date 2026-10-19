@@ -4,6 +4,7 @@
 #include "routine_overview_catalog.h"
 #include "shop_exchange_catalog.h"
 #include "protocol/protocol_transport.h"
+#include "storage/public_catalog_store.h"
 
 #include <QDateTime>
 #include <QCryptographicHash>
@@ -19,6 +20,8 @@
 #include <QPointer>
 #include <QRegularExpression>
 #include <QTimer>
+#include <QLockFile>
+#include <stdexcept>
 #include <algorithm>
 #include <atomic>
 #include <deque>
@@ -40,6 +43,7 @@ struct Request {
   std::shared_ptr<std::atomic_bool> cancelled = std::make_shared<std::atomic_bool>(false);
 };
 struct Candidate {
+  QJsonObject updateReport;
   Request request;
   StorageStatus status = StorageStatus::ReadFailed;
   QString error;
@@ -114,7 +118,11 @@ QString officialShopUrl(const QString& version) {
 QDate shopVersionDate(const QString& version) {
   static const QRegularExpression digits(QStringLiteral("^[0-9]{8,20}$"));
   if (!digits.match(version).hasMatch()) return {};
-  return QDate::fromString(version.left(8), QStringLiteral("yyyyMMdd"));
+  const QDate longDate = QDate::fromString(version.left(8), QStringLiteral("yyyyMMdd"));
+  if (longDate.isValid() && longDate.year() >= 2000 && longDate.year() <= 2099) return longDate;
+  // The official version overrides also use YYMMDD plus an opaque suffix
+  // (e.g. 261015...). Never numerically compare that suffix as chronology.
+  return QDate::fromString(QStringLiteral("20") + version.left(6), QStringLiteral("yyyyMMdd"));
 }
 QDate officialShopDate(const QJsonObject& root) {
   const auto source = root.value(QStringLiteral("source")).toObject();
@@ -181,8 +189,13 @@ public:
     connect(&timer_, &QTimer::timeout, this, [this] { step(); });
     elapsed_.start();
     if (request_.mode == CatalogRequestMode::Reload) {
-      files_.append(request_.kind == CatalogKind::PetDetail ? options_.petOverlayPath
-          : QDir(dataRoot_).filePath(relativePath(request_.kind)));
+      try {
+        files_.append(request_.kind == CatalogKind::PetDetail && !options_.petOverlayPath.isEmpty()
+            ? options_.petOverlayPath : PublicCatalogStore::catalogPath(dataRoot_, QFileInfo(relativePath(request_.kind)).fileName()));
+      } catch (const std::exception& error) {
+        QTimer::singleShot(0, this, [this, message = QString::fromUtf8(error.what())] { finish(StorageStatus::ReadFailed, message); });
+        return;
+      }
       scanning_ = false;
     } else {
       directories_.append(options_.officialRoot);
@@ -409,6 +422,7 @@ struct CatalogIoService::Impl {
   std::deque<Request> waiting;
   Request active;
   bool running = false, submitted = false;
+  bool applyingPublicVersion = false;
   quint64 writeId = 0;
   StorageContext shared;
   std::shared_ptr<Candidate> candidate;
@@ -427,7 +441,6 @@ CatalogIoService::CatalogIoService(StorageService* storage, CatalogIoOptions opt
   impl_->storage = storage;
   if (options.officialRoot.isEmpty()) options.officialRoot = qEnvironmentVariable("KQPET_OFFICIAL_UNPACK_ROOT", QStringLiteral("D:/奥奇工程/奥奇传说解包"));
   if (options.petOverlayPath.isEmpty()) options.petOverlayPath = qEnvironmentVariable("KQPET_CATALOG_PATH");
-  if (options.petOverlayPath.isEmpty() && storage) options.petOverlayPath = QDir(storage->dataRoot()).filePath(relativePath(CatalogKind::PetDetail));
   options.maximumSourceBytes = std::clamp<qint64>(options.maximumSourceBytes, 1, 16 * 1024 * 1024);
   options.maximumScanEntries = std::clamp(options.maximumScanEntries, 1, 250000);
   options.maximumPendingDirectories = std::clamp(options.maximumPendingDirectories, 1, 4096);
@@ -558,7 +571,7 @@ void CatalogIoService::publishShopSelection() {
   emit catalogUpdated(CatalogKind::Shop, next->revision);
 }
 quint64 CatalogIoService::request(CatalogKind kind, CatalogRequestMode mode) {
-  if (!impl_->storage || impl_->state->closing.load() ||
+  if (!impl_->storage || impl_->state->closing.load() || impl_->applyingPublicVersion ||
       (kind != CatalogKind::Shop && kind != CatalogKind::Routine && kind != CatalogKind::PetDetail &&
        kind != CatalogKind::PetSkill) ||
       (mode == CatalogRequestMode::OfficialUpdate &&
@@ -587,7 +600,7 @@ CatalogIoStats CatalogIoService::stats() const {
   return stats;
 }
 void CatalogIoService::pump() {
-  if (!impl_->storage || impl_->state->closing.load()) return;
+  if (!impl_->storage || impl_->state->closing.load() || impl_->applyingPublicVersion) return;
   if (!impl_->running) {
     if (impl_->waiting.empty()) return;
     impl_->active = impl_->waiting.front(); impl_->waiting.pop_front(); impl_->running = true;
@@ -624,6 +637,38 @@ void CatalogIoService::pump() {
   emit stateChanged();
 }
 void CatalogIoService::receive(std::shared_ptr<Candidate> candidate) {
+  if (!candidate->updateReport.isEmpty()) {
+    if (impl_->state->closing.load()) return;
+    impl_->applyingPublicVersion = false;
+    auto report = candidate->updateReport;
+    if (candidate->status == StorageStatus::Loaded) {
+      // Identical payloads do not invalidate every pet derivation and shop
+      // projection merely because the user checked the source again.
+      if (candidate->detail && candidate->detail->root == PetDetailCatalog::instance().snapshot()->root) candidate->detail.reset();
+      if (candidate->skill && candidate->skill->root == PetSkillCatalog::instance().snapshot()->root) candidate->skill.reset();
+      if (candidate->shop && candidate->shop->root == ShopExchangeCatalog::instance().snapshot()->root) candidate->shop.reset();
+      if (candidate->routine && candidate->routine->root == RoutineOverviewCatalog::instance().snapshot()->root) candidate->routine.reset();
+      // Swap every prepared value before notifying any dependent consumer.
+      if (candidate->detail) PetDetailCatalog::instance().publish(candidate->detail);
+      if (candidate->skill) PetSkillCatalog::instance().publish(candidate->skill);
+      if (candidate->routine) RoutineOverviewCatalog::instance().publish(candidate->routine);
+      if (candidate->shop) ShopExchangeCatalog::instance().publish(ShopExchangeCatalog::withManualSelection(
+          candidate->shop, impl_->selection, impl_->excludedAutomatic));
+      report.insert("sessionApplied", true);
+      report.insert("state", report.value("complete").toBool() ? "completed" : "partial");
+      for (const auto kind : {CatalogKind::PetDetail, CatalogKind::PetSkill, CatalogKind::Shop, CatalogKind::Routine}) {
+        if ((kind == CatalogKind::PetDetail && !candidate->detail) || (kind == CatalogKind::PetSkill && !candidate->skill) ||
+            (kind == CatalogKind::Shop && !candidate->shop) || (kind == CatalogKind::Routine && !candidate->routine)) continue;
+        quint64 revision = kind == CatalogKind::PetDetail ? PetDetailCatalog::instance().snapshot()->revision
+            : kind == CatalogKind::PetSkill ? PetSkillCatalog::instance().snapshot()->revision
+            : kind == CatalogKind::Shop ? ShopExchangeCatalog::instance().snapshot()->revision : RoutineOverviewCatalog::instance().snapshot()->revision;
+        emit catalogUpdated(kind, revision);
+      }
+    }
+    emit publicVersionApplied(report);
+    if (!impl_->waiting.empty()) impl_->retry.start(0);
+    return;
+  }
   if (!impl_->running || candidate->request.id != impl_->active.id || impl_->state->closing.load()) return;
   impl_->stats.scannedEntries = candidate->scanned;
   impl_->stats.maximumSliceMicroseconds = std::max(impl_->stats.maximumSliceMicroseconds, candidate->maximumSliceUs);
@@ -634,6 +679,95 @@ void CatalogIoService::receive(std::shared_ptr<Candidate> candidate) {
   publish(candidate);
   if (!guard) return;
   complete(StorageStatus::Loaded, {});
+}
+
+bool CatalogIoService::applyPublicVersion(const QJsonObject& report) {
+  if (!impl_->storage || impl_->state->closing.load() || impl_->applyingPublicVersion) return false;
+  const auto state = impl_->state;
+  const QString root = impl_->storage->dataRoot();
+  const auto embedded = PetDetailCatalog::instance().embeddedSnapshot();
+  const bool accepted = impl_->storage->postAuxiliary([state, root, embedded, report](QObject*) {
+    auto candidate = std::make_shared<Candidate>(); candidate->updateReport = report;
+    auto& result = candidate->updateReport;
+    try {
+      if (state->closing.load()) return;
+      const QString revision = report.value("revision").toString();
+      const auto checked = PublicCatalogStore::version(root, revision);
+      QString error;
+      const auto prepare = [&](const QString& name) {
+        const auto path = checked.files.value(name);
+        if (path.isEmpty()) return QJsonObject{};
+        const auto object = PublicCatalogStore::object(path);
+        int nodes = 0; qint64 strings = 0;
+        if (!boundedObject(object, &nodes, &strings, 0, 1000000, 16 * 1024 * 1024))
+          throw std::runtime_error("公共资料超过结构预算");
+        return object;
+      };
+      const auto at = QDateTime::currentDateTimeUtc();
+      const auto contentTime = [&](const QString& key, const QString& name) {
+        const auto value = checked.manifest.value("components").toObject().value(key).toObject();
+        const auto time = QDateTime::fromString(value.value("contentUpdatedUtc").toString(), Qt::ISODateWithMs);
+        return time.isValid() ? time : QFileInfo(checked.files.value(name)).lastModified().toUTC();
+      };
+      const QString label = QStringLiteral("已核验官方资料");
+      const auto detail = prepare("pet-detail-data.json");
+      if (!detail.isEmpty()) {
+        candidate->detail = PetDetailCatalog::prepareOverlay(embedded, detail, label, contentTime("pets", "pet-detail-data.json"), &error);
+        if (!candidate->detail) throw std::runtime_error(error.toUtf8().constData());
+      }
+      const auto skill = prepare("pet-skill-data.json");
+      if (!skill.isEmpty()) {
+        candidate->skill = PetSkillCatalog::prepare(skill, label, contentTime("skills", "pet-skill-data.json"), &error);
+        if (!candidate->skill) throw std::runtime_error(error.toUtf8().constData());
+      }
+      const auto shop = prepare("shop-exchange-data.json");
+      if (!shop.isEmpty()) {
+        candidate->shop = ShopExchangeCatalog::prepare(shop, label, contentTime("shop", "shop-exchange-data.json"), &error);
+        if (!candidate->shop) throw std::runtime_error(error.toUtf8().constData());
+      }
+      const auto routine = prepare("routine-overview.json");
+      if (!routine.isEmpty()) {
+        candidate->routine = RoutineOverviewCatalog::prepare(routine, label, contentTime("routines", "routine-overview.json"), &error);
+        if (!candidate->routine) throw std::runtime_error(error.toUtf8().constData());
+      }
+      const auto images = prepare("pet-image-index.json");
+      const auto icons = prepare("public-icon-index.json");
+      if ((!images.isEmpty() && !images.value("faces").isObject()) || (!icons.isEmpty() && !icons.value("stargods").isObject()))
+        throw std::runtime_error("图片目录结构无效");
+      QLockFile publication(PublicCatalogStore::safePath(root, "catalog/publication.lock"));
+      if (!publication.tryLock(0)) throw std::runtime_error("其他工作台正在应用资料，请稍后重新载入");
+      const QByteArray current = PublicCatalogStore::pointerBytes(root);
+      result.insert("unchangedVersion", QJsonDocument::fromJson(current).object().value("revision").toString() == revision);
+      if (PublicCatalogStore::digest(current) != report.value("expectedPointerSha256").toString())
+        throw std::runtime_error("现用资料已变化，请重新检查或载入");
+      if (state->closing.load()) return;
+      const QJsonObject pointer{{"schema", 1}, {"revision", revision}, {"previousRevision", report.value("previousRevision")}, {"attempt", report.value("attempt")}};
+      PublicCatalogStore::save(PublicCatalogStore::safePath(root, "catalog/current.json"), pointer);
+      result.insert("diskCommitted", true);
+      result.insert("state", "diskCommitted");
+      auto rows = result.value("components").toObject();
+      for (auto it = rows.begin(); it != rows.end(); ++it) {
+        auto row = it.value().toObject();
+        if (row.value("status").toString() != "retained" && row.value("status").toString() != "failed" &&
+            (report.value("requested").toArray().contains(it.key()) || report.value("action").toString() == "rollback"))
+          row.insert("appliedUtc", at.toString(Qt::ISODate));
+        it.value() = row;
+      }
+      result.insert("components", rows);
+      candidate->status = StorageStatus::Loaded;
+    } catch (const std::exception& error) {
+      result.insert("state", "applyFailed"); result.insert("error", QString::fromUtf8(error.what()));
+      result.insert("sessionApplied", false);
+    }
+    state->deliver(candidate);
+  });
+  if (accepted) {
+    impl_->applyingPublicVersion = true;
+    impl_->active.cancelled->store(true);
+    for (auto& request : impl_->waiting) request.cancelled->store(true);
+    impl_->waiting.clear();
+  }
+  return accepted;
 }
 void CatalogIoService::publish(const std::shared_ptr<Candidate>& candidate) {
   quint64 revision = 0;

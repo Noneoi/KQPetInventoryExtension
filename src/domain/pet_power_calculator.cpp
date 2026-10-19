@@ -289,6 +289,32 @@ PetPowerMetadata petPowerMetadataFromCatalog(const QJsonObject& pet, int slotMax
   return result;
 }
 
+SpecifiedStargodAcquisition specifiedStargodAcquisition(const QJsonObject& pet,
+    const PetPowerMetadata& m, const PetBattlePowerState& calculated) {
+  SpecifiedStargodAcquisition result;
+  if (m.stargods.size() > 256) return result;
+  QList<Slot> parsedOwnedSlots;
+  if (!parseSlots(pet.value(QStringLiteral("sgs")),m,&parsedOwnedSlots)) return result;
+  QSet<int> owned;
+  for (const auto& slot : parsedOwnedSlots) if (slot.id > 0)
+    owned.insert(slot.changeable && slot.source > 0 ? slot.source : slot.id);
+  if (calculated.stargodBackpackKnown) for (const auto& raw : pet.value(QStringLiteral("sgsp")).toArray()) {
+    int id=0; if(integer(raw,&id,1)) owned.insert(id);
+  }
+  for (auto entry=m.stargods.begin();entry!=m.stargods.end();++entry) {
+    int id=0; Star star;
+    if (!integer(entry.key(),&id,1) || !starInfo(m,id,&star) || star.movable || star.quality != 6) continue;
+    if (!star.allowed || calculated.stargodSlots == 0) result.unavailable.append(id);
+    else if (owned.contains(id)) result.satisfied.append(id);
+    else if (calculated.stargodSlotsKnown && calculated.stargodBackpackKnown && calculated.stargodQualitiesKnown)
+      result.useful.append(id);
+  }
+  std::sort(result.useful.begin(),result.useful.end());
+  std::sort(result.satisfied.begin(),result.satisfied.end());
+  std::sort(result.unavailable.begin(),result.unavailable.end());
+  return result;
+}
+
 PetBattlePowerState calculatePetBattlePower(const QJsonObject& pet, const PetPowerMetadata& m) {
   PetBattlePowerState out;
   auto reason = [&](const QString& value) { if (!out.unknownReasons.contains(value)) out.unknownReasons.append(value); };

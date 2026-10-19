@@ -11,7 +11,7 @@ import json
 from pathlib import Path
 import re
 
-CODE = r'[1-9]\d*(?:\$[1-9]\d*)?(?:-[1-9]\d*(?:\$[1-9]\d*)?)*'
+CODE = r'[1-9]\d*(?:\$[1-9]\d*(?::\d+)*)?(?:-[1-9]\d*(?:\$[1-9]\d*(?::\d+)*)?)*'
 MATERIALS = r'[1-9]\d*:[1-9]\d*(?::[1-9]\d*)?(?:#[1-9]\d*:[1-9]\d*(?::[1-9]\d*)?)*'
 CHOICE_TYPES = {'NChoose1', 'ArbitraryChoice', 'Choice', 'SelectPrizes'}
 ORDINARY_TYPES = {'Material', 'BatchMaterial', 'Pet', 'PetOpen', 'PetGain', 'PetSkin', 'PetEvolve', 'PetItem',
@@ -129,9 +129,8 @@ def enhancement_description(codes, support):
             rule = support.get('descriptionParameters', {}).get(code)
             if not isinstance(rule, dict):
                 return ''
-            # The supported token has a single parameter. Other parameter
-            # positions use the official default rather than reusing it.
-            level = parameter if parameter and rule['index'] == 0 else str(rule['default'])
+            parameters = parameter.split(':') if parameter else []
+            level = parameters[rule['index']] if rule['index'] < len(parameters) else str(rule['default'])
             label = label.replace('#level#', level)
         if re.search(r'#[A-Za-z]+#', label):
             return ''
@@ -220,7 +219,7 @@ def strengthen(row, params, target, *, structure, manual=False):
     return result
 
 
-def normalize_tables(scripts, tables, constants, support=None):
+def normalize_tables(scripts, tables, constants, support=None, resolve_shared=None):
     from public_activity_exchange_updater import LiteralReader, _arguments, _balanced
 
     tables = copy.deepcopy(tables)
@@ -232,6 +231,7 @@ def normalize_tables(scripts, tables, constants, support=None):
     def issue(table, reason, row=None):
         item = {'table': table, 'reason': reason}
         if row:
+            item['description'] = next((row[k] for k in ('basicDescription', 'name', 'desc') if isinstance(row.get(k), str)), '')
             item['itemId'] = next((row[k] for k in ('serverIndex', 'serverId', 'bi', 'index', 'id')
                                   if type(row.get(k)) is int), None)
         if item not in issues:
@@ -263,6 +263,12 @@ def normalize_tables(scripts, tables, constants, support=None):
     for key, value in constants.items():
         if key not in tables and isinstance(value, (list, dict)) and key.split('.')[0] in files:
             tables[key] = files[key.split('.')[0]], copy.deepcopy(value)
+
+    from activity_call_rewards import call_reward_tables, linked_purchase_tables
+    from activity_constructed_offers import constructed_offer_tables
+    tables = constructed_offer_tables(scripts, tables, constants, issue)
+    tables = linked_purchase_tables(scripts, tables, constants, issue, support)
+    tables = call_reward_tables(scripts, tables, constants, issue, support)
 
     # Follow explicit default filter assignments used by ActRewardsData and
     # ActReward subclasses. The table-local binding wins over a module default.
@@ -357,7 +363,7 @@ def normalize_tables(scripts, tables, constants, support=None):
             if isinstance(raw, str) and raw.startswith('Strengthen:'):
                 return strengthen(row, raw[len('Strengthen:'):], target_for(row, table), structure='tagged-strengthen')
             if row.get('type') == 'Strengthen' and 'goodsId' in row and 'params' not in row:
-                issue(table, '强化商品通过公共商城商品编号提供，尚缺少该商品的奖励配置', row)
+                issue(table, '公共商城购买入口尚未与奖励、费用和次数完整关联', row)
             if isinstance(row.get('rewardType'), str):
                 return typed(row, table)
             for field in consumed_fields:
@@ -447,20 +453,30 @@ def normalize_tables(scripts, tables, constants, support=None):
                              '-'.join(codes), default, structure='enum-strengthen', manual=True)
             tables[cls + '.directRewards/' + match[1]] = filename, [row]
 
-    # Generic cultivation panel links point into a separately versioned public
-    # catalog. Join only the explicitly requested race with its own packages.
+    # Generic panel links can normalize an appearance and, only for a single
+    # missing race, prefer the final ordered evolution. This is not @sb.
     for filename, source in scripts.items():
         cls = Path(filename).stem
-        requested = set()
+        requested = []
         for match in re.finditer(r'\.showPanelCombo\s*\(', source):
             try:
                 call, _ = _balanced(source, match.end()-1)
                 raw = re.sub(r'\.toString\(\)$', '', call[1:-1].strip())
-                requested.update(explicit_races(expression(raw, cls)))
+                seeds = explicit_races(expression(raw, cls))
+                if seeds and seeds not in requested:
+                    requested.append(seeds)
             except (ValueError, IndexError):
                 pass
+        targets = {}
+        for seeds in requested:
+            try:
+                resolved_targets = resolve_shared(seeds) if resolve_shared else [{'race': race} for race in seeds]
+                for target in resolved_targets:
+                    targets.setdefault(target['race'], target)
+            except (ValueError, KeyError) as error:
+                issue(cls + '.sharedCultivation', str(error))
         rewards = []
-        for race in sorted(requested):
+        for race, target in sorted(targets.items()):
             pet = support.get('pets', {}).get(str(race))
             if not isinstance(pet, dict) or str(pet.get('testOnly')) != '0':
                 issue(cls + '.sharedCultivation', '公共养成配置读取失败：' + support['error'] if support.get('error') else
@@ -488,7 +504,9 @@ def normalize_tables(scripts, tables, constants, support=None):
                     try:
                         row = strengthen({'basicDescription': label,
                             '_rewardField': f'shared/{race}/{price_id}', '_acquisitionKind': 'exchange',
+                            '_callEvidence': {'consumer': 'IStrengthenComboService.showPanelCombo', **target},
                             'publicPriceRaw': price, 'publicPriceBinding': binding,
+                            'publicPriceContext': support.get('priceContext', {}),
                             'unlock': '公共养成套餐；折扣、生效条件和费用请在游戏养成面板确认'},
                             code, [race], structure='shared-cultivation', manual=True)
                         rewards.append(row)

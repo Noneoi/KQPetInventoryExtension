@@ -1,4 +1,5 @@
 #include "catalog_types.h"
+#include "public_price_rule.h"
 #include <QCryptographicHash>
 #include <QRegularExpression>
 #include <algorithm>
@@ -34,7 +35,7 @@ bool ShopExchangeGood::isOnlineAt(const QDateTime& instant) const {
 }
 
 QDateTime ShopExchangeGood::nextAvailabilityChange(const QDateTime& after) const {
-  QDateTime result;
+  QDateTime result = nextPublicPriceChange(priceRule, after);
   const QList<QDateTime> boundaries{startsAt, endsAt,
       QDateTime(shelfDate, QTime(0, 0), Qt::OffsetFromUTC, 8 * 3600),
       hasRemovalDate ? QDateTime(removalDate.addDays(1), QTime(0, 0), Qt::OffsetFromUTC, 8 * 3600) : QDateTime{}};
@@ -53,7 +54,7 @@ QString ShopExchangeGood::stableKey() const {
   if (!sourceKey.isEmpty()) identity.prepend(sourceKey.toUtf8() + '\x1f');
   // An ordinary reward can be replaced at the same official item ID. Keep
   // price/name changes selected, but require a new choice for a new reward.
-  if (manualSelectionRequired) identity += rewardRaw.toUtf8() + '\x1f';
+  if (manualSelectionRequired && selectionIdentityIncludesReward) identity += rewardRaw.toUtf8() + '\x1f';
   QVector<int> canonicalRaces = raceIds;
   std::sort(canonicalRaces.begin(), canonicalRaces.end());
   canonicalRaces.erase(std::unique(canonicalRaces.begin(), canonicalRaces.end()),

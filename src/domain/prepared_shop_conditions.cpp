@@ -50,16 +50,19 @@ PreparedShopGoodConditions prepareGood(const CompiledShopGood& compiled,
   result.costCondition = compiled.costCondition;
   QHash<QString,ActivityShopCost> activityCosts;
   if (!good.sourceKey.isEmpty()) {
-    const auto observed = observeActivityShopGood(good,shopPacket);
-    if (!good.priceOptions.isEmpty() && observed.priceKnown) {
+    const auto observed = observeActivityShopGood(good,shopPacket,context.priceEvaluationAt,&resources);
+    if ((!good.priceOptions.isEmpty() || !good.priceRule.isEmpty()) && observed.priceKnown) {
       auto priced = good; priced.cost = observed.standardCost;
+      priced.provenFree = observed.standardCost.isEmpty();
       const auto catalog = CompiledShopCatalog::compile({priced});
       result.requirements = catalog.goods().first().requirements;
       result.costCondition = catalog.goods().first().costCondition;
       if (!observed.priceCurrent) result.costCondition = condition(ShopConditionState::Unknown,QStringLiteral("价格是上次读取的，请刷新确认"));
     }
+    if (!good.priceRule.isEmpty() && !observed.priceKnown)
+      result.costCondition = condition(observed.applicable ? ShopConditionState::Unknown : ShopConditionState::Blocked, observed.priceReason);
     if (!good.activityCosts.isEmpty() && observed.costs.size() == good.activityCosts.size()) {
-      if (good.cost.isEmpty() && good.priceOptions.isEmpty()) result.costCondition = condition(ShopConditionState::Satisfied,QStringLiteral("官方活动货币费用"));
+      if (good.cost.isEmpty() && good.priceOptions.isEmpty() && good.priceRule.isEmpty()) result.costCondition = condition(ShopConditionState::Satisfied,QStringLiteral("官方活动货币费用"));
       for (const auto& cost : observed.costs) {
         result.requirements.append({cost.key,cost.name,cost.required}); activityCosts.insert(cost.key,cost);
       }

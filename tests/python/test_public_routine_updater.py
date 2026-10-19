@@ -95,6 +95,7 @@ class PublicRoutineUpdaterTests(unittest.TestCase):
         self.assertEqual(catalog["source"]["resources"]["hud"]["version"], self.versions["config/config"])
 
     def test_only_changed_red_graph_recomputes_links_for_saved_hud(self):
+        self.updater.texts['hud'] = HUD.replace('"redPointId":100', '"redPointId":100,"appearCondition":"battlePower=270000+"')
         self.update()
         self.updater.calls.clear()
         self.versions["library/gameconst"] = "2026091812345678"
@@ -103,6 +104,8 @@ class PublicRoutineUpdaterTests(unittest.TestCase):
         self.assertEqual(self.updater.calls, ["redPoints"])
         catalog = json.loads(self.path.read_text(encoding="utf-8"))
         self.assertEqual(catalog["activities"][0]["redPointIds"], [100, 101, 103])
+        self.assertEqual(catalog['activities'][0]['appearCondition'], 'battlePower=270000+')
+        self.assertEqual(catalog['activities'][0]['appearanceRule']['conditions'][0]['value'], 270000)
 
     def test_unrecognized_task_formula_preserves_old_published_catalog(self):
         self.update()
@@ -140,6 +143,25 @@ class PublicRoutineUpdaterTests(unittest.TestCase):
         self.assertTrue(self.update())
         self.assertEqual(self.updater.calls, ["tasks", "hud", "redPoints"])
         self.assertTrue(routines.catalog_valid(json.loads(self.path.read_text(encoding="utf-8"))))
+
+    def test_visibility_or_negation_and_official_comparison_boundaries(self):
+        rule = routines.parse_appearance("battlePower=270000+|~registerDays=7+|task=42")
+        self.assertEqual(rule["operator"], "any")
+        self.assertEqual(rule["conditions"][0]["comparison"], "ge")
+        self.assertEqual(rule["conditions"][1]["comparison"], "gt")
+        self.assertTrue(rule["conditions"][1]["negate"])
+        self.assertIn("历史最高战力", rule["description"])
+        self.assertIn(" 或 ", rule["description"])
+        self.assertEqual(routines.parse_appearance("registerDays=7-")["conditions"][0]["comparison"], "le")
+        self.assertFalse(routines.parse_appearance("date=2026:2:30+")["supported"])
+
+    def test_independent_service_and_unknown_condition_are_preserved(self):
+        text = 'public static const DATA:Object={"hud":[{"key":"renamed","name":"任意入口","tryGetService":"Independent#open","appearCondition":"battlePower=5+|future=9"}]};'
+        rows, pending = routines.parse_hud(text)
+        self.assertEqual(len(rows), 1)
+        self.assertEqual(rows[0]["appearanceRule"]["conditions"][1]["kind"], "unknown")
+        self.assertEqual(rows[0]["appearCondition"], "battlePower=5+|future=9")
+        self.assertEqual(pending[0]["kind"], "appearance")
 
 
 if __name__ == "__main__":

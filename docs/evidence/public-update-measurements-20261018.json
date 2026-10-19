@@ -1,0 +1,302 @@
+{
+  "date": "2026-10-18",
+  "baselineCommit": "3ab79f6a978b28ba846efa261950163713f5f0f7",
+  "scope": "Development measurements in an isolated data directory. Python/Java/JPEXS were preinstalled. Runtime setup downloads are excluded. Online rows are separate observations, not controlled paired runs. parse totals include nested source/extraction work and must not be added to their totals.",
+  "online": [
+    {
+      "case": "cold-public-data",
+      "wallSeconds": 339.2658702000008,
+      "downloadBytes": 11482576,
+      "decompileSeconds": 283.54872300000807,
+      "extractionCacheHits": 3,
+      "totals": {
+        "decompile": {
+          "bytes": 0,
+          "calls": 101,
+          "reused": 0,
+          "seconds": 283.54872300000807
+        },
+        "download": {
+          "bytes": 11482576,
+          "calls": 188,
+          "reused": 1,
+          "seconds": 19.831922600002144
+        },
+        "extractCache": {
+          "bytes": 45196,
+          "calls": 3,
+          "reused": 3,
+          "seconds": 0.009192199998324213
+        },
+        "parse": {
+          "bytes": 0,
+          "calls": 6,
+          "reused": 0,
+          "seconds": 335.5649056000002
+        },
+        "prepare": {
+          "bytes": 0,
+          "calls": 1,
+          "reused": 0,
+          "seconds": 0.2294766000004529
+        },
+        "unpack": {
+          "bytes": 0,
+          "calls": 10,
+          "reused": 0,
+          "seconds": 0.04260020000128861
+        },
+        "validate": {
+          "bytes": 0,
+          "calls": 1,
+          "reused": 0,
+          "seconds": 0.9181781000006595
+        }
+      },
+      "results": {
+        "icons": {
+          "status": "updated"
+        },
+        "images": {
+          "status": "updated"
+        },
+        "pets": {
+          "status": "updated",
+          "counts": {
+            "astrolabe": 496,
+            "attributes": 29,
+            "badges": 652,
+            "items": 1858,
+            "jobs": 43,
+            "money": 63,
+            "pets": 9737,
+            "sacredEquipment": 77,
+            "stargods": 89
+          }
+        },
+        "routines": {
+          "status": "updated",
+          "counts": {
+            "activities": 44,
+            "redPointNodes": 131,
+            "tasks": 14,
+            "unsupportedRules": 0
+          }
+        },
+        "shop": {
+          "status": "partial",
+          "error": "奖励已识别，部分培养适用判断待适配：34$1、35$65、35$70、35$71、81、82、83、92$1；4 条活动兑换配置待识别",
+          "scanCounts": {
+            "automaticGoods": 119,
+            "manualGoods": 140,
+            "shops": 44
+          }
+        },
+        "skills": {
+          "status": "updated",
+          "counts": {
+            "buffs": 31350,
+            "entries": 257,
+            "pets": 9737,
+            "skills": 20821
+          }
+        }
+      }
+    },
+    {
+      "case": "rules-reparse-with-cache",
+      "wallSeconds": 42.872982999999294,
+      "downloadBytes": 10788511,
+      "decompileSeconds": 0,
+      "extractionCacheHits": 94,
+      "totals": {
+        "download": {
+          "bytes": 10788511,
+          "calls": 176,
+          "reused": 0,
+          "seconds": 14.885829099996045
+        },
+        "extractCache": {
+          "bytes": 16327711,
+          "calls": 94,
+          "reused": 94,
+          "seconds": 3.665810300002704
+        },
+        "parse": {
+          "bytes": 0,
+          "calls": 6,
+          "reused": 0,
+          "seconds": 39.61208230000011
+        },
+        "prepare": {
+          "bytes": 0,
+          "calls": 1,
+          "reused": 0,
+          "seconds": 0.6010826000001543
+        },
+        "save": {
+          "bytes": 0,
+          "calls": 1,
+          "reused": 0,
+          "seconds": 0.37320250000084343
+        },
+        "unpack": {
+          "bytes": 0,
+          "calls": 10,
+          "reused": 0,
+          "seconds": 0.07613259999743605
+        },
+        "validate": {
+          "bytes": 0,
+          "calls": 1,
+          "reused": 0,
+          "seconds": 0.6109431999993831
+        }
+      },
+      "results": {
+        "icons": {
+          "status": "unchanged"
+        },
+        "images": {
+          "status": "unchanged"
+        },
+        "pets": {
+          "status": "unchanged",
+          "counts": {
+            "astrolabe": 496,
+            "attributes": 29,
+            "badges": 652,
+            "items": 1858,
+            "jobs": 43,
+            "money": 63,
+            "pets": 9737,
+            "sacredEquipment": 77,
+            "stargods": 89
+          }
+        },
+        "routines": {
+          "status": "updated",
+          "counts": {
+            "activities": 44,
+            "redPointNodes": 131,
+            "tasks": 14,
+            "unsupportedRules": 0
+          }
+        },
+        "shop": {
+          "status": "partial",
+          "error": "奖励已识别，部分培养适用判断待适配：34$1、35$65、35$70、35$71、81、82、83、92$1；4 条活动兑换配置待识别",
+          "scanCounts": {
+            "automaticGoods": 119,
+            "manualGoods": 140,
+            "shops": 44
+          }
+        },
+        "skills": {
+          "status": "updated",
+          "counts": {
+            "buffs": 31350,
+            "entries": 257,
+            "pets": 9737,
+            "skills": 20821
+          }
+        }
+      }
+    },
+    {
+      "case": "unchanged-online-check",
+      "wallSeconds": 4.7239568999993935,
+      "downloadBytes": 8378282,
+      "decompileSeconds": 0,
+      "extractionCacheHits": 0,
+      "totals": {
+        "download": {
+          "bytes": 8378282,
+          "calls": 39,
+          "reused": 0,
+          "seconds": 5.083146300001317
+        },
+        "parse": {
+          "bytes": 0,
+          "calls": 6,
+          "reused": 0,
+          "seconds": 1.2127530000034312
+        },
+        "prepare": {
+          "bytes": 0,
+          "calls": 1,
+          "reused": 0,
+          "seconds": 0.5943334999992658
+        },
+        "save": {
+          "bytes": 0,
+          "calls": 1,
+          "reused": 0,
+          "seconds": 0.4028448000008211
+        },
+        "validate": {
+          "bytes": 0,
+          "calls": 1,
+          "reused": 0,
+          "seconds": 0.5794875999999931
+        }
+      },
+      "results": {
+        "icons": {
+          "status": "unchanged"
+        },
+        "images": {
+          "status": "unchanged"
+        },
+        "pets": {
+          "status": "unchanged",
+          "counts": {
+            "astrolabe": 496,
+            "attributes": 29,
+            "badges": 652,
+            "items": 1858,
+            "jobs": 43,
+            "money": 63,
+            "pets": 9737,
+            "sacredEquipment": 77,
+            "stargods": 89
+          }
+        },
+        "routines": {
+          "status": "unchanged",
+          "counts": {
+            "activities": 44,
+            "redPointNodes": 131,
+            "tasks": 14,
+            "unsupportedRules": 0
+          }
+        },
+        "shop": {
+          "status": "partial",
+          "error": "奖励已识别，部分培养适用判断待适配：34$1、35$65、35$70、35$71、81、82、83、92$1；4 条活动兑换配置待识别",
+          "scanCounts": {
+            "automaticGoods": 119,
+            "manualGoods": 140,
+            "shops": 44
+          }
+        },
+        "skills": {
+          "status": "unchanged",
+          "counts": {
+            "buffs": 31350,
+            "entries": 257,
+            "pets": 9737,
+            "skills": 20821
+          }
+        }
+      }
+    }
+  ],
+  "nativeEndToEnd": "Storage + bundled PowerShell/Python + CatalogIoService + receipt; real official sources; candidate saved and session applied, 48 operations preserved",
+  "migration": "Six installed public JSON objects and 117 public icon objects copied to an isolated root; no account files read; native apply succeeded",
+  "extractionPairs": "extraction-pairs-20261018.json",
+  "knownLimits": [
+    "4 activity configurations remain pending; unsupported cultivation applicability stays unknown",
+    "10000-pet synthetic workload exceeded the existing derived-facts cache capacity; no partial full-account result is published"
+  ]
+}

@@ -50,7 +50,7 @@ public slots:
   void setListRefreshRunning(bool running);
   void setDetailProgress(bool running, bool paused, int completed, int total,
                          int succeeded, int failed, qint64 currentInstanceId,
-                         int estimatedSeconds);
+                         int estimatedSeconds, int resumableCount = 0);
   void setMoveRunning(bool running);
 
 signals:
@@ -61,6 +61,7 @@ signals:
   void warehouseDetailPauseRequested();
   void warehouseDetailResumeRequested();
   void warehouseDetailCancelRequested();
+  void warehouseDetailRetryRequested(bool includeMissing);
   void detailRequested(qint64 instanceId);
   void cultivationMaterialsRefreshRequested();
   void settingsRequested();
@@ -135,6 +136,7 @@ private:
   QComboBox* warehouseSortDirection_ = nullptr;
   QPushButton* refresh_ = nullptr;
   QPushButton* refreshDetails_ = nullptr;
+  QPushButton* retryDetails_ = nullptr;
   QPushButton* pauseDetails_ = nullptr;
   QPushButton* cancelDetails_ = nullptr;
   QPushButton* settings_ = nullptr;

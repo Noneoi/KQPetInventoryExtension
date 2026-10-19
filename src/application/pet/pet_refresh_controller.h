@@ -44,6 +44,8 @@ public:
   bool listRefreshRunning() const { return listRunning_; }
   bool detailBatchRunning() const { return batchRunning_; }
   bool detailBatchPaused() const { return batchPaused_; }
+  int resumableDetailCount() const { return detailTaskPending_.size(); }
+  bool detailTaskLoading() const;
   bool moveRunning() const;
   void publishState();
 
@@ -55,7 +57,12 @@ public slots:
   void resumeWarehouseDetailRefresh();
   void cancelWarehouseDetailRefresh();
   void requestSingleDetail(qint64 instanceId);
+  void retryIncompleteDetails(bool includeMissing = false);
   bool requestMissingDetailOnce(qint64 instanceId);
+  // A shop visit owns only requests it newly adds. Other manual/batch users
+  // may share them; cancelling a visit never cancels those shared tasks.
+  bool requestShopDetailOnce(qint64 instanceId, quint64 visitToken);
+  void cancelShopDetailRequests(quint64 visitToken);
   void requestMoveToWarehouse(qint64 instanceId);
   void requestMoveToBackpack(qint64 instanceId);
   void chooseMoveReplacement(qint64 outgoingInstanceId);
@@ -107,6 +114,9 @@ private:
   void finishListPart(const QString& command, bool succeeded, const QString& reason = {});
   void maybeFinishListRefresh();
   void loadTimings();
+  void initializeDetailTaskStorage();
+  void saveDetailTask();
+  void pruneCompletedDetailTask();
   void saveTimings();
   QJsonObject timingsObject() const;
   void resetForAccount(const QString& account, quint64 sessionGeneration);
@@ -198,6 +208,10 @@ private:
   bool terminalNotificationGuard_ = false;
   Timings timings_;
   ControllerCacheStorage* timingsStorage_ = nullptr;
+  ControllerCacheStorage* detailTaskStorage_ = nullptr;
+  QHash<qint64, QDateTime> detailTaskPending_;
+  QList<qint64> deferredDetailIds_;
+  bool detailTaskWritable_ = false;
   bool timingsKnown_ = false;
   bool timingsEdited_ = false;
   quint64 timingsSaveRevision_ = 0;
@@ -227,6 +241,7 @@ private:
   QList<qint64> batchQueue_;
   QSet<qint64> queuedIds_;
   QSet<qint64> oneShotDetailIds_;
+  QHash<qint64, quint64> shopDetailOwners_;
   QSet<qint64> batchIds_;
   bool batchRunning_ = false;
   bool batchPaused_ = false;
@@ -234,6 +249,7 @@ private:
   int batchCompleted_ = 0;
   int batchSucceeded_ = 0;
   int batchFailed_ = 0;
+  QSet<qint64> incompleteDetailIds_;
   int consecutiveBatchTimeouts_ = 0;
   qint64 currentDetailId_ = 0;
   quint64 currentDetailGeneration_ = 0;

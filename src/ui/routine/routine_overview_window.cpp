@@ -1,6 +1,8 @@
 #include "routine_overview_window.h"
 
 #include "diagnostics/build_info.h"
+#include "ui/common/table_update.h"
+#include "domain/official_period_rules.h"
 #include "ui/common/ui_preferences.h"
 
 #include "domain/checked_json_numbers.h"
@@ -74,7 +76,7 @@ QString number(const std::optional<qint64>& value) { return value ? QString::num
 QString observationState(const ObservationValidity& state, const QString& current) {
   if (state.current()) return current;
   return state.state == ObservationValidityState::Invalidated ? QStringLiteral("已失效，请刷新")
-                                                            : QStringLiteral("上次读取（周期未确认）");
+                                                            : QStringLiteral("上次读取（重置时间未核验）");
 }
 QString sourceTip(const ObservationValidity& state) {
   QStringList values;
@@ -165,7 +167,8 @@ RoutineOverviewWindow::RoutineOverviewWindow(QWidget* parent) : QDialog(parent) 
   activityNote_->setWordWrap(true);
   activityTable_ = makeTable(activityPage,
                              {QStringLiteral("当前活动"), QStringLiteral("状态"),
-                              QStringLiteral("待处理红点"), QStringLiteral("上线日期")});
+                              QStringLiteral("待处理红点"), QStringLiteral("上线日期"),
+                              QStringLiteral("入口显示条件")});
   activityTable_->setObjectName(QStringLiteral("KQRoutineActivityTable"));
   activityLayout->addWidget(activityNote_);
   activityLayout->addWidget(activityTable_, 1);
@@ -290,9 +293,9 @@ QString RoutineOverviewWindow::prizeSummary(bool daily) const {
     QString state;
     if (threshold <= 0) state = QStringLiteral("目录目标无效");
     else if (!claimed.isBool()) state = QStringLiteral("领取状态未知");
-    else if (claimed.toBool()) state = claimedCurrent ? QStringLiteral("已领取") : QStringLiteral("已领取（周期未确认）");
+    else if (claimed.toBool()) state = claimedCurrent ? QStringLiteral("已领取") : QStringLiteral("已领取（读取时）");
     else if (!active) state = QStringLiteral("活跃值未知");
-    else if (!current) state = *active >= threshold ? QStringLiteral("已达到（周期未确认）") : QStringLiteral("未达到（周期未确认）");
+    else if (!current) state = *active >= threshold ? QStringLiteral("已达到（读取时）") : QStringLiteral("未达到（读取时）");
     else state = *active >= threshold ? QStringLiteral("可领取") : QStringLiteral("未达到");
     parts.append(QStringLiteral("%1 %2").arg(threshold).arg(state));
   }
@@ -320,12 +323,13 @@ void RoutineOverviewWindow::rebuild() {
 }
 
 void RoutineOverviewWindow::rebuildOpportunities() {
-  opportunityTable_->setRowCount(0);
-  const auto add = [this](const QString& name, const QString& period,
+  int nextRow = 0;
+  const auto add = [this, &nextRow](const QString& name, const QString& period,
       const std::optional<qint64>& available, const QString& limit, const QString& used,
       const QString& group, const QString& source) {
     const auto state = validity(group + QStringLiteral(":activity"));
-    const int row = opportunityTable_->rowCount(); opportunityTable_->insertRow(row);
+    const int row = nextRow++;
+    if (row >= opportunityTable_->rowCount()) opportunityTable_->insertRow(row);
     const QStringList values{name, period, number(available), limit, used,
         !available ? QStringLiteral("未读取到或数据无效") : observationState(state, QStringLiteral("数据有效"))};
     // Protocol origins stay available for troubleshooting without crowding the table.
@@ -334,7 +338,7 @@ void RoutineOverviewWindow::rebuildOpportunities() {
       const QColor color = available && state.current() && column == 2
           ? (*available > 0 ? QColor(QStringLiteral("#087a43")) : QColor(QStringLiteral("#b54708"))) : QColor{};
       auto* cell = item(values[column], color); cell->setToolTip(tip);
-      opportunityTable_->setItem(row, column, cell);
+      updateTableItem(opportunityTable_, row, column, cell);
     }
     opportunityTable_->item(row, 0)->setData(Qt::UserRole, name + QLatin1Char('/') + period);
   };
@@ -391,8 +395,10 @@ void RoutineOverviewWindow::rebuildOpportunities() {
   };
   addArena(QStringLiteral("经典竞技场·挑战"), QStringLiteral("zao1"));
   addArena(QStringLiteral("传奇竞技场·挑战"), QStringLiteral("zao2"));
+  opportunityTable_->setRowCount(nextRow);
   opportunityNote_->setText(QStringLiteral(
-      "数字来自最近一次读取；显示“周期未确认”时可能已经跨天或跨周，请以游戏内为准，这时也不会用绿色标记。"
+      "数字是最近一次成功读取的结果。“重置时间未核验”表示尚未核对服务器的每日/每周重置时间，并非读取失败。"
+      "跨天或跨周后请重新读取；未经周期核验的结果不标绿。"
       "竞技场次数在游戏内打开竞技场后才会更新；灵骑破封暂时没有可读取的次数。鼠标悬停可查看数据来源。"));
 }
 
@@ -420,8 +426,9 @@ void RoutineOverviewWindow::rebuildTasks() {
       const QStringList values{task.name, status, number(progress), QString::number(target), number(gap),
                               QString::number(daily ? task.dayActive : task.weekActive)};
       for (int column = 0; column < values.size(); ++column) {
-        auto* cell = item(values[column], column == 1 ? color : QColor{}); cell->setToolTip(sourceTip(state));
-        table->setItem(row, column, cell);
+        auto* cell = item(values[column], column == 1 ? color : QColor{});
+        cell->setToolTip(sourceTip(state) + QLatin1Char('\n') + diamondResetRule(daily ? QStringLiteral("daily") : QStringLiteral("weekly")));
+        updateTableItem(table, row, column, cell);
       }
       table->item(row, 0)->setData(Qt::UserRole, (daily ? QStringLiteral("daily:") : QStringLiteral("weekly:")) + QString::number(task.id));
       if (!progress) ++unknown;
@@ -458,19 +465,22 @@ void RoutineOverviewWindow::rebuildActivities() {
         : observationState(observation, active ? QStringLiteral("有待处理") : QStringLiteral("无红点"));
     QStringList ids; for (int id : activity.redPointIds) ids.append(QString::number(id));
     const QStringList values{activity.name, status, known ? QStringLiteral("%1 项").arg(active) : QStringLiteral("—"),
-        activity.startDate.isValid() ? activity.startDate.toString(QStringLiteral("yyyy-MM-dd")) : QStringLiteral("—")};
+        activity.startDate.isValid() ? activity.startDate.toString(QStringLiteral("yyyy-MM-dd")) : QStringLiteral("—"),
+        activity.appearanceDescription.isEmpty() ? QStringLiteral("未配置额外条件") : activity.appearanceDescription};
     const QString tip = sourceTip(observation) +
         QStringLiteral("\n红点数量是亮起的提示数，不是剩余战斗次数，也不代表活动已完成。") +
-        QStringLiteral("\n活动标识：%1\n红点节点：%2").arg(activity.key, ids.isEmpty() ? QStringLiteral("—") : ids.join(QLatin1Char(',')));
+        QStringLiteral("\n活动标识：%1\n红点节点：%2").arg(activity.key, ids.isEmpty() ? QStringLiteral("—") : ids.join(QLatin1Char(','))) +
+        (activity.appearCondition.isEmpty() ? QString{} : QStringLiteral("\n官方入口条件：%1\n这些条件控制游戏入口显示；领取和购买仍以活动规则为准。").arg(activity.appearCondition));
     for (int column = 0; column < values.size(); ++column) {
       // Absence of a red point is never an achievement/completion indicator.
       const QColor color = known && observation.current() && active > 0 && column == 1 ? QColor(QStringLiteral("#b54708")) : QColor{};
       auto* cell = item(values[column], color);
       cell->setToolTip(tip);
-      activityTable_->setItem(row, column, cell);
+      updateTableItem(activityTable_, row, column, cell);
     }
     activityTable_->item(row, 0)->setData(Qt::UserRole, activity.key);
   }
-  activityNote_->setText(QStringLiteral("目录：%1；共 %2 个活动，%3 个红点亮起。红点只表示有待处理的内容，没有亮起不代表活动已完成。")
-      .arg(catalog_ ? catalog_->sourceLabel : QStringLiteral("尚未就绪")).arg(activities.size()).arg(total));
+  activityNote_->setText(QStringLiteral("目录：%1；共 %2 个活动，%3 个红点亮起。\n目录更新时间：%4。账号进度以各项的读取时间及周期状态为准；更新目录不会刷新账号进度。红点未亮不代表已完成。")
+      .arg(catalog_ ? catalog_->sourceLabel : QStringLiteral("尚未就绪")).arg(activities.size()).arg(total)
+      .arg(catalog_ && catalog_->sourceUpdatedAt.isValid() ? localTime(catalog_->sourceUpdatedAt) : QStringLiteral("未记录")));
 }

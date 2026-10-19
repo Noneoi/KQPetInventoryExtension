@@ -14,6 +14,7 @@ import html
 import json
 import re
 from pathlib import Path
+from public_pet_relations import build_relation_rules, legacy_relation_views
 
 
 PET_FIELDS = (
@@ -77,6 +78,23 @@ def positive_int(value) -> int:
 
 def ids(value, separator="#") -> list[int]:
     return [int(token) for token in str(value or "").split(separator) if token.isdecimal() and int(token) > 0]
+
+
+def huan_descriptions(config: dict, skill_id: int) -> list[str]:
+    """Decode the exact official skill reference, not a suffix of a race id."""
+    rows = config.get(str(skill_id), [])
+    if not isinstance(rows, list):
+        raise ValueError("official huan skill table changed")
+    descriptions = []
+    for packed in rows:
+        parts = str(packed).split("|", 4)
+        if len(parts) != 5 or any(not part.isdecimal() for part in parts[1:4]):
+            raise ValueError("official huan skill definition changed")
+        name, tip = clean_text(parts[0]), clean_text(parts[4])
+        if tip:
+            descriptions.append((int(parts[2]), f"{name}：{tip}" if name else tip))
+    # HuanConfigXML orders definitions by valueToTakeEffect, preserving ties.
+    return [text for _, text in sorted(descriptions, key=lambda item: item[0])]
 
 
 def source_file(root: Path, *candidates: str) -> Path:
@@ -149,12 +167,14 @@ def build_catalog(root: Path, source: dict | None = None) -> dict:
     pet_info = optional_json(root, "pet/petinfoconfig.json")
     evolution = optional_json(root, "pet/petevoconfig.json")
     tieba = optional_json(root, "pet/tiebaconfig.json", default=[])
-    summons = optional_json(root, "battleconfig/summon_config.json", default=[])
-    carries = optional_json(root, "battleconfig/carry_config.json", default=[])
+    summons = optional_json(root, "battleconfig/summon_config.json", default=False)
+    hidden_summons = optional_json(root, "battleconfig/summon_hide_config.json", default=False)
+    carries = optional_json(root, "battleconfig/carry_config.json", default=False)
+    multiple_forms = optional_json(root, "multipleformpet/multipleformpetconfig.json", default=False)
     huan = optional_json(root, "battleconfig/huan_skill_config.json")
     almighty = optional_json(root, "battleconfig/almighty-skill-config.json", default=[])
     pet_data = optional_json(root, "petdata.json/petdata.json", "pet/petdata.json", default=[])
-    skin_root = optional_json(root, "changepetskin/changepetskinconfig.json")
+    skin_root = optional_json(root, "changepetskin/changepetskinconfig.json", default=False)
 
     skills = {}
     for skill_id, packed in skill_desc.items():
@@ -196,31 +216,18 @@ def build_catalog(root: Path, source: dict | None = None) -> dict:
             item["effect"] = clean_text(parts[3])
         buffs[str(buff_id)] = item
 
-    summon_by_race: dict[str, list[dict]] = {}
-    for row in summons if isinstance(summons, list) else []:
-        if not isinstance(row, dict):
-            continue
-        summoners, summoned = ids(row.get("s")), ids(row.get("sed"))
-        common = {"description": clean_text(row.get("sdes")), "effect": clean_text(row.get("des"))}
-        for race in summoners:
-            summon_by_race.setdefault(str(race), []).append(
-                {**common, "role": "summoner", "related": summoned})
-        for race in summoned:
-            summon_by_race.setdefault(str(race), []).append(
-                {**common, "role": "summoned", "related": summoners})
-
-    carry_by_race: dict[str, list[dict]] = {}
-    for row in carries if isinstance(carries, list) else []:
-        if not isinstance(row, dict):
-            continue
-        carriers, carried = ids(row.get("c")), ids(row.get("ced"))
-        description = clean_text(row.get("sdes"))
-        for race in carriers:
-            carry_by_race.setdefault(str(race), []).append(
-                {"role": "carrier", "related": carried, "description": description})
-        for race in carried:
-            carry_by_race.setdefault(str(race), []).append(
-                {"role": "carried", "related": carriers, "description": description})
+    relation_rules = build_relation_rules(
+        *(value if value is not False else None for value in
+          (summons, hidden_summons, carries, skin_root, multiple_forms)),
+        {str(race): pet_row(value) for race, value in dictionary.items()}, clean_text, include_text=True)
+    summon_by_race, carry_by_race = legacy_relation_views(relation_rules)
+    # Relation eligibility needs identity and display flags, not thousands of
+    # repeated skill descriptions already stored by the text-card projection.
+    for group in ("summon", "carry"):
+        for rows in relation_rules[group]["bySourceRaceId"].values():
+            for item in rows:
+                item.pop("description", None)
+                item.pop("effect", None)
 
     skins_by_race: dict[str, list[dict]] = {}
     definitions = skin_root.get("defines", []) if isinstance(skin_root, dict) else []
@@ -250,7 +257,9 @@ def build_catalog(root: Path, source: dict | None = None) -> dict:
         if not isinstance(row, dict):
             continue
         define_id = positive_int(row.get("id"))
-        race = define_id % 10000
+        # AlmightyConfigXML and the official skill UI use the complete race
+        # id. Long-form ids are distinct definitions, not base-race aliases.
+        race = define_id
         if not race:
             continue
         almighty_by_race.setdefault(str(race), []).append({
@@ -267,6 +276,13 @@ def build_catalog(root: Path, source: dict | None = None) -> dict:
             continue
         race = str(positive_int(row["raceId"]) or race_id)
         slots = {name: positive_int(row[field]) for name, field in SKILL_SLOTS.items()}
+        # The official dictionary exposes param37 through huanSkillNo for
+        # these signs, and through yuanLiSkillNo for every other pet. Skins
+        # may reference another race's skill; the full reference is decisive.
+        has_huan = any(sign in str(row["signs"] or "") for sign in ("寰力量", "异形族"))
+        huan_skill_id = slots["yuanLi"] if has_huan else 0
+        if has_huan:
+            slots["yuanLi"] = 0
         pet = {
             "name": clean_text(row["orgName"]), "attributes": str(row["attributes"] or ""),
             "jobs": str(row["jobs"] or ""), "signs": clean_text(row["signs"]),
@@ -292,11 +308,7 @@ def build_catalog(root: Path, source: dict | None = None) -> dict:
             pet["skins"] = skins_by_race[race]
         if race in groups:
             pet["forms"] = groups[race]
-        almighty_rows = list(almighty_by_race.get(race, []))
-        for grouped_race in groups.get(race, []):
-            for value in almighty_by_race.get(str(grouped_race), []):
-                if value not in almighty_rows:
-                    almighty_rows.append(value)
+        almighty_rows = almighty_by_race.get(race, []) if "天觉者" in pet["signs"] else []
         if almighty_rows:
             pet["almighty"] = almighty_rows
         info = pet_info.get(race)
@@ -306,9 +318,9 @@ def build_catalog(root: Path, source: dict | None = None) -> dict:
         evo = evolution.get(race)
         if isinstance(evo, list) and len(evo) > 3 and positive_int(evo[3]) != int(race):
             pet["evolutionFrom"] = positive_int(evo[3])
-        huan_rows = [value for key, value in huan.items() if str(key).endswith(race)]
+        huan_rows = huan_descriptions(huan, huan_skill_id) if huan_skill_id else []
         if huan_rows:
-            pet["huan"] = [clean_text(value) for value in huan_rows[0] if clean_text(value)]
+            pet["huan"] = huan_rows
         pets[race] = pet
 
     compact_transform = {}
@@ -334,6 +346,7 @@ def build_catalog(root: Path, source: dict | None = None) -> dict:
         "lingchuRules": lingchu,
         "shenyunRules": shenyun,
         "almightySkills": almighty,
+        "relationRules": relation_rules,
     }
 
 

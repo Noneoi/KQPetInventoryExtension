@@ -58,6 +58,191 @@ QJsonObject warehousePacket() {
           {QStringLiteral("es"), elite}};
 }
 
+bool durableDetailTaskTest(const QString& root) {
+  StorageService storage(root);
+  PetRepository repository(nullptr, &storage, QDir(root).filePath(QStringLiteral("legacy")));
+  const auto login = [&](const QString& account) {
+    deliver(&repository, {{"_cmd","21_1"},{"info",QJsonObject{{"n",account}}}});
+    repository.expectListPart(QStringLiteral("2_1_S"), 1, repository.accountKey(), repository.sessionGeneration());
+    deliver(&repository, warehousePacket());
+  };
+  login(QStringLiteral("resume-a"));
+  bool ok = true;
+  {
+    PetRefreshController controller(&repository);
+    PetRefreshController::Timings timings; timings.detailRequestGapMs = 10; timings.detailTimeoutMs = 200;
+    controller.setTimings(timings);
+    controller.setSender([&](const QString&, const QString& command, const QString& parameters) {
+      if (command != QStringLiteral("2_1_R")) return false;
+      const auto id = QJsonDocument::fromJson(parameters.toUtf8()).object().value(QStringLiteral("pi")).toInteger();
+      QTimer::singleShot(0, &repository, [&, id] {
+        deliver(&repository, {{"_cmd","2_1_R"},{"p",QJsonObject{{"id",id},{"r",7000},{"lv",100}}}});
+      });
+      return true;
+    });
+    QObject::connect(&controller, &PetRefreshController::detailRequestFinished, &controller,
+        [&](qint64, bool success, const QString&) { if (success) controller.pauseWarehouseDetailRefresh(); });
+    controller.startWarehouseDetailRefresh();
+    ok &= require(waitUntil([&] { return controller.detailBatchPaused() && controller.resumableDetailCount() == 2; }),
+                  "checkpoint batch did not retain only unfinished instances");
+    controller.cancelWarehouseDetailRefresh();
+    ok &= require(waitUntil([&] { return storage.state().outstandingTasks == 0; }), "checkpoint did not drain before restart");
+  }
+  {
+    PetRefreshController controller(&repository);
+    QList<qint64> sent;
+    PetRefreshController::Timings timings; timings.detailRequestGapMs = 1; timings.detailTimeoutMs = 25; timings.detailMaxRetries = 0;
+    controller.setTimings(timings);
+    controller.setSender([&](const QString&, const QString& command, const QString& parameters) {
+      if (command != QStringLiteral("2_1_R")) return false;
+      sent.append(QJsonDocument::fromJson(parameters.toUtf8()).object().value(QStringLiteral("pi")).toInteger());
+      return false;
+    });
+    ok &= require(waitUntil([&] { return !controller.detailTaskLoading() && !repository.cacheLoading(); }) &&
+                  controller.resumableDetailCount() == 2 && sent.isEmpty(), "restored task auto-sent or lost its account checkpoint");
+    // Another detail consumer already completed one pending member.
+    repository.expectDetail(102, 800, repository.accountKey(), repository.sessionGeneration());
+    deliver(&repository, {{"_cmd","2_1_R"},{"p",QJsonObject{{"id",102},{"r",7000},{"lv",100}}}});
+    ok &= require(waitUntil([&] { return repository.isDetailPersisted(102); }), "external detail fixture did not persist");
+    controller.retryIncompleteDetails();
+    ok &= require(waitUntil([&] { return !controller.detailBatchRunning() && sent.size() == 1; }) &&
+                  sent == QList<qint64>{103} && controller.resumableDetailCount() == 1,
+                  "resume re-read a completed member or dropped a failed member");
+    ok &= require(waitUntil([&] { return storage.state().outstandingTasks == 0; }), "failed checkpoint did not persist");
+    login(QStringLiteral("resume-b"));
+    ok &= require(waitUntil([&] { return !controller.detailTaskLoading(); }) && controller.resumableDetailCount() == 0,
+                  "unfinished task leaked into a different account");
+    login(QStringLiteral("resume-a"));
+    ok &= require(waitUntil([&] { return !controller.detailTaskLoading(); }) && controller.resumableDetailCount() == 1,
+                  "account switch lost original unfinished task");
+    sent.clear();
+    controller.startWarehouseDetailRefreshForIds({103});
+    controller.requestSingleDetail(101);
+    controller.cancelWarehouseDetailRefresh();
+    ok &= require(waitUntil([&] { return !sent.isEmpty(); }) && sent == QList<qint64>{101},
+                  "batch cancellation destroyed unrelated queued detail work");
+  }
+  return ok;
+}
+
+bool shopDetailVisitTest(const QString& root) {
+  StorageService storage(root);
+  PetRepository repository(nullptr,&storage,QDir(root).filePath(QStringLiteral("legacy")));
+  PetRefreshController controller(&repository);
+  PetRefreshController::Timings timings;
+  timings.automaticIntervalMs = 100000; timings.detailRequestGapMs = 15;
+  timings.detailTimeoutMs = 30; timings.detailMaxRetries = 2;
+  controller.setTimings(timings);
+  const auto login = [&](const QString& account) {
+    deliver(&repository,{{"_cmd","21_1"},{"info",QJsonObject{{"n",account}}}});
+    repository.expectListPart(QStringLiteral("2_1_S"),1,repository.accountKey(),repository.sessionGeneration());
+    deliver(&repository,warehousePacket());
+  };
+  login(QStringLiteral("shop-visits"));
+  bool ok = require(repository.isAuthenticated() && repository.currentInstanceIds().size() == 3,
+                    "shop visit fixture did not establish the current warehouse");
+  QList<qint64> sent, sentAt, finished;
+  bool reject101 = false, chainNext = false;
+  int otherCommands = 0;
+  QElapsedTimer clock; clock.start();
+  controller.setSender([&](const QString&,const QString& command,const QString& parameters) {
+    if (command != QStringLiteral("2_1_R")) { ++otherCommands; return false; }
+    const qint64 id = QJsonDocument::fromJson(parameters.toUtf8()).object().value(QStringLiteral("pi")).toInteger();
+    sent.append(id); sentAt.append(clock.elapsed());
+    return !(reject101 && id == 101); // Other requests deliberately time out.
+  });
+  QObject::connect(&controller,&PetRefreshController::detailRequestFinished,&controller,
+      [&](qint64 id,bool,const QString&) {
+    finished.append(id);
+    if (chainNext && id == 101) controller.requestShopDetailOnce(103,2);
+  });
+  controller.requestShopDetailOnce(101,1); controller.requestShopDetailOnce(102,1);
+  controller.requestSingleDetail(103); controller.cancelShopDetailRequests(1);
+  ok &= require(waitUntil([&] { return finished.size() == 1; }) &&
+      sent == QList<qint64>({103,103,103}),"cancelling queued shop reads cancelled or changed an unrelated manual task");
+  sent.clear(); sentAt.clear(); finished.clear(); reject101 = chainNext = true;
+  ok &= require(controller.requestShopDetailOnce(101,2) && controller.requestShopDetailOnce(101,2) &&
+      controller.requestShopDetailOnce(102,2),"shop visit did not admit valid current IDs");
+  ok &= require(waitUntil([&] { return finished.size() == 3; }) &&
+      sent == QList<qint64>({101,102,103}) &&
+      sentAt.size() == 3 && sentAt[1]-sentAt[0] >= 10 && sentAt[2]-sentAt[1] >= 10,
+      "shop reads retried, duplicated, failed to advance after failure/timeout or bypassed queue pacing");
+  chainNext = reject101 = false;
+  sent.clear(); finished.clear();
+  controller.requestShopDetailOnce(101,3);
+  ok &= require(waitUntil([&] { return sent.size() == 1; }),"in-flight shop cancellation fixture did not send");
+  controller.requestShopDetailOnce(102,3); controller.requestSingleDetail(103);
+  controller.cancelShopDetailRequests(3);
+  ok &= require(waitUntil([&] { return finished.size() == 2; }) &&
+      sent == QList<qint64>({101,103,103,103}) && finished[0] == 101,
+      "leaving a shop visit discarded in-flight completion or leaked unsent candidates");
+  sent.clear(); finished.clear();
+  controller.requestShopDetailOnce(101,4); controller.requestSingleDetail(101);
+  controller.cancelShopDetailRequests(4);
+  ok &= require(waitUntil([&] { return finished.size() == 1; }) && sent == QList<qint64>({101,101,101}),
+      "a manual read sharing a shop request lost ownership or its retry policy");
+  sent.clear(); finished.clear();
+  controller.requestShopDetailOnce(102,5); controller.requestMissingDetailOnce(102);
+  controller.cancelShopDetailRequests(5);
+  ok &= require(waitUntil([&] { return finished.size() == 1; }) && sent == QList<qint64>({102}),
+      "shop cancellation discarded the analysis consumer of a shared one-shot request");
+  sent.clear(); finished.clear();
+  controller.requestShopDetailOnce(103,6); controller.startWarehouseDetailRefreshForIds({103});
+  controller.cancelShopDetailRequests(6);
+  ok &= require(waitUntil([&] { return !controller.detailBatchRunning(); }) &&
+      sent == QList<qint64>({103,103,103}) && finished == QList<qint64>({103}),
+      "a warehouse batch sharing a queued shop request was cancelled or lost retries");
+  sent.clear(); finished.clear();
+  controller.requestShopDetailOnce(101,7);
+  ok &= require(waitUntil([&] { return finished.size() == 1; }) && sent == QList<qint64>({101}),
+      "a new shop visit could not read a previously attempted instance once again");
+  sent.clear(); finished.clear();
+  controller.requestMissingDetailOnce(101);
+  ok &= require(waitUntil([&] { return finished.size() == 1; }) && sent == QList<qint64>({101}),
+      "a completed shop ownership record changed a later analysis one-shot request");
+  sent.clear(); finished.clear();
+  controller.requestShopDetailOnce(101,8); controller.requestShopDetailOnce(102,8);
+  login(QStringLiteral("shop-visits-next"));
+  waitUntil([] { return false; },60);
+  ok &= require(sent.isEmpty() && finished.isEmpty(),"account reset sent stale shop candidates");
+  // The transport may have accepted a queued intent without executing it yet.
+  // Cancelling this visit revokes only its own unsubmitted permit.
+  timings.detailTimeoutMs = 500; controller.setTimings(timings);
+  QList<OutboundIntent> intents;
+  controller.setAsyncSender([&](const OutboundIntent& intent) { intents.append(intent); return true; });
+  controller.requestShopDetailOnce(101,9);
+  ok &= require(waitUntil([&] { return intents.size() == 1; }),"async shop intent did not enqueue");
+  controller.requestSingleDetail(102); controller.cancelShopDetailRequests(9);
+  ok &= require(waitUntil([&] { return intents.size() == 2; }) &&
+      intents[0].permit.state() == SendPermitState::Revoked &&
+      intents[1].ticket.entityId == 102 && intents[1].permit.state() == SendPermitState::Pending,
+      "cancelling an unsubmitted shop intent affected a different queued user read");
+  login(QStringLiteral("shop-visits-third")); intents.clear(); finished.clear();
+  controller.requestShopDetailOnce(103,10);
+  ok &= require(waitUntil([&] { return intents.size() == 1; }),"claimed shop fixture did not enqueue");
+  if (!intents.isEmpty()) {
+    const auto intent = intents[0]; const qint64 dispatchedAt = transportMonotonicMs();
+    ok &= require(intent.permit.claim(dispatchedAt),"shop intent could not cross dispatch boundary");
+    controller.cancelShopDetailRequests(10);
+    ok &= require(intent.permit.state() == SendPermitState::Claimed && finished.isEmpty(),
+                  "visit cancellation invalidated an already claimed transport read");
+    intent.permit.complete(SubmissionOutcome::Submitted);
+    controller.handleSendReceipt({intent.ticket.taskId,intent.ticket.account,intent.ticket.sessionEpoch,
+        intent.ticket.command,SubmissionOutcome::Submitted,dispatchedAt,dispatchedAt+500,{}});
+    deliver(&repository,{{"_cmd","2_1_R"},{"p",QJsonObject{{"id",103},{"r",7000},{"lv",100}}}});
+    ok &= require(waitUntil([&] { return finished == QList<qint64>({103}); }),
+                  "an already submitted shop read could not complete after leaving the project");
+  }
+  repository.setConnectionState(SessionConnectionState::Disconnected,QStringLiteral("shop-fixture-offline"));
+  const int intentCount = intents.size();
+  ok &= require(!controller.requestShopDetailOnce(101,11) && intents.size() == intentCount &&
+      !otherCommands,"offline shop read or visit processing sent a non-detail command");
+  ok &= require(waitForRepositoryIdle(&repository) && waitUntil([&] { return !controller.timingsPending(); }),
+                "shop visit storage did not settle");
+  ok &= require(storage.shutdown(),"shop visit storage did not drain");
+  return ok;
+}
+
 bool asynchronousSettingsTest(const QString& root) {
   QDir().mkpath(root);
   const QString settingsPath = QDir(root).filePath(QStringLiteral("settings.json"));
@@ -313,7 +498,7 @@ bool weakBatchTimeoutPauseTest(const QString& root) {
       {QStringLiteral("ns"), pets}, {QStringLiteral("rb"), QJsonArray{}}, {QStringLiteral("es"), QJsonArray{}}});
   QObject::connect(&repository, &PetRepository::rawRecordAvailable, &repository,
       [&](const RawPetRecordHandle& record) { if (record && record->complete) repository.markRecordDerived(record->key); });
-  enum class Replies { Intermittent, Reject, Malformed, ManualTimeouts };
+  enum class Replies { Intermittent, Reject, Malformed, ManualTimeouts, Success };
   Replies replies = Replies::Intermittent;
   QList<qint64> sent;
   int finished = 0, succeeded = 0, failed = 0;
@@ -365,6 +550,13 @@ bool weakBatchTimeoutPauseTest(const QString& root) {
       "resume lost remaining instances or failed to reset the timeout streak");
   ok &= require(controller.timings().detailTimeoutMs == 20 && controller.timings().detailMaxRetries == 1 &&
       controller.timings().detailRequestGapMs == 1, "automatic pause changed the user's refresh timings");
+  replies = Replies::Success; sent.clear(); finished = succeeded = failed = 0;
+  controller.retryIncompleteDetails();
+  ok &= require(waitUntil([&] { return !controller.detailBatchRunning(); }) &&
+      succeeded == 7 && failed == 0 && sent.size() == 7 && !sent.contains(103) && !sent.contains(109),
+      "retry reread completed instances or omitted a failed instance");
+  sent.clear(); controller.retryIncompleteDetails();
+  ok &= require(!controller.detailBatchRunning() && sent.isEmpty(), "successful retry did not clear the failed queue");
 
   for (const Replies mode : {Replies::Reject, Replies::Malformed}) {
     replies = mode;
@@ -559,6 +751,8 @@ int main(int argc, char* argv[]) {
   ok &= controllerCacheAccountDrainTest(QDir(temporary.path()).filePath(QStringLiteral("account-cache-drain")));
   ok &= weakDetailBatchTest(QDir(temporary.path()).filePath(QStringLiteral("weak-detail-batch")));
   ok &= weakBatchTimeoutPauseTest(QDir(temporary.path()).filePath(QStringLiteral("weak-batch-timeouts")));
+  ok &= shopDetailVisitTest(QDir(temporary.path()).filePath(QStringLiteral("shop-detail-visits")));
+  ok &= durableDetailTaskTest(QDir(temporary.path()).filePath(QStringLiteral("durable-detail-tasks")));
 
   if (!ok) return 1;
   std::fprintf(stdout, "PASS: timed list refresh and serial detail queue\n");

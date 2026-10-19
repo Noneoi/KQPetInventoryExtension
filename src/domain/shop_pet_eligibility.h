@@ -12,7 +12,7 @@ struct AlgorithmPipelineStats;
 struct PetBattlePowerState;
 
 enum class ShopCultivationState { Unknown, Useful, Full };
-inline constexpr std::size_t kShopCultivationComponentCount = 14;
+inline constexpr std::size_t kShopCultivationComponentCount = 22;
 
 struct ShopPetMetadataSnapshot {
   QJsonObject stargods;
@@ -30,6 +30,7 @@ struct ShopPetComponentRule {
   QString name;
   int componentIndex = -1;
   int targetLevel = 0;
+  int targetId = 0;
 };
 
 struct CompiledShopPetRule {
@@ -49,6 +50,14 @@ struct ShopPetDerived {
   bool hasChangeableSlot = false;
   bool changeableLevelKnown = false;
   int changeableLevel = 0;
+  int astrolabeBlockedMask = 0;
+  bool equipmentLevelsKnown = false;
+  int minimumEquipmentLevel = 0;
+  bool legendStoneLevelsKnown = false;
+  int minimumLegendStoneLevel = 0;
+  QList<int> usefulSpecifiedStars;
+  QList<int> satisfiedSpecifiedStars;
+  QList<int> unavailableSpecifiedStars;
   std::array<ShopCultivationState, kShopCultivationComponentCount> components{};
 };
 

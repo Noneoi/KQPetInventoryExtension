@@ -24,24 +24,30 @@ bool AssetDerivation::matchesCultivationCategory(const PetAssetRecord& pet, cons
   return false;
 }
 
-QString AssetDerivation::cultivationMaterialSummary(const QList<const PetAssetRecord*>& pets, const QString& category) {
+QString AssetDerivation::cultivationMaterialSummary(const QList<const PetAssetRecord*>& pets, const QString& category,
+                                                   bool includePetNames) {
   const QList<QPair<QString,QString>> categories{{QStringLiteral("sacred"),QStringLiteral("神源兽")},
       {QStringLiteral("astrolabe"),QStringLiteral("星轮精华")},{QStringLiteral("badges"),QStringLiteral("元魂")},
       {QStringLiteral("stargods"),QStringLiteral("红星")}};
   QStringList summaries;
+  QMap<QString,int> nameCounts;
+  if (includePetNames) for (const auto* pet : pets) if (pet) ++nameCounts[pet->name];
   for (const auto& group : categories) {
     if (!category.isEmpty() && category != group.first) continue;
-    QMap<QString,qint64> totals; QMap<QString,QString> names; int unknownPets = 0;
+    QMap<QString,qint64> totals; QMap<QString,QString> names;
+    QMap<QString,QStringList> contributors; int unknownPets = 0;
     for (const auto* pet : pets) {
       if (!pet) continue;
-      bool unknown = !pet->detailAvailable;
-      if (pet->detailAvailable && group.first == QStringLiteral("stargods")) {
+      if (!pet->detailAvailable) { ++unknownPets; continue; }
+      bool unknown = false;
+      QMap<QString,qint64> petTotals;
+      if (group.first == QStringLiteral("stargods")) {
         unknown |= !pet->redStarKnown;
         if (pet->redStarKnown && pet->missingRedStars > 0) {
-          totals[QStringLiteral("ordinary")] += pet->missingRedStars; names[QStringLiteral("ordinary")] = QStringLiteral("普通红星");
+          petTotals[QStringLiteral("ordinary")] += pet->missingRedStars; names[QStringLiteral("ordinary")] = QStringLiteral("普通红星");
         }
         if (pet->gapKeys.contains(QStringLiteral("sg_changeable"))) {
-          ++totals[QStringLiteral("changeable")]; names[QStringLiteral("changeable")] = QStringLiteral("万变红星");
+          ++petTotals[QStringLiteral("changeable")]; names[QStringLiteral("changeable")] = QStringLiteral("万变红星");
         }
       }
       for (const auto& row : pet->cultivationRequirements.items) {
@@ -53,17 +59,34 @@ QString AssetDerivation::cultivationMaterialSummary(const QList<const PetAssetRe
           if (!item.known) { unknown = true; continue; }
           if (item.count <= 0) continue;
           const QString key = QStringLiteral("%1:%2:%3:%4").arg(item.type).arg(item.id).arg(item.extra).arg(item.id ? QString{} : item.name);
-          totals[key] += item.count; names[key] = item.name;
+          petTotals[key] += item.count; names[key] = item.name;
         }
       }
       if (unknown) ++unknownPets;
+      for (auto it = petTotals.cbegin(); it != petTotals.cend(); ++it) {
+        totals[it.key()] += it.value();
+        if (!includePetNames) continue;
+        QString label = pet->name.isEmpty() ? QStringLiteral("未命名精灵") : pet->name;
+        if (pet->name.isEmpty() || nameCounts.value(pet->name) > 1)
+          label += QStringLiteral("（实例 %1）").arg(pet->instanceId);
+        if (it.value() > 1) label += QStringLiteral("（需 %1）").arg(it.value());
+        contributors[it.key()].append(label);
+      }
     }
     QStringList parts; qint64 total = 0;
     for (auto it = totals.cbegin(); it != totals.cend(); ++it) {
-      parts.append(QStringLiteral("%1 × %2").arg(names.value(it.key())).arg(it.value())); total += it.value();
+      QString part = QStringLiteral("%1 × %2").arg(names.value(it.key())).arg(it.value());
+      if (includePetNames) {
+        auto labels = contributors.value(it.key()); labels.sort();
+        part += QStringLiteral("：") + labels.join(QStringLiteral("、"));
+      }
+      parts.append(part); total += it.value();
     }
-    QString text = parts.isEmpty() ? QStringLiteral("已知缺口 0") : QStringLiteral("已知共 %1：%2").arg(total).arg(parts.join(QStringLiteral("；")));
-    if (unknownPets) text += QStringLiteral("；另有 %1 只信息不足，未计入未知数量").arg(unknownPets);
+    QString text = parts.isEmpty() ? QStringLiteral("已知缺口 0")
+        : includePetNames ? QStringLiteral("已知共 %1\n%2").arg(total).arg(parts.join(QLatin1Char('\n')))
+                          : QStringLiteral("已知共 %1：%2").arg(total).arg(parts.join(QStringLiteral("；")));
+    if (unknownPets) text += (includePetNames ? QStringLiteral("\n") : QStringLiteral("；")) +
+        QStringLiteral("另有 %1 只信息不足，未计入未知数量").arg(unknownPets);
     summaries.append(group.second + QStringLiteral("：") + text);
   }
   return summaries.join(QLatin1Char('\n'));

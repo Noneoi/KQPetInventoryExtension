@@ -1,4 +1,5 @@
 #include "application/common/observation_freshness.h"
+#include "domain/official_period_rules.h"
 #include "application/shop/shop_exchange_controller.h"
 #include "application/routine/routine_overview_controller.h"
 #include "domain/prepared_shop_conditions.h"
@@ -204,6 +205,9 @@ bool controllerTest() {
           QJsonObject{{QStringLiteral("lCToken"), 9}}}}}});
   ok &= check(shop.hasObservedPacket() && shop.quotaValiditySnapshot().value(QStringLiteral("si1:dl")).state == ShopConditionState::Unknown,
               "ordinary trusted shop observation was promoted into verified period authority");
+  ok &= check(shop.quotaValiditySnapshot().value(QStringLiteral("si1:tl")).state == ShopConditionState::Satisfied &&
+      shop.quotaValiditySnapshot().value(QStringLiteral("si1:pl")).state == ShopConditionState::Unknown,
+      "SEF lifetime limit depended on a fake expiry or promoted per-store periods");
   auto shopProof = proof(repository.accountKey(), repository.sessionGeneration(), QStringLiteral("si1"), shop.observedSequence(QStringLiteral("si1")), QStringLiteral("dl"));
   ok &= check(shop.acceptQuotaValidityEvidence(shopProof) &&
                   shop.quotaValiditySnapshot().value(QStringLiteral("si1:dl")).state == ShopConditionState::Satisfied,
@@ -257,6 +261,14 @@ bool boundedFactsTest() {
 int main(int argc, char** argv) {
   QCoreApplication application(argc, argv);
   bool ok = periodAndDomainTest();
+  for (const QString& instant : {QStringLiteral("2026-10-15T21:59:59.999Z"),QStringLiteral("2026-10-15T22:00:00.000Z"),
+       QStringLiteral("2026-12-31T22:00:00.000Z"),QStringLiteral("2027-01-01T00:00:00.000Z")}) {
+    const auto time = QDateTime::fromString(instant,Qt::ISODateWithMs);
+    const auto [from,until] = diamondWeeklyWindow(time);
+    ok &= check(from <= time && time < until && from.daysTo(until) == 7 &&
+        from.toOffsetFromUtc(8 * 3600).date().dayOfWeek() == 5 && from.toOffsetFromUtc(8 * 3600).time() == QTime(6,0),
+        "official weekly boundary changed across Friday/year edges");
+  }
   ok &= clockAndEvidenceTest();
   ok &= controllerTest();
   ok &= boundedFactsTest();

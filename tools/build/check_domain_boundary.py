@@ -19,7 +19,7 @@ QT_CORE_HEADERS = {
     "QHash", "QHashFunctions", "QJsonArray", "QJsonDocument", "QJsonObject", "QJsonParseError",
     "QJsonValue", "QList", "QMap", "QMetaType", "QPair", "QRegularExpression",
     "QSet", "QString", "QStringList", "QStringView", "QTime", "QTimeZone",
-    "QUrl", "QVariant", "QVector", "QtGlobal",
+    "QUrl", "QVariant", "QVector", "QtGlobal", "QtEndian",  # Pure byte-order value conversion.
 }
 STANDARD_HEADERS = {
     "algorithm", "array", "atomic", "bit", "cassert", "cctype", "charconv",

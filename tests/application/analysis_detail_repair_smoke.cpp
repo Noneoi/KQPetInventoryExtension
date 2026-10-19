@@ -3,6 +3,7 @@
 #include "application/pet/pet_derivation_cache.h"
 #include "application/pet/pet_refresh_controller.h"
 #include "application/pet/pet_repository.h"
+#include "storage/storage_service.h"
 #include <QCoreApplication>
 #include <QJsonArray>
 #include <QTemporaryDir>
@@ -64,6 +65,9 @@ int main(int argc,char** argv) {
   QString status;
   QObject::connect(&analysis,&AssetAnalysisController::statusChanged,[&](const QString& text) { status = text; });
   analysis.requestAnalysis();
+  const auto admittedJob = analysis.currentAnalysisJob();
+  analysis.requestAnalysis();
+  ok &= check(analysis.currentAnalysisJob() == admittedJob, "duplicate click preserves current analysis work");
   ok &= check(until([&] { return !analysis.analysisRunning(); }),"automatic missing-detail repair finishes");
   ok &= check(analysis.hasAnalysis() && analysis.overview().totalPets == 3 && analysis.overview().missingDetailPets == 1,
       "successful missing detail is included, failure remains explicitly unknown");
@@ -77,5 +81,45 @@ int main(int argc,char** argv) {
   analysis.requestAnalysis(); analysis.cancelAnalysis();
   ok &= check(!analysis.analysisRunning(),"cancel stops analysis repair scheduling");
   analysis.shutdownAnalysis();
+  // The total account exceeds the LRU retention budget. Only a bounded slice
+  // of expanded facts may remain live, while the final overview stays whole.
+  {
+    QTemporaryDir boundedRoot;
+    StorageService boundedStorage(boundedRoot.path());
+    PetRepository bounded(nullptr,&boundedStorage);
+    ok &= waitForRepositoryIdle(&bounded);
+    deliverVerifiedFixture(&bounded,{{"_cmd","21_1"},{"info",QJsonObject{{"n","bounded-facts"}}}});
+    ok &= waitForRepositoryIdle(&bounded);
+    QJsonArray rows; QStringList positions;
+    for (int i=0;i<160;++i) { rows.append(detail(10000+i)); positions.append(QString::number(10000+i)); }
+    bounded.beginListRefresh(1,bounded.accountKey(),bounded.sessionGeneration());
+    deliverVerifiedFixture(&bounded,{{"_cmd","2_1_10"},{"pl",rows},{"pps",QJsonArray{positions.join(QLatin1Char('#'))}},{"ppc",200}});
+    ok &= waitForRepositoryIdle(&bounded);
+    ok &= check(bounded.currentInstanceIds().size()==160,"bounded fixture did not populate its input list");
+    AssetAnalysisController stream(&bounded,nullptr,nullptr);
+    PetDerivationCacheLimits limits; limits.residentEntries=4; limits.residentBytes=128*1024;
+    limits.retainedBytes=768*1024; limits.maximumFactBytes=128*1024;
+    PetDerivationCache smallCache([&](std::function<void()> work) { return stream.postPriorityCompute(std::move(work)); }, bounded.storageService(),limits);
+    stream.setDerivationCache(&smallCache);
+    QString last;
+    QObject::connect(&stream,&AssetAnalysisController::statusChanged,[&](const QString& text){ last=text; });
+    stream.requestAnalysis();
+    ok &= check(until([&]{return !stream.analysisRunning();},30000) && stream.hasAnalysis() && stream.overview().totalPets==160 &&
+        stream.overview().pets.size()==160 && stream.preparedFrameBytes()>0 && smallCache.stats().evictions>0,
+        "bounded derivation cache could not produce one complete streamed result");
+    const auto computed = smallCache.stats().computations;
+    stream.requestAnalysis();
+    ok &= check(until([&]{return !stream.analysisRunning();}) && smallCache.stats().computations==computed && stream.overview().pets.size()==160,
+        "unchanged analysis discarded compact snapshots and recomputed evicted facts");
+    bounded.expectDetail(10001,99,bounded.accountKey(),bounded.sessionGeneration());
+    auto changed=detail(10001); changed.insert("lv",100);
+    deliverVerifiedFixture(&bounded,{{"_cmd","2_1_R"},{"p",changed}});
+    ok &= waitForRepositoryIdle(&bounded);
+    stream.requestAnalysis();
+    ok &= check(until([&]{return !stream.analysisRunning();}) && stream.overview().pets.size()==160 &&
+        smallCache.stats().computations<=computed+2,"single changed pet caused an account-wide derivation or partial publication");
+    if (!ok) std::fprintf(stderr,"stream status=%s computed=%llu now=%llu frames=%llu\n",qPrintable(last),computed,smallCache.stats().computations,stream.preparedFrameBytes());
+    stream.shutdownAnalysis();
+  }
   return ok ? 0 : 1;
 }

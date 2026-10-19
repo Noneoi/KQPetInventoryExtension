@@ -25,6 +25,7 @@ $payload = Get-KqChildPath $bundle 'package'
 $files = @('KQPetLauncher.exe','package.json','README.md','RELEASE_NOTES.md','SHA256SUMS.txt',
     'tools\KQPetReleaseCheck.exe','tools\KQPetCompatibilityCheck.exe','tools\legacy-baselines.json',
     'licenses\MinHook-LICENSE.txt')
+if (-not $package.preview) { $files += 'acceptance-report.json' }
 foreach ($script in @('release-tools.ps1','auto-update-tools.ps1','auto-update.ps1',
         'target-tools.ps1','verify-target.ps1','deploy.ps1','rollback.ps1','uninstall.ps1')) {
     $files += 'tools\' + $script
@@ -60,7 +61,7 @@ $instructions = @'
 4. 氪奇更新后找不到程序，会自动弹出 EXE 选择窗口；也可双击“选择氪奇主程序.cmd”更换，路径会记住。
 
 请保留 KQPetQuickStart 文件夹，不需要打开里面的程序。
-以后发布 GitHub 正式版后，可在“设置 → 软件更新”中手动检查、阅读更新说明并确认安装。
+可在“设置 → 软件更新”中手动检查、阅读更新说明并确认安装。
 已经下载并验证的新版会在关闭氪奇后的下次启动中完成切换。
 原客户端、现有账号缓存和数据目录配置会保留。
 首次使用可在“设置 → 数据更新”中点击“全部检查更新”。

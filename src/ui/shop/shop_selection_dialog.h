@@ -9,6 +9,7 @@ class QTreeWidgetItem;
 class QLineEdit;
 class QLabel;
 class QPushButton;
+class QComboBox;
 
 class ShopSelectionDialog final : public QDialog {
   Q_OBJECT
@@ -31,6 +32,7 @@ private:
   void updateDirty();
   QTreeWidget* tree_ = nullptr;
   QLineEdit* search_ = nullptr;
+  QComboBox* availability_ = nullptr;
   QLabel* summary_ = nullptr;
   QLabel* status_ = nullptr;
   QPushButton* save_ = nullptr;

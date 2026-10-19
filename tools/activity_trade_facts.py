@@ -72,6 +72,81 @@ def dynamic_price_rules(reward, cls, table, scripts):
     return {}
 
 
+def cumulative_progress_rule(reward, cls, table, rows, scripts):
+    """Resolve table -> ordered model array -> cumulative UI eligibility.
+
+    A literal cost alone says nothing about a debit. Require the consumer's
+    prefix sum, zero origin, sequential loop and progress comparison. A final
+    direct-purchase branch is deliberately excluded from prefix-sum claims.
+    """
+    from public_activity_exchange_updater import _balanced, as_methods
+    if not isinstance(rows, list) or not all(isinstance(row, dict) for row in rows):
+        return {}
+    for model_file, model in scripts.items():
+        model_class = Path(model_file).stem
+        iterator = re.search(re.escape(table) + r'\.forEach\(function\((\w+):[^)]*\)\s*:[^{]+\{', model)
+        if not iterator:
+            continue
+        init, _ = _balanced(model, iterator.end() - 1)
+        push = re.search(r'(?:this\.)?(\w+)\.push\(new\s+' + re.escape(cls) + r'\(\)\.initConfig\(' + re.escape(iterator[1]) + r'\)', init)
+        getter = re.search(r'function\s+get\s+(\w+)\(\)\s*:\s*Array\s*\{\s*return\s+this\.' + re.escape(push[1]) + r'\s*;', model) if push else None
+        if not getter:
+            continue
+        for filename, consumer in scripts.items():
+            model_vars = re.findall(r'\b(\w+)\s*:\s*' + re.escape(model_class) + r'\b', consumer)
+            for model_var in model_vars:
+                array = r'(?:this\.)?' + re.escape(model_var + '.' + getter[1])
+                for method, body in as_methods(consumer):
+                    for loop in re.finditer(r'while\(\s*(\w+)\s*<\s*' + array + r'\.length\s*\)\s*\{', body):
+                        loop_body, _ = _balanced(body, loop.end() - 1)
+                        index = loop[1]
+                        if not re.search(re.escape(index) + r'\s*(?::\s*[\w*]+)?\s*=\s*0\s*;', body[:loop.start()]) or not re.search(re.escape(index) + r'\+\+\s*;', loop_body):
+                            continue
+                        entry = re.search(r'\b(\w+)\s*=\s*' + array + r'\[\s*' + re.escape(index) + r'\s*\]\s*;', loop_body)
+                        accumulation = re.search(r'\b(\w+)\s*\+=\s*' + re.escape(entry[1]) + r'\.(\w+)\s*;', loop_body) if entry else None
+                        if not accumulation:
+                            continue
+                        total, prop = accumulation.groups()
+                        field = property_fields(reward).get(prop)
+                        if not field or not re.search(re.escape(total) + r'\s*(?::\s*[\w*]+)?\s*=\s*0\s*;', body[:loop.start()]):
+                            continue
+                        compare = re.search(r'\b(\w+)\s*>=\s*' + re.escape(total) + r'\b', loop_body)
+                        if not compare:
+                            continue
+                        progress = re.search(re.escape(compare[1]) + r'\s*(?::\s*\w+)?\s*=\s*(?:this\.)?' + re.escape(model_var) + r'\.(\w+)\s*;', body[:loop.start()])
+                        if not progress:
+                            continue
+                        progress_getter = re.search(r'function\s+get\s+' + re.escape(progress[1]) + r'\(\)\s*:\s*int\s*\{\s*return\s+this\.(\w+)\s*;', model)
+                        state = re.search(r'this\.' + re.escape(progress_getter[1]) + r'\s*=\s*\w+\["(\w+)"\]\s*;', model) if progress_getter else None
+                        if not state:
+                            continue
+                        excluded = set()
+                        special = re.search(r'if\(\s*' + re.escape(index) + r'\s*==\s*' + array + r'\.length\s*-\s*1\s*\)\s*\{', loop_body)
+                        if special and special.start() < compare.start():
+                            special_body, _ = _balanced(loop_body, special.end() - 1)
+                            if re.search(r'\bbreak\s*;', special_body):
+                                excluded.add(len(rows) - 1)
+                        thresholds, amount = [], 0
+                        for position, row in enumerate(rows):
+                            increment = integer(row.get(field))
+                            if increment is None or increment < 0:
+                                thresholds = []
+                                break
+                            amount += increment
+                            if position not in excluded and not row.get('_linkedPurchase'):
+                                identity = {key: row[key] for key in ('serverIndex', 'index') if type(row.get(key)) is int}
+                                if not identity:
+                                    thresholds = []
+                                    break
+                                thresholds.append({'identity': identity, 'amount': amount, 'increment': increment})
+                        if thresholds:
+                            return {'aggregation': 'prefix-sum', 'field': field, 'thresholds': thresholds,
+                                    'progressProperty': progress[1], 'statePath': [state[1]],
+                                    'consumer': Path(filename).stem + '.' + method,
+                                    'model': model_class + '.' + getter[1], 'label': '累计进度'}
+    return {}
+
+
 def table_contracts(scripts, tables, constants):
     from public_activity_exchange_updater import LiteralReader, _balanced
     files = {Path(f).stem: text for f, text in scripts.items()}
@@ -83,7 +158,7 @@ def table_contracts(scripts, tables, constants):
             aliases[cls + '.' + match[1]] = cls + '.' + match[2]
     for source in scripts.values():
         bindings = [(m[1], m[2], m[3], m.start()) for m in re.finditer(
-            r'([\w.]+|new\s+ActRewardsData\(\))\.init\(\s*([\w.]+)\s*,\s*\w+\s*,\s*(\w+)\s*\)', source)]
+            r'([\w.]+|new\s+ActRewardsData\(\))\.init\(\s*([\w.]+)(?:\(\s*\))?\s*,\s*\w+\s*,\s*(\w+)\s*\)', source)]
         for m in re.finditer(r'([\w.]+)\.forEach\(function\((\w+):[^)]*\)\s*:[^{]+\{', source):
             body, _ = _balanced(source, m.end() - 1)
             created = re.search(r'new\s+(\w+)\(\)\.initConfig\(' + re.escape(m[2]) + r'\)', body)
@@ -95,6 +170,25 @@ def table_contracts(scripts, tables, constants):
             if table not in tables or not re.search(r'extends\s+(?:Simple)?ActReward\b', reward):
                 continue
             contract = {'rewardClass': cls, 'source': reward, 'defaults': {}}
+            # A boolean claim state needs a real getter, server assignment,
+            # negative UI gate and a typed consumer marking it after claiming.
+            linked = tables[table][1]
+            needs_claim = isinstance(linked, list) and any(isinstance(row, dict) and row.get('_linkedPurchase') for row in linked)
+            for getter in re.finditer(r'function\s+get\s+(\w+)\(\)\s*:\s*Boolean\s*\{\s*return\s+this\.(\w+)\s*;\s*\}', reward if needs_claim else ''):
+                prop, member = getter.groups()
+                state = re.search(r'this\.' + re.escape(member) +
+                    r'\s*=\s*\w+\["([A-Za-z]+)"\s*\+\s*_?serverIndex\]\["([A-Za-z]+)"\s*\+\s*_?serverIndex\]\s*;', reward)
+                if not state:
+                    continue
+                gated, marked = False, False
+                for consumer in scripts.values():
+                    variables = re.findall(r'\b(\w+)\s*:\s*' + re.escape(cls) + r'\b', consumer)
+                    for variable in variables:
+                        access = re.escape(variable + '.' + prop)
+                        gated |= bool(re.search(r'!\s*' + access + r'\b', consumer))
+                        marked |= bool(re.search(r'\b' + access + r'\s*=\s*true\s*;', consumer))
+                if gated and marked:
+                    contract['booleanClaim'] = {'property': prop, 'prefixes': list(state.groups())}
             before = source[:position]
             resets = list(re.finditer(re.escape(receiver.removeprefix('this.')) + r'\s*=\s*new ActRewardsData\(\)', before)) if receiver else []
             if resets:
@@ -125,6 +219,7 @@ def table_contracts(scripts, tables, constants):
             if len(set(uses)) == 1:
                 contract['diamondField'] = uses[0]
             contract['dynamicPrice'] = dynamic_price_rules(reward, cls, table, scripts)
+            contract['cumulativeProgress'] = cumulative_progress_rule(reward, cls, table, tables[table][1], scripts)
             # Resource labels accompany the actual insufficient-balance guard.
             # Keep an activity-scoped currency when no public material ID is given.
             for prop, field in property_fields(reward).items():
@@ -241,29 +336,106 @@ def enrich_reward_facts(item, row, table, contracts, profile):
                         observation.update(encoding='boolean-count', missingValue=0)
                     item['quotaObservation'] = observation
                     item['displayIdentityOnly'] = False
-    # Shared cultivation has real price definitions, but discounts/vouchers
-    # depend on the account and time. Show the exact base and alternatives.
+    # Compile the official ordered program, keeping date/account predicates.
+    # Runtime must evaluate it against current facts, not an update-time price.
     public = row.get('publicPriceRaw')
     if isinstance(public, dict):
-        binding = row.get('publicPriceBinding', '').split('$', 1)
-        override = binding[1] if len(binding) == 2 else ''
-        candidates = override or public.get('discountPrice', '')
-        if isinstance(candidates, str) and re.fullmatch(r'(?:[A-Za-z]+:)?\d+(?:/(?:[A-Za-z]+:)?\d+)*', candidates):
-            amounts = list(dict.fromkeys(int(v.split(':')[-1]) for v in candidates.split('/')))
-            item['priceOptions'] = [{'cost': f'8:2:{amount}', 'label': '公共养成基础价'} for amount in amounts if amount > 0]
-            item.update(cost='', costKnown=False, exchangeKind='diamond',
-                        costDescription='钻石基础价：' + ' / '.join(map(str, amounts)) + '；折扣、抵扣及适用条件以养成面板为准')
-            item['costRaw']['publicPrice'] = public
-            item['costRaw']['binding'] = row.get('publicPriceBinding', '')
-            item['unlock'] = '公共养成；按所选精灵当前培养状态判断是否可购买'
-            evidence['price'] = {'consumer': 'StrengthenComboPriceDefine', 'binding': row.get('publicPriceBinding', '')}
+        from activity_price_rules import shared_price_rule, price_rule_description
+        binding = row.get('publicPriceBinding', '')
+        rule = shared_price_rule(public, binding, row.get('publicPriceContext'))
+        item.update(cost='', costKnown=False, exchangeKind='diamond', priceRule=rule,
+                    costDescription=price_rule_description(rule))
+        item.pop('priceOptions', None)  # Legacy alternatives lack condition order.
+        item['costRaw']['publicPrice'] = public
+        item['costRaw']['binding'] = binding
+        item['unlock'] = '公共养成；按所选精灵当前培养状态、报价条件与支付方式判断'
+        evidence['price'] = {'consumer': 'StrengthenComboPriceDefine.currentPrice', 'binding': binding,
+                             'ruleSchema': 1, 'unresolved': rule['unresolved']}
+    cumulative = contract.get('cumulativeProgress', {})
+    for threshold in cumulative.get('thresholds', []):
+        if all(row.get(key) == value for key, value in threshold['identity'].items()) and not row.get('_linkedPurchase'):
+            requirement = {key: value for key, value in cumulative.items() if key != 'thresholds'}
+            requirement.update(amount=threshold['amount'], increment=threshold['increment'])
+            item.update(acquisitionKind='progress', exchangeKind='activity', cost='', costKnown=False,
+                        manualSelectionRequired=True,
+                        progressRequirement=requirement,
+                        costDescription=f'累计进度门槛：{threshold["amount"]}；按前序各档累加，达成后领取，不是本次扣费',
+                        unlock=f'累计进度达到 {threshold["amount"]} 且尚未领取')
+            item.pop('priceOptions', None)
+            evidence['progress'] = requirement
+            break
     # Preserve known progress thresholds instead of a generic placeholder.
     thresholds = [('num', '累计进度'), ('progressNeeded', '累计进度'), ('needUsedScore', '累计消耗积分'),
                   ('day', '签到天数'), ('days', '签到天数'), ('month', '充值月数'), ('daibi', '累计代币')]
-    if not is_exchange:
+    if not is_exchange and not item.get('progressRequirement'):
         details = [f'{label}：{integer(row[field])}' for field, label in thresholds
                    if integer(row.get(field)) is not None and integer(row[field]) > 0]
         if details:
             item['costDescription'] = '；'.join(details) + '；达成后领取，当前进度与领取状态以活动内为准'
+    purchase = row.get('_linkedPurchase')
+    if isinstance(purchase, dict):
+        # forNormal goes to the web payment dialog. Its integer price is not a
+        # MaterialData amount and the reward row's cost can be a charge tier.
+        item.update(cost='', costKnown=False, exchangeKind='activity',
+                    costDescription='商城付费购买后领取；支付金额以商城结算为准',
+                    unlock='购买后激活领取资格')
+        item['costRaw']['externalPurchase'] = purchase
+        evidence['purchase'] = purchase
+        claim = contract.get('booleanClaim')
+        if claim:
+            identifier = row.get('serverIndex', row.get('index'))
+            item.update(limitCount=1, limitKey='', limitLabel='领取', limitIndex=-1,
+                        quotaKnown=True, quotaCycleKnown=False,
+                        quotaDescription='领取限 1 次；当前购买及领取状态以活动内为准')
+            item['unlock'] += '；已领取的奖励不能重复领取'
+            item['quotaRaw']['claimOnce'] = claim
+            evidence['claim'] = {**claim, 'maximum': 1}
+            if type(identifier) is int and identifier >= 0:
+                evidence['claim']['statePath'] = [prefix + str(identifier) for prefix in claim['prefixes']]
+    service = row.get('_serviceTradeFacts')
+    if isinstance(service, dict):
+        currency = service.get('activityCurrency', {})
+        amount = integer(currency.get('count'))
+        if isinstance(currency.get('name'), str) and currency['name'] and amount is not None and amount > 0:
+            item.update(cost='', costKnown=True, exchangeKind='activity',
+                        activityCosts=[{'name': currency['name'], 'count': amount}],
+                        costDescription=f'{currency["name"]} ×{amount}')
+            evidence['price'] = currency
+        limit = service.get('limit', {})
+        maximum = integer(limit.get('maximum'))
+        if maximum is not None and maximum > 0:
+            item.update(limitCount=maximum, limitKey='', limitLabel='活动', limitIndex=-1,
+                        quotaKnown=True, quotaCycleKnown=False,
+                        quotaDescription=f'限 {maximum} 次；当前已用次数与重置周期以活动内为准')
+            evidence['limits'] = [limit]
+        claim = service.get('claim', {})
+        if claim.get('once') is True:
+            item.update(limitCount=1, limitKey='', limitLabel='领取', limitIndex=-1,
+                        quotaKnown=True, quotaCycleKnown=False,
+                        quotaDescription='领取限 1 次；当前领取状态以活动内为准')
+            evidence['claim'] = claim
+        entries = service.get('entryConditions', [])
+        descriptions = list(dict.fromkeys(control['description'] for entry in entries
+            for control in entry.get('controls', []) if isinstance(control.get('description'), str) and control['description']))
+        if entries:
+            incomplete = any(control.get('descriptionComplete') is False for entry in entries for control in entry.get('controls', []))
+            notices = ['按钮资格提示：“' + description + '”' for description in descriptions]
+            if incomplete:
+                notices.append('按钮资格提示尚未完整解析')
+            item['unlock'] = '；'.join(notices + ['还需满足前置入口条件，当前账号资格尚未确认', '已领取的奖励不可重复领取'])
+            evidence['entryConditions'] = entries
+        if service.get('payment'):
+            evidence['payment'] = service['payment']
+        entitlement = service.get('purchaseEntitlement')
+        if isinstance(entitlement, dict) and entitlement.get('kind') == 'previous-purchase':
+            item.update(cost='', costKnown=False, exchangeKind='activity',
+                        costDescription='已购养成套餐的领取阶段；需先取得对应购买资格，当前资格和领取状态以活动内为准')
+            item['unlock'] = '需先取得对应养成套餐的购买资格；' + item.get('unlock', '')
+            evidence['purchaseEntitlement'] = entitlement
+        if isinstance(service.get('compensation'), str):
+            evidence['compensation'] = service['compensation']
+        # There is no read-only protocol contract here. Do not synthesize a
+        # live balance, claim flag, or quota observation from a write callback.
+        item['displayIdentityOnly'] = True
     if evidence:
         item['source']['tradeFacts'] = evidence

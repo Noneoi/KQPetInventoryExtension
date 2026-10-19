@@ -1,0 +1,345 @@
+{
+  "scope": "Shop navigation common bridge; original client artifacts read only",
+  "date": "2026-10-19",
+  "host": {
+    "name": "KQProV1.1.4.exe",
+    "sha256": "8b4230af89224baf924fe16019dfa31f7a2a694e750b2e46b7785f3caa1a356b",
+    "swfRawOffset": "0x17b0a0",
+    "swfBytes": 39668,
+    "swfSha256": "983145291fb427d5c9a3706b806d4f3441f5b43bce8717caf9e131383e26fa7d",
+    "source": "mmo/framework/comm/SocketClient.as",
+    "registrationLine": 57,
+    "routingLines": [
+      87,
+      95
+    ],
+    "contract": "gotogetpet(route, -1) calls official ClickEffectHelper.doAuto(route); default mode 0 jumps scenes"
+  },
+  "qcef": {
+    "name": "QCefView.dll",
+    "sha256": "4ec7458e58f1f1940c9446ae86ee370cad2abe3222d2a45c0c3431b5f1d9d147",
+    "export": "?executeJavascriptWithResult@QCefView@@QEAA_NAEB_JAEBVQString@@11@Z",
+    "mainFrameId": 0,
+    "wrapperPrefixStringVA": "0x1800F1310",
+    "wrapperSuffixStringVA": "0x1800F1304",
+    "appendPrefixInstructionVA": "0x18003F8E2",
+    "appendSuffixInstructionVA": "0x18003F973",
+    "contract": "Input is a function body wrapped by QCefView; an IIFE needs an outer return for reportJavascriptResult"
+  },
+  "officialRouteExamples": [
+    {
+      "source": "QCMainPanel.as",
+      "line": 311,
+      "route": "btnNewAct_storeexchangeframework_showMainPanel_3_clearAll"
+    },
+    {
+      "source": "ArenaV3MainPanel.as",
+      "line": 136,
+      "route": "btnNewAct_storeexchangeframework_showMainPanel_4"
+    }
+  ],
+  "localEvidence": "validation/shop-navigation-fix/official-evidence/findings.json",
+  "regression": [
+    "Exact production script is exported by KQGameNavigationScriptProbe and executed in the QCefView-shaped wrapper",
+    "Flash callback, H5 helper, loading state, exceptions, preserved arguments and rejected input",
+    "Removing outer return reproduces an undefined result even after a successful callback",
+    "UI disables repeated navigation until completion and survives tab changes"
+  ],
+  "limitations": [
+    "Void callback return proves dispatch only; official activities load asynchronously",
+    "Static artifact and simulated runtime checks do not assert the live game panel is visible"
+  ],
+  "activityCatalog": {
+    "parserVersion": 23,
+    "beforeRoutes": 21,
+    "afterRoutes": 45,
+    "groups": 45,
+    "goods": 270,
+    "sourceSha256": "96e2e226c4c5163ea834015c9aa2e7dca8f7735b41750d5e5cc188941edaf582",
+    "nativeValidation": {
+      "state": "completed",
+      "diskCommitted": true,
+      "sessionApplied": true
+    },
+    "officialEvidence": "validation/shop-navigation-fix/activity-evidence/findings.json",
+    "routes": [
+      {
+        "name": "星迹幻诺挑战",
+        "key": "newactivityext/newact20220930/xingjifantasynuoya/xingjifantasynuoya#XJFNY_MainPanel.sharedCultivation",
+        "route": "btnNewAct_xingjifantasynuoya_showMainPanel",
+        "source": "entry"
+      },
+      {
+        "name": "新手福利大集合",
+        "key": "newactivityext/newact20221104/newuserboon3/newuserboon3#Nub3Config.EXCHANGING_DEFINES",
+        "route": "btnNewAct_newuserboon3_showMainPanel",
+        "source": "entry"
+      },
+      {
+        "name": "中秋返钻商城",
+        "key": "newactivityext/newact20230825/summerholidayrebateshop/summerholidayrebateshop#SHRSTab1Controller.tryGetStrength.directStrengthen",
+        "route": "btnNewAct_summerholidayrebateshop_showMainPanel",
+        "source": "activity"
+      },
+      {
+        "name": "中秋返钻商城",
+        "key": "newactivityext/newact20230825/summerholidayrebateshop/summerholidayrebateshop#SHRSTab6Config.getRewardConfig",
+        "route": "btnNewAct_summerholidayrebateshop_showMainPanel",
+        "source": "activity"
+      },
+      {
+        "name": "精英猎手训练营",
+        "key": "newactivityext/newact20240403/jingyingtrainingcamp/jingyingtrainingcamp#JYTCConfig.BONUS_GAIN",
+        "route": "btnNewAct_jingyingtrainingcamp_showMainPanel",
+        "source": "activity"
+      },
+      {
+        "name": "灵初路因加德特惠专场-TAB3",
+        "key": "newactivityext/newact20240712/longzunshenzhumalltab3/longzunshenzhumalltab3#LZSZMT3Controller.sharedCultivation",
+        "route": "btnNewAct_funengshinafeimall_showMainPanel_3",
+        "source": "parent-tab"
+      },
+      {
+        "name": "组队兑钻花钻豪礼",
+        "key": "newactivityext/newact20250430/teamdiamondgaingiftv4/teamdiamondgaingiftv4#TDGGV4_Config.PERSONAL_CONSUME_PRIZE_CONFIG_ARRAY",
+        "route": "btnNewAct_teamdiamondgaingiftv4_showMainPanel",
+        "source": "activity"
+      },
+      {
+        "name": "组队兑钻花钻豪礼",
+        "key": "newactivityext/newact20250430/teamdiamondgaingiftv4/teamdiamondgaingiftv4#TDGGV4_Config.PERSONAL_EXCHANGE_PRIZE_CONFIG_ARRAY",
+        "route": "btnNewAct_teamdiamondgaingiftv4_showMainPanel",
+        "source": "activity"
+      },
+      {
+        "name": "灵初阿瑞斯",
+        "key": "newactivityext/newact20251010/lingchuaruisi/lingchuaruisi#LCARS_Config.PACKAGE_INFO",
+        "route": "btnNewAct_lingchuaruisi_showMainPanel",
+        "source": "entry"
+      },
+      {
+        "name": "灵初阿瑞斯",
+        "key": "newactivityext/newact20251010/lingchuaruisi/lingchuaruisi#LCARS_Controller.handleGainStrengthen.directStrengthen",
+        "route": "btnNewAct_lingchuaruisi_showMainPanel",
+        "source": "entry"
+      },
+      {
+        "name": "灵初阿瑞斯",
+        "key": "newactivityext/newact20251010/lingchuaruisi/lingchuaruisi#LCARS_MainPanel.sharedCultivation",
+        "route": "btnNewAct_lingchuaruisi_showMainPanel",
+        "source": "entry"
+      },
+      {
+        "name": "年费Tab3-专属养成",
+        "key": "newactivityext/newact20251231/yearpay26tab3/yearpay26tab3#YP26T3Config.ArrayData",
+        "route": "btnNewAct_yearpay26tab3_showMainPanel",
+        "source": "activity"
+      },
+      {
+        "name": "灵初路因加德特惠专场-TAB4",
+        "key": "newactivityext/newact20260213/funengshinafeimalltab4/funengshinafeimalltab4#FNSNFT4Config.EXCHANGE_REWARD",
+        "route": "btnNewAct_funengshinafeimall_showMainPanel_4",
+        "source": "parent-tab"
+      },
+      {
+        "name": "TAB2：中秋扭蛋机，扭扭出大奖",
+        "key": "newactivityext/newact20260403/chaoshenbiglottery/chaoshenbiglottery#CSBLConfig.REWARD",
+        "route": "btnNewAct_midautumnfestivalmarket_showMainPanel_2",
+        "source": "parent-tab"
+      },
+      {
+        "name": "TAB6：中秋&华诞通行证",
+        "key": "newactivityext/newact20260410/anniversarypass/anniversarypass#AnpConfig.ACTIVE_DEFINES/prizeNormal",
+        "route": "btnNewAct_midautumnbirthwelfarecenter_showMainPanel_6",
+        "source": "parent-tab"
+      },
+      {
+        "name": "首充首兑送SSS神宠及专属养成",
+        "key": "newactivityext/newact20260618/newfirstcharge2026/newfirstcharge2026#NFC26Config.REWARD",
+        "route": "btnNewAct_newfirstcharge2026_showMainPanel",
+        "source": "activity"
+      },
+      {
+        "name": "首充首兑送SSS神宠及专属养成",
+        "key": "newactivityext/newact20260618/newfirstcharge2026/newfirstcharge2026#NFC26Config.REWARD_VIP",
+        "route": "btnNewAct_newfirstcharge2026_showMainPanel",
+        "source": "activity"
+      },
+      {
+        "name": "新手福利中心tab3-精灵养成",
+        "key": "newactivityext/newact20260618/nub6tab3petstrength/nub6tab3petstrength#NUB6T3PSConfig.ArrayPetData",
+        "route": "btnNewAct_newuserboon6_showMainPanel_2",
+        "source": "module"
+      },
+      {
+        "name": "30天回归2026版tab2-回归签到",
+        "key": "newactivityext/newact20260626/r2026tab2loginsign/r2026tab2loginsign#R2026T2LSConfig.ArrayData/lv=1",
+        "route": "btnNewAct_reback2026_showMainPanel_1",
+        "source": "module"
+      },
+      {
+        "name": "30天回归2026版tab2-回归签到",
+        "key": "newactivityext/newact20260626/r2026tab2loginsign/r2026tab2loginsign#R2026T2LSConfig.ArrayData/lv=2",
+        "route": "btnNewAct_reback2026_showMainPanel_1",
+        "source": "module"
+      },
+      {
+        "name": "30天回归2026版tab2-回归签到",
+        "key": "newactivityext/newact20260626/r2026tab2loginsign/r2026tab2loginsign#R2026T2LSConfig.ArrayData/lv=3",
+        "route": "btnNewAct_reback2026_showMainPanel_1",
+        "source": "module"
+      },
+      {
+        "name": "30天回归2026版tab2-回归签到",
+        "key": "newactivityext/newact20260626/r2026tab2loginsign/r2026tab2loginsign#R2026T2LSConfig.ArrayData/lv=4",
+        "route": "btnNewAct_reback2026_showMainPanel_1",
+        "source": "module"
+      },
+      {
+        "name": "30天回归2026版tab3-抽皮肤",
+        "key": "newactivityext/newact20260626/r2026tab3lotteryskin/r2026tab3lotteryskin#R2026T3LSConfig.ArrayData/lv=1",
+        "route": "btnNewAct_reback2026_showMainPanel_2",
+        "source": "module"
+      },
+      {
+        "name": "30天回归2026版tab3-抽皮肤",
+        "key": "newactivityext/newact20260626/r2026tab3lotteryskin/r2026tab3lotteryskin#R2026T3LSConfig.ArrayData/lv=2",
+        "route": "btnNewAct_reback2026_showMainPanel_2",
+        "source": "module"
+      },
+      {
+        "name": "30天回归2026版tab3-抽皮肤",
+        "key": "newactivityext/newact20260626/r2026tab3lotteryskin/r2026tab3lotteryskin#R2026T3LSConfig.ArrayData/lv=3",
+        "route": "btnNewAct_reback2026_showMainPanel_2",
+        "source": "module"
+      },
+      {
+        "name": "30天回归2026版tab3-抽皮肤",
+        "key": "newactivityext/newact20260626/r2026tab3lotteryskin/r2026tab3lotteryskin#R2026T3LSConfig.ArrayData/lv=4",
+        "route": "btnNewAct_reback2026_showMainPanel_2",
+        "source": "module"
+      },
+      {
+        "name": "30天回归2026版tab4-每日任务",
+        "key": "newactivityext/newact20260626/r2026tab4dailytask/r2026tab4dailytask#R2026T4DTExchangeConfig.ArrayExchangeData",
+        "route": "btnNewAct_reback2026_showMainPanel_3",
+        "source": "module"
+      },
+      {
+        "name": "30天回归2026版tab6-特惠商城+vip",
+        "key": "newactivityext/newact20260626/r2026tab6returnshop/r2026tab6returnshop#R2026T6RSConfig.ArrayData",
+        "route": "btnNewAct_reback2026_showMainPanel_5",
+        "source": "module"
+      },
+      {
+        "name": "S2赛季通行证",
+        "key": "newactivityext/newact20260703/seasonpass/seasonpass#SpsConfig.ACTIVE_DEFINES/prizeNormal",
+        "route": "btnNewAct_seasonpass_showMainPanel",
+        "source": "reference"
+      },
+      {
+        "name": "充VIP送神宠&神运极品&110钻",
+        "key": "newactivityext/newact20260717/chargevipgift260717/chargevipgift260717#CVG260717Config.PRIZE_DETAIL",
+        "route": "btnNewAct_chargevipgift260717_showMainPanel",
+        "source": "activity"
+      },
+      {
+        "name": "灵初解神特惠专场",
+        "key": "newactivityext/newact20260731/lingchunaifeimalltab5/lingchunaifeimalltab5#LCNFMT5_Config.PRIZE_CONFIG",
+        "route": "btnNewAct_lingchujieshenmall_showMainPanel",
+        "source": "reference"
+      },
+      {
+        "name": "完美洛世琦全民送！",
+        "key": "newactivityext/newact20260828/perfectluoshiqigainfree/perfectluoshiqigainfree#PLSQGF_Config.ArrayData",
+        "route": "btnNewAct_perfectluoshiqigainfree_showMainPanel",
+        "source": "activity"
+      },
+      {
+        "name": "S2赛季商店",
+        "key": "newactivityext/newact20260828/s2exchangeshop/s2exchangeshop#S2ESExchangeConfig.EXCHANGES",
+        "route": "btnNewAct_s2exchangeshop_showMainPanel_1",
+        "source": "entry"
+      },
+      {
+        "name": "赛季PVE S2",
+        "key": "newactivityext/newact20260828/seasonpves2/seasonpves2#SPVES2Config.REWARD_CONFIG",
+        "route": "btnNewAct_seasonpves2_showMainPanel",
+        "source": "reference"
+      },
+      {
+        "name": "A级灵初路西法挑战获得",
+        "key": "newactivityext/newact20260911/lingchuluxifa/lingchuluxifa#LCLXFConfig.REWARD_CONFIG",
+        "route": "btnNewAct_lingchuluxifa_showMainPanel",
+        "source": "entry"
+      },
+      {
+        "name": "S级灵初钻石昆吾全民可得",
+        "key": "newactivityext/newact20260918/lingchudiamondkunwu/lingchudiamondkunwu#LCDKWMainPanel.sharedCultivation",
+        "route": "btnNewAct_lingchudiamondkunwu_showMainPanel",
+        "source": "entry"
+      },
+      {
+        "name": "SS级灵初阿里阿德涅专属养成买一送一",
+        "key": "newactivityext/newact20260930/lingchualiadeniestrengthenonebyone/lingchualiadeniestrengthenonebyone#LCASOBO_Config.PRO_REWARDS",
+        "route": "btnNewAct_lingchualiadeniestrengthenonebyone_showMainPanel",
+        "source": "entry"
+      },
+      {
+        "name": "灵初龙君焰养成特惠",
+        "key": "newactivityext/newact20260930/lingchulongjunyanshop/lingchulongjunyanshop#LCJYSRewardsConfig.CONTENTS",
+        "route": "btnNewAct_lingchulongjunyanshop_showMainPanel",
+        "source": "entry"
+      },
+      {
+        "name": "中秋华诞福利中心TAB10：签到送龙君焰完美极品",
+        "key": "newactivityext/newact20260930/signforlongjunyan/signforlongjunyan#SFLJYRewardsConfig.CONTENTS",
+        "route": "btnNewAct_midautumnbirthwelfarecenter_showMainPanel_10",
+        "source": "parent-tab"
+      },
+      {
+        "name": "灵初薇丝佩拉特惠专场 TAB 3",
+        "key": "newactivityext/newact20260930/wishpellasaletab3/wishpellasaletab3#Wst3Config.STRENGTHENING_DEFINES",
+        "route": "btnNewAct_wishpellasale_showMainPanel_3",
+        "source": "parent-tab"
+      },
+      {
+        "name": "A级灵初潘多拉挑战获得",
+        "key": "newactivityext/newact20261016/lingchupanduolachallenge/lingchupanduolachallenge#LCPDLC_Config.REWARD_CONFIG",
+        "route": "btnNewAct_lingchupanduolachallenge_showMainPanel",
+        "source": "reference"
+      },
+      {
+        "name": "中秋华诞福利中心TAB13：资源转化抽大奖",
+        "key": "newactivityext/newact20261016/resourceconversionlottery/resourceconversionlottery#RCLConfig.REWARD_DATA",
+        "route": "btnNewAct_resourceconversionlottery_showMainPanel",
+        "source": "entry"
+      },
+      {
+        "name": "中秋返钻商城TAB2：王者四王养成特惠",
+        "key": "newactivityext/newact20261016/summerholidayrebateshoptab2/summerholidayrebateshoptab2#SHRST2Config.REWARD_CONFIG",
+        "route": "btnNewAct_summerholidayrebateshoptab2_showMainPanel",
+        "source": "entry"
+      },
+      {
+        "name": "TAB12：周周送红星和SP精灵",
+        "key": "newactivityext/newact20261016/weeklyredstarandsp/weeklyredstarandsp#WRSASPConfig.REWARD_LIST",
+        "route": "btnNewAct_weeklyredstarandsp_showMainPanel",
+        "source": "entry"
+      },
+      {
+        "name": "2026年费",
+        "key": "yearpayx/yearpay#Yp26Controller.takePreOrderPrize.directStrengthen",
+        "route": "btnService_YearPay_showMainPanelWithSpecTab_-1",
+        "source": "service"
+      }
+    ]
+  },
+  "officialUpdateDuringValidation": {
+    "resource": "newactivityext/newact20260703/seasonpass/seasonpass_res",
+    "oldVersion": "2026082767617311",
+    "newVersion": "261019745036291",
+    "sha256": "d5f4594b1627bf1c0dba46af67be68eb9b02a332f9d5bde5ca09abff60a97d6c",
+    "observation": "Current FUI metadata names the image only 活动时间 and no longer includes the old date range. Two pass reward rows now retain unknown period; navigation code does not change their rewards or eligibility rules."
+  }
+}

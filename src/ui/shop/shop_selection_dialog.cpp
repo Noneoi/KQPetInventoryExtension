@@ -3,6 +3,7 @@
 #include "domain/pet_metadata_view.h"
 
 #include <QDialogButtonBox>
+#include <QComboBox>
 #include <QHeaderView>
 #include <QLabel>
 #include <QLineEdit>
@@ -40,13 +41,17 @@ ShopSelectionDialog::ShopSelectionDialog(QWidget* parent, std::shared_ptr<const 
   auto* layout = new QVBoxLayout(this);
   auto* explanation = new QLabel(QStringLiteral(
       "自动识别的精灵培养兑换默认勾选，可以取消；保存后会记住选择。手动补充列出指定精灵提升，包含签到、进度领取，以及指定养成与材料二选一；精灵自选、材料任选和自选礼包不显示。\n"
-      "整店勾选只作用于本次已扫描的项目；以后新增的手动项目仍需选择。未到开放时间或已下架的项目暂不显示。"), this);
+      "整店勾选只作用于当前筛选结果；以后新增的手动项目仍需选择。可切换状态，查看未开始、已结束或手动隐藏的项目。"), this);
   explanation->setWordWrap(true); layout->addWidget(explanation);
   auto* actions = new QHBoxLayout;
   search_ = new QLineEdit(this);
   search_->setObjectName(QStringLiteral("KQShopSelectionSearch"));
   search_->setPlaceholderText(QStringLiteral("搜索商店、兑换项目或来源"));
   search_->setClearButtonEnabled(true); actions->addWidget(search_, 1);
+  availability_ = new QComboBox(this); availability_->setObjectName(QStringLiteral("KQShopAvailability"));
+  availability_->addItems({QStringLiteral("当前开放"), QStringLiteral("全部已发现"), QStringLiteral("未开始"), QStringLiteral("已结束"), QStringLiteral("手动隐藏"), QStringLiteral("待识别活动")});
+  actions->addWidget(availability_);
+  connect(availability_, &QComboBox::currentIndexChanged, this, [this] { rebuild(); updateSummary(); });
   selectAll_ = new QPushButton(QStringLiteral("勾选搜索结果"), this);
   clear_ = new QPushButton(QStringLiteral("取消勾选搜索结果"), this);
   actions->addWidget(selectAll_); actions->addWidget(clear_); layout->addLayout(actions);
@@ -159,7 +164,13 @@ void ShopSelectionDialog::rebuild() {
     for (const auto& good : shop.goods) {
       const auto change = good.nextAvailabilityChange(now);
       if (change.isValid() && change < nextAvailabilityChange_) nextAvailabilityChange_ = change;
-      if (!good.isOnlineAt(now)) continue;
+      const bool online = good.isOnlineAt(now);
+      const bool future = good.startsAt.isValid() ? now < good.startsAt : good.shelfDate.isValid() && today < good.shelfDate;
+      const bool expired = (good.endsAt.isValid() && now >= good.endsAt) ||
+          (good.hasRemovalDate && good.removalDate.isValid() && today > good.removalDate);
+      const bool hidden = excludedDraft_.contains(good.stableKey()) || (good.manualSelectionRequired && !draft_.contains(good.stableKey()));
+      const int view = availability_->currentIndex();
+      if ((view == 0 && !online) || (view == 2 && !future) || (view == 3 && !expired) || (view == 4 && !hidden) || view == 5) continue;
       const QString mode = good.manualSelectionRequired ? QStringLiteral("手动补充") : QStringLiteral("默认勾选（可取消）");
       const auto endAt = good.endsAt.toOffsetFromUtc(8 * 3600);
       const bool wholeLastDay = endAt.isValid() && endAt.time() == QTime(0, 0) &&
@@ -181,6 +192,9 @@ void ShopSelectionDialog::rebuild() {
       child->setData(0, KeyRole, good.stableKey());
       child->setData(0, ManualRole, good.manualSelectionRequired);
       child->setToolTip(0, good.displayName() + QStringLiteral("\n") + good.rewardRaw);
+      const QString state = future ? QStringLiteral("未开始") : expired ? QStringLiteral("已结束") : !online ? QStringLiteral("开放时间待确认") : hidden ? QStringLiteral("手动隐藏 / 未选择") : QStringLiteral("当前可用");
+      child->setText(1, state + QStringLiteral(" · ") + mode);
+      child->setToolTip(1, state + QStringLiteral("\n") + period);
       child->setCheckState(0, !excludedDraft_.contains(good.stableKey()) &&
           (!good.manualSelectionRequired || draft_.contains(good.stableKey())) ? Qt::Checked : Qt::Unchecked);
       child->setFlags(child->flags() | Qt::ItemIsUserCheckable);
@@ -188,6 +202,14 @@ void ShopSelectionDialog::rebuild() {
     if (parent->childCount() == 0) { delete parent; continue; }
     parent->setFlags(parent->flags() | Qt::ItemIsUserCheckable);
     updateParent(parent);
+  }
+  if (availability_->currentIndex() == 5) {
+    for (const auto& value : catalog_->root.value(QStringLiteral("activityPending")).toArray()) {
+      const auto issue = value.toObject();
+      auto* row = new QTreeWidgetItem(tree_, {issue.value("activityName").toString(), QStringLiteral("待识别"), issue.value("reason").toString()});
+      row->setToolTip(0, issue.value("module").toString()); row->setToolTip(2, issue.value("reason").toString());
+      row->setFlags(Qt::ItemIsEnabled | Qt::ItemIsSelectable);
+    }
   }
   filter();
 }
@@ -201,6 +223,9 @@ void ShopSelectionDialog::filter() {
   const QString query = search_->text().trimmed();
   for (int i = 0; i < tree_->topLevelItemCount(); ++i) {
     auto* parent = tree_->topLevelItem(i);
+    if (availability_->currentIndex() == 5) {
+      parent->setHidden(!parent->text(0).contains(query, Qt::CaseInsensitive) && !parent->text(2).contains(query, Qt::CaseInsensitive)); continue;
+    }
     const bool shopMatch = parent->text(0).contains(query, Qt::CaseInsensitive) || parent->toolTip(0).contains(query, Qt::CaseInsensitive);
     int visible = 0;
     for (int j = 0; j < parent->childCount(); ++j) {
@@ -249,10 +274,12 @@ void ShopSelectionDialog::updateSummary() {
     if (!good.manualSelectionRequired) { ++automatic; automaticChosen += !excludedDraft_.contains(good.stableKey()); }
     else { ++manual; chosen += draft_.contains(good.stableKey()) && !excludedDraft_.contains(good.stableKey()); }
   }
-  summary_->setText(QStringLiteral("当前开放 %1 个商店 · 默认项目已选 %2 / %3 项 · 手动已选 %4 / %5 项%6")
+  summary_->setText(QStringLiteral("当前筛选 %1 组 · 开放项目中默认已选 %2 / %3 项 · 手动已选 %4 / %5 项%6\n目录更新：%7；账号余额与次数请以商店页面的刷新时间为准。")
       .arg(tree_ ? tree_->topLevelItemCount() : 0).arg(automaticChosen).arg(automatic).arg(chosen).arg(manual)
-      .arg(dirty_ ? QStringLiteral(" · 尚未保存") : QString{}));
+      .arg(dirty_ ? QStringLiteral(" · 尚未保存") : QString{})
+      .arg(catalog_ && catalog_->sourceUpdatedAt.isValid() ? catalog_->sourceUpdatedAt.toLocalTime().toString("yyyy-MM-dd HH:mm:ss") : QStringLiteral("未记录")));
   const bool edit = editable_ && !saving_ && !updating_;
   tree_->setEnabled(edit); selectAll_->setEnabled(edit); clear_->setEnabled(edit);
+  if (availability_->currentIndex() == 5) { selectAll_->setEnabled(false); clear_->setEnabled(false); }
   save_->setEnabled(edit && dirty_); scan_->setEnabled(!updating_ && !saving_);
 }

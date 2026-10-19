@@ -28,6 +28,17 @@ bool nonnegativeInteger(const QString& text, int* value) {
   return true;
 }
 
+bool numericParameters(const QString& text, QList<int>* values) {
+  const auto tokens = text.split(QLatin1Char(':'));
+  if (tokens.isEmpty() || tokens.size() > 32) return false;
+  for (const auto& token : tokens) {
+    int value = 0;
+    if (!nonnegativeInteger(token,&value)) return false;
+    values->append(value);
+  }
+  return true;
+}
+
 ComponentState powerGap(const PetBattlePowerState& power, const QString& key) {
   for (const auto& component : power.components) {
     if (component.key != key) continue;
@@ -54,7 +65,19 @@ ComponentState oneChangeableRedStargod(const PetBattlePowerState& power) {
 
 ComponentState componentState(const ShopPetComponentRule& rule, const ShopPetDerived& pet, bool suppliesOrdinaryAstrolabe) {
   if (rule.componentIndex < 0 || rule.componentIndex >= int(pet.components.size())) return ComponentState::Unknown;
+  if (rule.componentIndex == 18) {
+    if (pet.usefulSpecifiedStars.contains(rule.targetId)) return ComponentState::Useful;
+    if (pet.satisfiedSpecifiedStars.contains(rule.targetId) || pet.unavailableSpecifiedStars.contains(rule.targetId)) return ComponentState::Full;
+    return ComponentState::Unknown;
+  }
   const auto state = pet.components[rule.componentIndex];
+  if (rule.componentIndex == 19 || rule.componentIndex == 21) {
+    const bool equipment = rule.componentIndex == 19;
+    const bool known = equipment ? pet.equipmentLevelsKnown : pet.legendStoneLevelsKnown;
+    if (!known || rule.targetLevel <= 0) return state;
+    const int minimum = equipment ? pet.minimumEquipmentLevel : pet.minimumLegendStoneLevel;
+    return minimum < rule.targetLevel ? ComponentState::Useful : ComponentState::Full;
+  }
   if (rule.componentIndex == 13 && state == ComponentState::Useful) {
     if (suppliesOrdinaryAstrolabe || pet.components[12] == ComponentState::Full) return ComponentState::Useful;
     return pet.components[12] == ComponentState::Unknown ? ComponentState::Unknown : ComponentState::Full;
@@ -85,6 +108,61 @@ ComponentState allRedStargods(const PetBattlePowerState& power) {
   if (power.hasChangeableSlot && !power.changeableOwnedRed) return ComponentState::Useful;
   if (power.stargodLevelsFull) return ComponentState::Full;
   return power.stargodMaxLevel > 0 ? ComponentState::Useful : ComponentState::Unknown;
+}
+
+ComponentState oneGoldStargod(const PetBattlePowerState& power, const QJsonObject& stars) {
+  if (!power.stargodSlotsKnown) return ComponentState::Unknown;
+  if (power.stargodSlots == 0) return ComponentState::Full;
+  if (!power.stargodBackpackKnown || !power.stargodQualitiesKnown) return ComponentState::Unknown;
+  if (power.goldStars + power.redStars < power.stargodSlots) return ComponentState::Useful;
+  // OneGold supplies a level-six ordinary gold star. Existing red stars are
+  // already better; a gold offer must not recommend downgrading them.
+  bool unknown = false;
+  for (const auto& slot : power.stargodDetails) if (!slot.changeable) {
+    qint64 quality = 0;
+    if (!DomainNumeric::checkedInteger(stars.value(QString::number(slot.ownedBestId)).toObject().value(QStringLiteral("quality")),&quality,0,6)) {
+      unknown = true; continue;
+    }
+    if (quality >= 6) continue;
+    if (slot.level <= 0) unknown = true;
+    else if (slot.level < 6) return ComponentState::Useful;
+  }
+  return unknown ? ComponentState::Unknown : ComponentState::Full;
+}
+
+bool minimumEquipmentLevel(const QJsonValue& raw, int* minimum) {
+  if (!raw.isString() || raw.toString().size() > 16384) return false;
+  const auto slotTexts = raw.toString().split(QLatin1Char(','));
+  if (slotTexts.size() != 3) return false;
+  int result = std::numeric_limits<int>::max();
+  for (const auto& slot : slotTexts) {
+    if (slot.isEmpty() || slot == QStringLiteral("0") || slot == QStringLiteral("-1")) { result = 0; continue; }
+    const auto parts = slot.split(QLatin1Char('|'));
+    int id = 0, experience = 0, level = 0;
+    if (parts.size() < 3 || parts.size() > 5 || !nonnegativeInteger(parts[0],&id) || id <= 0 ||
+        !nonnegativeInteger(parts[1],&experience) || !nonnegativeInteger(parts[2],&level) || level <= 0) return false;
+    result = std::min(result,level);
+  }
+  *minimum = result; return true;
+}
+
+bool minimumLegendStoneLevel(const QJsonValue& raw, int* minimum) {
+  if (!raw.isString() || raw.toString().size() > 16384) return false;
+  const auto slotTexts = raw.toString().split(QLatin1Char(','));
+  if (slotTexts.size() != 5) return false;
+  int result = std::numeric_limits<int>::max();
+  for (const auto& slot : slotTexts) {
+    const auto parts = slot.split(QLatin1Char(':'));
+    int id = 0, state = 0, level = 5, experience = 0;
+    if (parts.size() < 2 || parts.size() > 4 ||
+        (parts[0] != QStringLiteral("-1") && !nonnegativeInteger(parts[0],&id)) ||
+        !nonnegativeInteger(parts[1],&state) || state > 2 ||
+        (parts.size() >= 3 && !nonnegativeInteger(parts[2],&level)) ||
+        (parts.size() == 4 && !nonnegativeInteger(parts[3],&experience))) return false;
+    if (parts[0] == QStringLiteral("-1") || id == 0 || state == 0) level = 0;
+    result = std::min(result,level);
+  }
+  *minimum = result; return true;
 }
 
 ComponentState cultivationState(bool missing, bool unknown) {
@@ -141,6 +219,46 @@ AstrolabeStates astrolabeStates(const QJsonObject& pet, const QJsonObject& metad
   result.all = cultivationState(allMissing,allUnknown);
   result.ordinary = cultivationState(ordinaryMissing,ordinaryUnknown);
   return result;
+}
+
+void deriveSingleAstrolabe(const QJsonObject& pet, const QJsonObject& metadata, ShopPetDerived* out) {
+  const auto raw=pet.value(QStringLiteral("astrolabe"));
+  if (!raw.isString() || raw.toString().size() > 16384) return;
+  std::array<bool,3> useful{}, unknown{}, blocked{};
+  if (!raw.toString().isEmpty()) for (const auto& chain : raw.toString().split(QLatin1Char('|'))) {
+    bool reachable=true, reachKnown=true;
+    for (const auto& slot : chain.split(QLatin1Char('#'))) {
+      const auto parts=slot.split(QLatin1Char(':')); int id=0,lit=0,selected=0;
+      if (parts.size()<2 || parts.size()>3 || !nonnegativeInteger(parts.value(0),&id) ||
+          !nonnegativeInteger(parts.value(1),&lit) || lit>1 ||
+          (parts.size()==3 && (!nonnegativeInteger(parts[2],&selected) || selected>1)) || (selected && !lit)) {
+        unknown.fill(true); reachKnown=false; continue;
+      }
+      if (!lit) {
+        const auto definition=metadata.value(QString::number(id)).toObject();
+        qint64 layer=0;
+        if (!definition.value("isTBD").isBool()) unknown.fill(true);
+        else if (!definition.value("isTBD").toBool()) {
+          if (!definition.value("exclusive").isBool() ||
+              !DomainNumeric::checkedInteger(definition.value("locatedType"),&layer,0,2)) unknown.fill(true);
+          else {
+            const bool exclusive=definition.value("exclusive").toBool();
+            const int category=exclusive ? (layer==2 ? 2 : -1) : layer==1 ? 0 : layer==2 ? 1 : -1;
+            if (category>=0) {
+              if (!reachKnown) unknown[category]=true;
+              else if (reachable) useful[category]=true;
+              else blocked[category]=true;
+            }
+          }
+        }
+      }
+      reachable &= lit!=0;
+    }
+  }
+  for (int i=0;i<3;++i) {
+    out->components[14+i]=cultivationState(useful[i],unknown[i]);
+    if (blocked[i] && !useful[i] && !unknown[i]) out->astrolabeBlockedMask |= 1<<i;
+  }
 }
 
 ComponentState astrolabeBreakthrough(const QJsonObject& pet, const ShopPetMetadataSnapshot& metadata, const AstrolabeStates& astrolabe) {
@@ -227,7 +345,7 @@ CompiledShopPetRule compileShopPetRule(const QString& enhanceType,
   if (stats) ++stats->enhancementExpressionsParsed;
   for (const QString& code : codes) {
     int index = static_cast<int>(knownCodes.indexOf(code));
-    int targetLevel = 0;
+    int targetLevel = 0, targetId = 0;
     QString name = componentName(code);
     // Type 33 uses parameter zero as its minimum slot level (default one).
     // Type 39's currently documented flows are one red star and the official
@@ -242,13 +360,53 @@ CompiledShopPetRule compileShopPetRule(const QString& enhanceType,
     else if (code == QStringLiteral("89") || code == QStringLiteral("89$1")) index = 13;
     else if (code == QStringLiteral("94")) index = 8;
     else if (code == QStringLiteral("95")) index = 10;
+    else if (code == QStringLiteral("61")) { index=17; name=QStringLiteral("超凡入圣天赋"); }
+    else if (code == QStringLiteral("81")) { index=14; name=QStringLiteral("内圈星迹"); }
+    else if (code == QStringLiteral("82")) { index=15; name=QStringLiteral("外圈星迹"); }
+    else if (code == QStringLiteral("83")) { index=16; name=QStringLiteral("专属星迹"); }
+    else if (code == QStringLiteral("25") || code.startsWith(QStringLiteral("25$")) ||
+             code == QStringLiteral("53") || code.startsWith(QStringLiteral("53$"))) {
+      const bool equipment = code.startsWith(QStringLiteral("25"));
+      QList<int> parameters;
+      if (code.size() == 2) parameters.append(equipment ? 6 : 5);
+      else if (!numericParameters(code.mid(3),&parameters)) parameters.clear();
+      if (!parameters.isEmpty() && parameters[0] > 0) {
+        targetLevel = parameters[0]; index = equipment ? 19 : 21;
+        name = equipment ? QStringLiteral("一个%1星源兽").arg(targetLevel)
+                         : QStringLiteral("一个%1级传说石").arg(targetLevel);
+      }
+    }
+    else if (code == QStringLiteral("37") || code.startsWith(QStringLiteral("37$"))) {
+      QList<int> parameters;
+      if (code == QStringLiteral("37") || (numericParameters(code.mid(3),&parameters) && parameters[0] > 0)) {
+        index = 20; name = QStringLiteral("一个6级金色星神");
+      }
+    }
+    else if (code.startsWith(QStringLiteral("34$")) || code.startsWith(QStringLiteral("92$"))) {
+      int parameter=0;
+      // The official single-red flow uses the same OneRed strategy; the
+      // stage-more flow is useful until the dynamic plan maximum is reached.
+      if (nonnegativeInteger(code.mid(3),&parameter) && parameter>0) {
+        const bool red=code.startsWith(QStringLiteral("34$")); index=red ? 2 : 8;
+        name=componentName(red ? QStringLiteral("34") : QStringLiteral("92"));
+      }
+    }
+    else if (code.startsWith(QStringLiteral("35$"))) {
+      QList<int> parameters;
+      // All three official consumers use only parameter zero. Keep the raw
+      // expression; trailing numeric fields are not a quantity or level.
+      if (numericParameters(code.mid(3),&parameters) && parameters[0]>0) {
+        targetId = parameters[0];
+        index=18; name=QStringLiteral("指定星神 #%1").arg(targetId);
+      }
+    }
     else if (code == QStringLiteral("33") || code.startsWith(QStringLiteral("33$"))) {
       const auto parameter = code == QStringLiteral("33") ? QStringLiteral("1") : code.mid(3);
       if (nonnegativeInteger(parameter,&targetLevel) && targetLevel > 0) {
         index = 9; name = QStringLiteral("万变红星（至少%1级）").arg(targetLevel);
       }
     }
-    result.components.append({code, name, index, targetLevel});
+    result.components.append({code, name, index, targetLevel, targetId});
     if (stats) ++stats->enhancementComponentsCompiled;
   }
   return result;
@@ -274,7 +432,8 @@ ShopPetDerived deriveShopPetWithPower(const QJsonObject& pet, bool hasFullDetail
   result.hasFullDetail = hasFullDetail;
   result.hasData = !pet.isEmpty();
   if (!hasFullDetail || !result.hasData) return result;
-  const auto systems = systemsForEra(resolvePetEra(pet, metadata.pets));
+  const auto era = resolvePetEra(pet, metadata.pets);
+  const auto systems = systemsForEra(era);
   const auto sacred = pet.value(QStringLiteral("shenjue"));
   result.sacredStateRequired = systems.sacred && !sacred.isUndefined() && (!sacred.isString() || !sacred.toString().isEmpty());
   const auto requiresState = [&pet,&power](const QString& field,const QString& component) {
@@ -302,11 +461,31 @@ ShopPetDerived deriveShopPetWithPower(const QJsonObject& pet, bool hasFullDetail
     result.components[6] = astrolabe.all;
     result.components[12] = astrolabe.ordinary;
     result.components[13] = astrolabeBreakthrough(pet,metadata,astrolabe);
+    deriveSingleAstrolabe(pet,metadata.astrolabe,&result);
   } else {
     result.components[6] = result.components[12] = result.components[13] = ComponentState::Full;
+    result.components[14] = result.components[15] = result.components[16] = ComponentState::Full;
   }
+  qint64 giftLevel=0;
+  if (DomainNumeric::checkedInteger(pet.value(QStringLiteral("gt")),&giftLevel,0,std::numeric_limits<int>::max()))
+    result.components[17]=giftLevel>=6 ? ComponentState::Full : ComponentState::Useful;
+  const auto specified=specifiedStargodAcquisition(pet,
+      petPowerMetadataFromCatalog(pet,0,metadata.stargods,metadata.astrolabe,metadata.pets),power);
+  result.usefulSpecifiedStars=specified.useful; result.satisfiedSpecifiedStars=specified.satisfied;
+  result.unavailableSpecifiedStars=specified.unavailable;
   result.components[9] = oneChangeableRedStargod(power);
   result.components[11] = allRedStargods(power);
+  result.components[20] = oneGoldStargod(power,metadata.stargods);
+  if (!systems.equipment) result.components[19] = ComponentState::Full;
+  else if (era != PetEra::Unknown && minimumEquipmentLevel(pet.value(QStringLiteral("eps")),&result.minimumEquipmentLevel)) {
+    result.equipmentLevelsKnown = true;
+    result.components[19] = result.minimumEquipmentLevel < 6 ? ComponentState::Useful : ComponentState::Full;
+  }
+  if (!systems.legendStone) result.components[21] = ComponentState::Full;
+  else if (era != PetEra::Unknown && minimumLegendStoneLevel(pet.value(QStringLiteral("lss")),&result.minimumLegendStoneLevel)) {
+    result.legendStoneLevelsKnown = true;
+    result.components[21] = result.minimumLegendStoneLevel < 5 ? ComponentState::Useful : ComponentState::Full;
+  }
   result.changeableSlotKnown = power.stargodSlotsKnown;
   result.hasChangeableSlot = power.hasChangeableSlot;
   bool foundChangeable = false;
@@ -357,7 +536,7 @@ ShopPetEligibilitySummary evaluateShopPetRule(
     const ShopCultivationState state = componentState(component,pet,rule.suppliesOrdinaryAstrolabe);
     if (state == ShopCultivationState::Useful) {
       ++result.usefulCount;
-      result.redStarUseful |= component.componentIndex == 2;
+      result.redStarUseful |= component.componentIndex == 2 || component.componentIndex == 18;
     } else if (state == ShopCultivationState::Unknown) unknown = true;
   }
   result.state = result.usefulCount > 0 ? ShopPetEligibilityState::Usable
@@ -378,6 +557,8 @@ ShopPetEligibility describeShopPetRule(const CompiledShopPetRule& rule,
   QStringList useful, usefulCodes, full, unknown;
   bool needsSourceBeastMaterial = false;
   bool needsOrdinaryAstrolabe = false;
+  bool needsPreviousTrace = false;
+  bool specifiedStarUnavailable = false;
   for (const ShopPetComponentRule& component : rule.components) {
     const ShopCultivationState state = componentState(component,pet,rule.suppliesOrdinaryAstrolabe);
     if (state == ShopCultivationState::Useful) {
@@ -387,6 +568,9 @@ ShopPetEligibility describeShopPetRule(const CompiledShopPetRule& rule,
       full.append(component.name);
       needsSourceBeastMaterial |= component.componentIndex == 10 && pet.components[8] == ShopCultivationState::Useful;
       needsOrdinaryAstrolabe |= component.componentIndex == 13 && pet.components[13] == ShopCultivationState::Useful;
+      needsPreviousTrace |= component.componentIndex>=14 && component.componentIndex<=16 &&
+          (pet.astrolabeBlockedMask & (1<<(component.componentIndex-14)));
+      specifiedStarUnavailable |= component.componentIndex==18 && pet.unavailableSpecifiedStars.contains(component.targetId);
     }
     else unknown.append(component.name);
   }
@@ -394,12 +578,14 @@ ShopPetEligibility describeShopPetRule(const CompiledShopPetRule& rule,
     return {ShopPetEligibilityState::Usable,
             QStringLiteral("可提升：%1").arg(useful.join(QStringLiteral("、"))), usefulCodes};
   if (unknown.isEmpty()) {
+    if (specifiedStarUnavailable) return {ShopPetEligibilityState::NotUsable,QStringLiteral("指定星神不适用此精灵的职业或普通星神槽位")};
+    if (needsPreviousTrace) return {ShopPetEligibilityState::NotUsable,QStringLiteral("需先激活前置星迹，当前不能使用此单点激活奖励")};
     if (needsSourceBeastMaterial && full.size() == 1)
       return {ShopPetEligibilityState::NotUsable,QStringLiteral("当前升阶需要源兽材料，不适用此兑换分支")};
     if (needsOrdinaryAstrolabe && full.size() == 1)
       return {ShopPetEligibilityState::NotUsable,QStringLiteral("需先激活全部普通星迹后再突破")};
     const bool includesStars = std::any_of(rule.components.cbegin(), rule.components.cend(),
-        [](const ShopPetComponentRule& component) { return component.componentIndex == 1 || component.componentIndex == 2 || component.componentIndex == 9 || component.componentIndex == 11; });
+        [](const ShopPetComponentRule& component) { return component.componentIndex == 1 || component.componentIndex == 2 || component.componentIndex == 9 || component.componentIndex == 11 || component.componentIndex == 18; });
     return {ShopPetEligibilityState::NotUsable,
             QStringLiteral("对应培养项已满足或资源已持有：%1").arg(full.join(QStringLiteral("、"))) +
                 (includesStars ? QStringLiteral("；已有星神先装备或升级，无需重复兑换") : QString{})};

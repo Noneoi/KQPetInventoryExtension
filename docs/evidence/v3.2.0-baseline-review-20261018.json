@@ -1,0 +1,254 @@
+{
+  "schemaVersion": 1,
+  "reviewedDate": "2026-10-18",
+  "timezone": "Asia/Shanghai",
+  "scope": "Improvement plan for the published v3.2.0 settings data updater and existing workbench functions",
+  "release": {
+    "name": "KQPetInventoryExtension v3.2.0 正式版",
+    "url": "https://github.com/Noneoi/KQPetInventoryExtension/releases/tag/v3.2.0",
+    "tag": "v3.2.0",
+    "publishedUtc": "2026-10-07T09:52:15Z",
+    "assets": [
+      {
+        "name": "KQPetInventory-3.2.0-0a6784c45167-20261007T093650Z-win-x64-copy-ready.zip",
+        "bytes": 5253679,
+        "githubDigest": "sha256:19efb61272104e0ed5a843e2484ff842bf7ed47f5bfc35b25180eccfdba82f7e",
+        "url": "https://github.com/Noneoi/KQPetInventoryExtension/releases/download/v3.2.0/KQPetInventory-3.2.0-0a6784c45167-20261007T093650Z-win-x64-copy-ready.zip"
+      },
+      {
+        "name": "KQPetInventory-3.2.0-0a6784c45167-20261007T093650Z-win-x64-copy-ready.zip.sha256",
+        "bytes": 141,
+        "githubDigest": "sha256:d498bddc9404cdf9629abd837a8c0b7f4f0636bccce21e2d52ab697262a88977",
+        "url": "https://github.com/Noneoi/KQPetInventoryExtension/releases/download/v3.2.0/KQPetInventory-3.2.0-0a6784c45167-20261007T093650Z-win-x64-copy-ready.zip.sha256"
+      }
+    ]
+  },
+  "commit": "3ab79f6a978b28ba846efa261950163713f5f0f7",
+  "tagObject": "0ef029b23e38a8f92994f273252ea319380638db",
+  "tagCommitMatches": true,
+  "sourceFiles": [
+    {
+      "path": "README.md",
+      "gitBlob": "ef2110e1b1b55ea28a40d923fda6162113aa620f",
+      "sha256": "dc6e04ef57bb6042edb1f6671179b000027e396848fac06dd62f06522b0d028b",
+      "lines": 272
+    },
+    {
+      "path": "src/ui/workbench/pet_settings_dialog.cpp",
+      "gitBlob": "20b5be707f7e2679d31e7adaaa18d946f1170b93",
+      "sha256": "4beeaed9abebbd00241a7bb5f367b19b7cf20b905f1c0b6e8548c7cb1fb9bfd1",
+      "lines": 835
+    },
+    {
+      "path": "src/application/runtime/data_update_service.cpp",
+      "gitBlob": "42049507b3dce826e34c56bff581cf5a4a037647",
+      "sha256": "2fef6e0985f6ff2ddb5ff8fcc2554ed3e2a7312e279cde26749a4670b7dedf08",
+      "lines": 292
+    },
+    {
+      "path": "src/application/runtime/application_runtime.cpp",
+      "gitBlob": "67b9d6d38615b4f8bdc0a285b15f80e9e6f65dc0",
+      "sha256": "b029e608c23ac36549a8de004ed69a236ddb864bf0c36d1169f668849fd0ab75",
+      "lines": 776
+    },
+    {
+      "path": "tools/public_data_updater.py",
+      "gitBlob": "870e47703fa6a71a70b945211c051c4def736ebd",
+      "sha256": "86e7dea4c85ad557a14e347354b6f5527d6e6892bd53d8463f9af767c005e5ab",
+      "lines": 819
+    },
+    {
+      "path": "tools/public_skill_updater.py",
+      "gitBlob": "c2f5377ee62452b19969fc3b34564de329768abd",
+      "sha256": "2d728cfaa7790b1bccba472f4814d29dce0f103c11faad88e470146db2bfde84",
+      "lines": 101
+    },
+    {
+      "path": "tools/public_activity_exchange_updater.py",
+      "gitBlob": "e7aeaac987e8fb3cb1f1d23e0ac279532f0d8b97",
+      "sha256": "7e8c04f2e33d1a2a34453cbc6c95e41c763890b677668bfdfae663964b9c11c2",
+      "lines": 1567
+    },
+    {
+      "path": "src/application/analysis/analysis_worker.cpp",
+      "gitBlob": "3db827bb351dc72e8e74793e2e31728d740de084",
+      "sha256": "617a84d6c7bc151cc055b06ef5863c7b29744c01da4b57af67ee452a01915e1a",
+      "lines": 1034
+    },
+    {
+      "path": "src/application/analysis/asset_analysis_controller.cpp",
+      "gitBlob": "01bc4a24003ee62a8dd94be0617dce06650c2430",
+      "sha256": "19fa9898567f4cc56d8e1eaf8db35d98f0da45b5e42d0a7d6dabd282c9e87021",
+      "lines": 908
+    },
+    {
+      "path": "src/ui/pet/pet_window.cpp",
+      "gitBlob": "82071cc5e5f0a49b00865bb620194e916a98b6b6",
+      "sha256": "4e7c2b698b114b3623b859cf087a0aebeb687f123b18de14b7c00f47572af625",
+      "lines": 1465
+    },
+    {
+      "path": "src/ui/shop/shop_window.cpp",
+      "gitBlob": "209aa1f197e2ba67f878636dca73023218746046",
+      "sha256": "7d8741e9ed6fd76bfd0f68ce264592a53ea25dfb9e0e9b71c6aaa5f6f5f8dd5a",
+      "lines": 1397
+    },
+    {
+      "path": "src/ui/shop/shop_selection_dialog.cpp",
+      "gitBlob": "d8117e731f390a36a9085f70e2ca65a437d9aae6",
+      "sha256": "5fdfb0e4b9a452ae812512985680418305aaf2fc0b87c1b7ef983fd010e9f24f",
+      "lines": 258
+    },
+    {
+      "path": "src/extension/resources.qrc",
+      "gitBlob": "15176fa790aac7b0660d09c018c7746ecbceba26",
+      "sha256": "1844309eb7cb18b32b4dfea4e27971375d5626f0a91208a9181a22ef15d262c8",
+      "lines": 117
+    }
+  ],
+  "locations": [
+    {
+      "path": "tools/public_data_updater.py",
+      "symbol": "COMPONENTS =",
+      "line": 45
+    },
+    {
+      "path": "tools/public_data_updater.py",
+      "symbol": "def matching_resource",
+      "line": 130
+    },
+    {
+      "path": "tools/public_data_updater.py",
+      "symbol": "def export(",
+      "line": 247
+    },
+    {
+      "path": "tools/public_data_updater.py",
+      "symbol": "def versions(",
+      "line": 266
+    },
+    {
+      "path": "tools/public_data_updater.py",
+      "symbol": "def run(",
+      "line": 543
+    },
+    {
+      "path": "tools/public_skill_updater.py",
+      "symbol": "def update_skills",
+      "line": 59
+    },
+    {
+      "path": "tools/public_activity_exchange_updater.py",
+      "symbol": "def export_scripts",
+      "line": 1336
+    },
+    {
+      "path": "tools/public_activity_exchange_updater.py",
+      "symbol": "def update_activity_exchanges",
+      "line": 1383
+    },
+    {
+      "path": "src/ui/workbench/pet_settings_dialog.cpp",
+      "symbol": "QWidget* PetSettingsDialog::createDataPage",
+      "line": 279
+    },
+    {
+      "path": "src/application/runtime/application_runtime.cpp",
+      "symbol": "void ApplicationRuntime::requestDataUpdate",
+      "line": 659
+    },
+    {
+      "path": "src/application/runtime/data_update_service.cpp",
+      "symbol": "bool DataUpdateService::requestUpdate",
+      "line": 267
+    }
+  ],
+  "reviewKind": "static review of the published tag source; no v3.2.0 runtime benchmark executed",
+  "performanceEvidenceExclusion": "2026-10-16 local 4.0.0 sample is not a measurement of v3.2.0",
+  "baselineFeatures": {
+    "pages": [
+      "pets",
+      "shop",
+      "routines",
+      "assets"
+    ],
+    "publicDataComponents": [
+      "pets",
+      "skills",
+      "shop",
+      "images",
+      "icons",
+      "routines"
+    ],
+    "battleReplayInThisBaseline": false
+  },
+  "findings": [
+    {
+      "id": "U1",
+      "kind": "source-observed",
+      "path": "tools/public_data_updater.py",
+      "lines": [
+        266,
+        287
+      ],
+      "finding": "Flash source selection prefers lv over v and caches the version map using the entry version."
+    },
+    {
+      "id": "U2",
+      "kind": "source-observed",
+      "path": "tools/public_skill_updater.py",
+      "lines": [
+        59,
+        75
+      ],
+      "finding": "Same H5 release plus count/schema guards returns unchanged before examining files overrides or the current resource map."
+    },
+    {
+      "id": "U3",
+      "kind": "source-observed",
+      "path": "tools/public_data_updater.py",
+      "lines": [
+        247,
+        264
+      ],
+      "finding": "The standard selected-class export path runs Java without a persistent extraction cache."
+    },
+    {
+      "id": "U4",
+      "kind": "source-observed",
+      "path": "tools/public_data_updater.py",
+      "lines": [
+        45,
+        53
+      ],
+      "finding": "Six catalog components currently commit independently."
+    },
+    {
+      "id": "U5",
+      "kind": "source-observed",
+      "path": "src/application/runtime/data_update_service.cpp",
+      "lines": [
+        185,
+        216
+      ],
+      "finding": "Summary feedback is built from component text and error strings rather than a persisted detailed task projection."
+    },
+    {
+      "id": "F1",
+      "kind": "existing-feature",
+      "path": "src/ui/pet/pet_window.cpp",
+      "finding": "Pause/resume and queue progress already exist; improvements should target failed-only refresh and queue recovery."
+    },
+    {
+      "id": "F2",
+      "kind": "source-and-release-observed",
+      "path": "src/application/analysis/analysis_worker.cpp",
+      "finding": "Analysis has bounded sliced work, reusable derived data and BudgetExceeded paths; large-account continuation is a further enhancement."
+    }
+  ],
+  "limitations": [
+    "Static review of the pinned tag and published release metadata; the release ZIP was not launched or benchmarked.",
+    "The October 16 data update size and timings belong to the later local build and are not used as a v3.2.0 baseline.",
+    "Current working-tree implementation changes and the live client are not modified by this planning work."
+  ]
+}

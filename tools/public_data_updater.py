@@ -1,10 +1,10 @@
 #!/usr/bin/env python3
-"""Explicit, one-shot public-data update. Never contacts account/game APIs.
+"""Explicit public-data update using bundled parsers and reusable local tools.
 
-The extension exports this file and its two parsers from its resources. All
-paths derive from --data-root / this script, including the pinned tools. The
-updater keeps current files only, commits each valid component independently,
-and removes extraction/download scratch on both success and failure.
+Only official public resources are read. Candidate catalogs are validated and
+published as one version; the workbench acknowledges loading separately.
+Recognition notices are distinct from update failures. Account data is not an
+update input. Tool and extraction caches persist across checks.
 """
 from __future__ import annotations
 
@@ -32,6 +32,7 @@ from generate_shop_exchange_data import CONFIG_CLASS, RESOURCE, parse_config
 from generate_stargod_icons import symbol_character_id, png_details
 from public_names_updater import (NAME_RULE_VERSION, NAME_RESOURCES, SACRED_SOURCE_RESOURCE,
                                   needs_names_update, update_names, equipment_source_names)
+from public_update_support import PublicSources, ExtractCache, Operations, SourceVersions, file_sha, canonical, sha
 
 OFFICIAL = "https://aoqi.100bt.com/play/"
 RUNTIMES = {
@@ -130,7 +131,9 @@ def power_rules_valid(catalog: dict) -> bool:
 def matching_resource(previous: dict, label: str, key: str, versions: dict) -> bool:
     version = versions.get(key, "")
     resource = previous.get(label, {})
-    return bool(re.fullmatch(r"\d{8,20}", version) and isinstance(resource, dict) and resource.get("version") == version)
+    observed = getattr(versions, 'hashes', {}).get(key)
+    return bool(re.fullmatch(r"\d{8,20}", version) and isinstance(resource, dict) and resource.get("version") == version
+                and (not observed or resource.get('sha256') == observed))
 
 
 def emit(event: str, **values) -> None:
@@ -171,7 +174,7 @@ def atomic_json(path: Path, value: dict) -> None:
 
 
 def fetch(url: str, output: Path, *, runtime: bool = False) -> dict:
-    if not runtime and not url.startswith(OFFICIAL):
+    if not runtime and not url.startswith((OFFICIAL, 'https://aoqi.100bt.com/h5/')):
         raise ValueError("resource is outside the official game origin")
     request = urllib.request.Request(url, headers={"User-Agent": "KQPetPublicData/2.0"})
     limit = (96 if runtime else 32) * 1024 * 1024
@@ -230,11 +233,21 @@ def runtime_entry(tools: Path, name: str, scratch: Path) -> Path:
 
 
 class Updater:
-    def __init__(self, root: Path, baseline: Path, scratch: Path, *, fetcher=fetch, exporter=None):
+    # Low-level parser fixtures can supply version-only inputs. Production calls
+    # are isolated and use authoritative=True through public_update_store.
+    def __init__(self, root: Path, baseline: Path, scratch: Path, *, fetcher=fetch, exporter=None,
+                 authoritative=False, runtime_root=None, operations=None, verify_all=False):
         self.root, self.baseline, self.scratch = root, baseline, scratch
         self.catalog = root / "catalog"
-        self.tools = root / "data-tools"
-        self.fetch = fetcher
+        self.tools = Path(runtime_root) if runtime_root is not None else root / "data-tools"
+        self.operations = operations or Operations(emit)
+        self.sources = PublicSources(scratch, fetcher, self.operations)
+        self.fetch = self.sources.fetch if authoritative else fetcher
+        self.authoritative, self.verify_all = authoritative, verify_all
+        self.extract_cache = ExtractCache(self.tools / 'extract-cache', self.operations) if authoritative else None
+        self.force_components = set()
+        self.source_failures = {}
+        self.observed_versions = SourceVersions()
         self.exporter = exporter
         self.runtimes = None
         self.start_version = ""
@@ -245,6 +258,12 @@ class Updater:
         self.resource_cache = {}
 
     def export(self, swf: Path, target: Path, selected: str) -> Path:
+        if self.extract_cache:
+            self.export_scripts(swf, target, selected)
+            matches = list(target.rglob(selected.rsplit('.', 1)[-1] + '.as'))
+            if len(matches) != 1:
+                raise ValueError('官方资源导出缺少指定配置类：' + selected)
+            return matches[0]
         if self.exporter:
             return self.exporter(swf, target, selected)
         if self.runtimes is None:
@@ -263,12 +282,71 @@ class Updater:
             raise ValueError("官方资源结构已改变，保留原数据")
         return matches[0]
 
+    def export_scripts(self, swf, target, selected='*'):
+        if self.runtimes is None and not self.exporter:
+            self.runtimes = (runtime_entry(self.tools, 'java', self.scratch), runtime_entry(self.tools, 'ffdec', self.scratch))
+        tools = {'injected': True} if self.exporter else {str(index): file_sha(path) for index, path in enumerate(self.runtimes)}
+        def produce(directory):
+            if self.exporter:
+                self.exporter(swf, directory, selected)
+                return
+            java, ffdec = self.runtimes
+            command = [str(java), '-Xmx512m', '-Djava.awt.headless=true', '-jar', str(ffdec)]
+            if selected != '*':
+                command += ['-selectclass', selected]
+            command += ['-export', 'script', str(directory), str(swf)]
+            result = subprocess.run(command, stdout=subprocess.PIPE, stderr=subprocess.STDOUT,
+                                    timeout=600, creationflags=getattr(subprocess, 'CREATE_NO_WINDOW', 0))
+            if result.returncode:
+                raise ValueError('官方脚本导出失败，现用资料保留')
+        self.extract_cache.extract(swf, target, selected, tools, produce)
+        return {p.relative_to(target).as_posix(): p.read_text(encoding='utf-8-sig') for p in target.rglob('*.as')}
+
+    def prepare_sources(self, selected, versions):
+        from concurrent.futures import ThreadPoolExecutor, as_completed
+        from public_activity_exchange_updater import PACKAGE_RESOURCES, CONFIG_RESOURCE, EMERGENCY_RESOURCE, BLOCK_RESOURCE
+        from public_routine_updater import RESOURCES as ROUTINES
+        from activity_evolution_selector import RESOURCES as EVOLUTION
+        requirements = {}
+        def add(component, keys):
+            for key in keys:
+                requirements.setdefault(key, set()).add(component)
+        if 'pets' in selected:
+            add('pets', [key for _, key, _ in PET_RESOURCES] + [key for _, key in (*POWER_RESOURCES, *CULTIVATION_RESOURCES, *NAME_RESOURCES)] + [SACRED_SOURCE_RESOURCE[1]])
+        if 'shop' in selected:
+            add('shop', [RESOURCE, CONFIG_RESOURCE, EMERGENCY_RESOURCE, BLOCK_RESOURCE,
+                         'library/interfaces', 'library/gameconst', 'library/common', 'library/util', 'strengthencombo/strengthencomboservice', 'wealthmanager/wealthmanager'] +
+                [key for key, _ in PACKAGE_RESOURCES] + [key for _, key, _ in EVOLUTION])
+            if self.verify_all:
+                add('shop', [key for key in read_object(self.catalog / 'activity-exchange-data.json').get('modules', {}) if key in versions])
+        if 'images' in selected:
+            add('images', ['pet/petdataservice'])
+        if 'routines' in selected:
+            add('routines', [key for _, key, _ in ROUTINES])
+        with ThreadPoolExecutor(max_workers=4) as pool:
+            jobs = {pool.submit(self.resource, key, versions): key for key in requirements}
+            for job in as_completed(jobs):
+                key = jobs[job]
+                try:
+                    _, row = job.result()
+                    versions.hashes[key] = row['sha256']
+                except Exception as error:
+                    for component in requirements[key]:
+                        self.source_failures.setdefault(component, []).append(key + '：' + str(error))
+        self.observed_versions = versions
+
     def versions(self) -> dict[str, str]:
         emit("progress", message="检查官方公共数据版本")
+        if self.authoritative:
+            chain = self.sources.flash(swf_text)
+            self.start_version = chain['version']
+            atomic_json(self.catalog / 'official-versions.json', {'startVersion': self.start_version,
+                        'versions': chain['versions'], 'source': chain['source']})
+            return chain['versions']
         path = self.scratch / "start.xml"
         self.fetch(OFFICIAL + "start.xml", path)
         root = ET.fromstring(path.read_bytes())
-        self.start_version = root.findtext("lv") or root.findtext("v") or ""
+        self.start_version = root.findtext("v") or ""
         if not re.fullmatch(r"\d{8,20}", self.start_version):
             raise ValueError("官方入口版本无效，保留本地数据")
         # The manifest is itself versioned: persist one current copy, so a
@@ -306,9 +384,30 @@ class Updater:
         existing = read_object(self.catalog / filename)
         field = {"pets": "pets", "skills": "skills", "shop": "shops", "images": "faces",
                  "icons": "stargods", "routines": "tasks"}[component]
-        if existing.get(field) and isinstance(existing.get("source", {}), dict):
-            return existing
-        return read_object(self.baseline / filename)
+        current = existing if existing.get(field) and isinstance(existing.get('source', {}), dict) else read_object(self.baseline / filename)
+        if self.authoritative:
+            # Invalidate only the isolated prior parser decisions, preserving
+            # the original candidate/active bytes for subsequent loss checks.
+            def invalidate(value):
+                if not isinstance(value, dict):
+                    return
+                url = value.get('url', '')
+                if isinstance(url, str) and url.startswith(OFFICIAL):
+                    key = url[len(OFFICIAL):].split('~', 1)[0]
+                    observed = self.observed_versions.hashes.get(key)
+                    if observed and value.get('sha256') != observed:
+                        value['version'] = ''
+                for child_value in list(value.values()):
+                    if isinstance(child_value, dict):
+                        invalidate(child_value)
+            invalidate(current.get('source', {}))
+            if component in self.force_components:
+                if component == 'pets':
+                    for key in ('petDictionarySchema', 'powerRuleVersion', 'cultivationRuleVersion', 'nameRuleVersion'):
+                        current[key] = -1
+                elif component == 'shop':
+                    current.setdefault('source', {})['shopParserVersion'] = -1
+        return current
 
     def pets(self, versions: dict) -> bool:
         current = self.current("pets")
@@ -440,6 +539,7 @@ class Updater:
         # Parser upgrades also invalidate same-version caches: old catalogs
         # either omitted selectable rewards or included unrelated material rows.
         changed = (not current.get("shops") or current.get("source", {}).get("shopVersion") != versions.get(RESOURCE)
+                   or (getattr(versions, 'hashes', {}).get(RESOURCE) and current.get('source', {}).get('resources', {}).get('shop', {}).get('sha256') != versions.hashes[RESOURCE])
                    or current.get("source", {}).get("shopParserVersion") != 4
                    or current.get("source", {}).get("selectablePackageVersions", {}) != package_versions)
         if changed:
@@ -513,21 +613,24 @@ class Updater:
             # Same index: only a revision change (or an earlier failed refresh,
             # which never rewrote its metadata) needs a download. Skip hashing
             # every cached picture on each repeated manual check.
-            self.image_failures = refresh_cached_images(self.root, current, faces, verify_content=False)
+            self.image_failures = refresh_cached_images(self.root, current, faces, verify_content=False,
+                                                        runtime_root=self.tools.parent if self.authoritative else None)
             return False
         atomic_json(self.catalog / COMPONENTS["images"], {"schemaVersion": 1, "revision": revision,
                     "source": {"kind": "aoqi-official-resource-manifest", "startVersion": self.start_version,
                                "iconRules": rules}, "faceIdExceptions": exceptions, "images": {}, "faces": faces})
         # Only an explicit public update replaces a previously cached picture.
         # Missing pictures stay lazy; no mass pre-download of thousands of pets.
-        self.image_failures = refresh_cached_images(self.root, current, faces)
+        self.image_failures = refresh_cached_images(self.root, current, faces,
+                                                    runtime_root=self.tools.parent if self.authoritative else None)
         return True
 
     def icon_exceptions(self, versions: dict, current: dict) -> tuple[list[int], dict]:
         resource = "pet/petdataservice"
         previous = current.get("source", {}).get("iconRules", {})
         exceptions = current.get("faceIdExceptions")
-        if previous.get("version") == versions.get(resource) and isinstance(exceptions, list):
+        if previous.get("version") == versions.get(resource) and isinstance(exceptions, list) and (
+                not getattr(versions, 'hashes', {}).get(resource) or previous.get('sha256') == versions.hashes[resource]):
             return exceptions, previous
         swf, source = self.resource(resource, versions)
         emit("progress", message="正在更新精灵外观规则")
@@ -545,18 +648,35 @@ class Updater:
         if not selected:
             raise ValueError("没有选择要更新的数据")
         self.resource_cache.clear()
+        if self.authoritative:
+            self.sources.cache.clear()
+            self.sources.snapshots.clear()
+            self.source_failures.clear()
         self.image_failures = 0
         self.icon_failures = []
         self.activity_exchange_failures = []
         self.activity_exchange_pending = []
-        versions = self.versions()
+        versions, version_error = SourceVersions(), None
+        if any(name != 'skills' for name in selected):
+            try:
+                versions = self.versions()
+                if self.authoritative:
+                    self.prepare_sources(selected, versions)
+            except Exception as error:
+                version_error = str(error)
         results = {}
         for name, label in COMPONENT_LABELS:
             if name not in selected:
                 continue
             emit("progress", message="检查" + label)
             try:
-                changed = getattr(self, name)(versions)
+                self.operations.check()
+                if name != 'skills' and version_error:
+                    raise ValueError(version_error)
+                if name in self.source_failures:
+                    raise ValueError('；'.join(self.source_failures[name]))
+                with self.operations.measure('parse', component=name):
+                    changed = getattr(self, name)(versions)
                 results[name] = {"status": "updated" if changed else "unchanged"}
                 if name == "images" and self.image_failures:
                     results[name]["error"] = f"{self.image_failures} 张图片更新失败，已保留原图；下次检查更新可重试"
@@ -570,13 +690,15 @@ class Updater:
                                for key, value in catalog.get("sacredEquipment", {}).items() if not value.get("sourceName")]
                     if missing:
                         results[name]["pendingDefinitions"] = missing
-                        results[name]["error"] = "仍有官方字段待补齐：" + "；".join(missing[:3])
+                        results[name]["notices"] = [{"kind": "definitions", "message": "部分官方名称尚未提供",
+                                                     "items": [{"reason": value} for value in missing]}]
                 if name == "shop":
                     catalog = self.current("shop")
                     scanned_goods = [good for shop in catalog.get("shops", []) for good in shop.get("goods", [])]
                     results[name]["scanCounts"] = {"shops": len(catalog.get("shops", [])),
                         "automaticGoods": sum(not good.get("manualSelectionRequired") for good in scanned_goods),
                         "manualGoods": sum(bool(good.get("manualSelectionRequired")) for good in scanned_goods)}
+                    results[name]['coverage'] = catalog.get('activityCoverage', {})
                     activity_shops = [shop for shop in catalog.get("shops", []) if shop.get("sourceKey")]
                     activity_goods = [good for shop in activity_shops for good in shop.get("goods", [])]
                     results[name]["activityCounts"] = {
@@ -586,24 +708,38 @@ class Updater:
                         "hudShops": sum(shop.get("activityEvidence") == "hud" for shop in activity_shops),
                         "recentReleaseShops": sum(shop.get("activityEvidence") == "recent-release" for shop in activity_shops),
                         "linkedShops": sum(shop.get("activityEvidence") == "referenced" for shop in activity_shops)}
-                    supported = {"11","31","32","34","39","39$1","39$3","41","42","43","44","62","84","85","86","89","89$1","91","92","94","95"}
+                    supported = {"11","25","31","32","34","37","39","39$1","39$3","41","42","43","44","53","61","62","81","82","83","84","85","86","89","89$1","91","92","94","95"}
                     def supported_code(code):
                         if code in supported or code == "33":
                             return True
-                        match = re.fullmatch(r"33\$([0-9]+)",code)
+                        parameterized = re.fullmatch(r"(?:25|35|37|53)\$([0-9]+(?::[0-9]+)*)",code)
+                        if parameterized:
+                            params = list(map(int, parameterized[1].split(':')))
+                            return len(params) <= 32 and 1 <= params[0] <= 2147483647 and all(p <= 2147483647 for p in params[1:])
+                        match = re.fullmatch(r"(?:33|34|92)\$([0-9]+)",code)
                         return bool(match and 1 <= int(match[1]) <= 2147483647)
                     pending = sorted({code.strip() for shop in catalog.get("shops", []) for good in shop.get("goods", [])
                                       for code in str(good.get("enhanceType", "")).split("-")
                                       if code.strip() and not supported_code(code.strip())})
                     if pending:
                         results[name]["unsupportedTypes"] = pending
-                        results[name]["error"] = "奖励已识别，部分培养适用判断待适配：" + "、".join(pending[:16])
-                    problems = list(self.activity_exchange_failures)
+                        affected = []
+                        for shop in catalog.get("shops", []):
+                            for good in shop.get("goods", []):
+                                codes = sorted(set(str(good.get("enhanceType", "")).split("-")) & set(pending))
+                                if codes:
+                                    affected.append({"activityName": shop.get("name", ""),
+                                        "description": good.get("description", ""), "sourceKey": shop.get("sourceKey", ""),
+                                        "itemId": good.get("itemServerId", good.get("id")), "unsupportedTypes": codes,
+                                        "reason": "包含尚未自动判断的养成项，具体适用条件请在游戏内确认"})
+                        results[name].setdefault("notices", []).append({"kind": "analysis", "message":
+                            f"{len(affected)} 个商品含需在游戏内确认的养成项", "items": affected})
                     if self.activity_exchange_pending:
                         results[name]["pendingActivities"] = self.activity_exchange_pending
-                        problems.append(f"{len(self.activity_exchange_pending)} 条活动兑换配置待识别")
-                    if problems:
-                        results[name]["error"] = "；".join(filter(None,[results[name].get("error"),*problems[:4]]))
+                        results[name].setdefault("notices", []).append({"kind": "extraction", "message":
+                            f"{len(self.activity_exchange_pending)} 条活动配置尚未完整识别", "items": self.activity_exchange_pending})
+                    if self.activity_exchange_failures:
+                        results[name]["error"] = "部分活动资料读取失败，已保留对应旧资料：" + "；".join(self.activity_exchange_failures[:4])
                 if name == "skills":
                     catalog = self.current("skills")
                     results[name]["counts"] = {key: len(catalog.get(key, {})) for key in
@@ -613,7 +749,8 @@ class Updater:
                     results[name]["counts"] = catalog.get("source", {}).get("counts", {})
                     pending = catalog.get("unsupportedRules", [])
                     if pending:
-                        results[name]["error"] = f"{len(pending)} 条日常活动规则待适配"
+                        results[name]["notices"] = [{"kind": "rules", "message": f"{len(pending)} 条日常活动规则尚未完整识别",
+                            "items": [value if isinstance(value, dict) else {"reason": str(value)} for value in pending]}]
                 emit("component", component=name, **results[name])
             except Exception as error:
                 results[name] = {"status": "failed", "error": str(error)}
@@ -687,8 +824,9 @@ def picture_entry(index: dict, visual_key: str) -> dict:
     return faces.get(fallback, {}) if int(selected) >= 10000 else {}
 
 
-def extract_image(root: Path, visual_key: str, *, replace=False) -> dict:
-    index = read_object(root / "catalog" / "pet-image-index.json")
+def extract_image(root: Path, visual_key: str, *, replace=False, runtime_root=None) -> dict:
+    from public_update_store import catalog_path
+    index = read_object(catalog_path(root, 'pet-image-index.json'))
     entry = picture_entry(index, visual_key)
     output = root / "images" / "pets" / (visual_key + ".png")
     if output.is_file() and not replace:
@@ -700,9 +838,13 @@ def extract_image(root: Path, visual_key: str, *, replace=False) -> dict:
         raise ValueError("unsupported official picture resource")
     if not re.fullmatch(r"mmo\.pet\.peticon[1-9]\d*_L", symbol):
         raise ValueError("unsupported official picture symbol")
-    java, ffdec = installed_runtime(root, "java"), installed_runtime(root, "ffdec")
+    java, ffdec = installed_runtime(runtime_root or root, "java"), installed_runtime(runtime_root or root, "ffdec")
     output.parent.mkdir(parents=True, exist_ok=True)
-    with tempfile.TemporaryDirectory(prefix="picture-", dir=root / "data-tools") as temporary:
+    # A transactional candidate shares the installed runtimes but owns its
+    # temporary image output; it may not have a local data-tools directory yet.
+    scratch_root = root / "data-tools"
+    scratch_root.mkdir(parents=True, exist_ok=True)
+    with tempfile.TemporaryDirectory(prefix="picture-", dir=scratch_root) as temporary:
         scratch = Path(temporary)
         swf = scratch / "picture.swf"
         resource = fetch(url, swf)
@@ -720,7 +862,7 @@ def extract_image(root: Path, visual_key: str, *, replace=False) -> dict:
         info = png_details(images[0])
         if info["width"] * info["height"] > 16 * 1024 * 1024 or info["bytes"] > 16 * 1024 * 1024:
             raise ValueError("官方精灵图片过大")
-        latest = picture_entry(read_object(root / "catalog" / "pet-image-index.json"), visual_key)
+        latest = picture_entry(read_object(catalog_path(root, "pet-image-index.json")), visual_key)
         if latest != entry:
             raise ValueError("图片索引已更新，旧来源下载结果已忽略")
         # os.replace is atomic on the same volume, including overwriting.
@@ -730,7 +872,7 @@ def extract_image(root: Path, visual_key: str, *, replace=False) -> dict:
     return {"status": "saved", "path": str(output)}
 
 
-def refresh_cached_images(root: Path, previous: dict, faces: dict, *, verify_content: bool = True) -> int:
+def refresh_cached_images(root: Path, previous: dict, faces: dict, *, verify_content: bool = True, runtime_root=None) -> int:
     directory = root / "images" / "pets"
     if not directory.exists():
         return 0
@@ -747,7 +889,10 @@ def refresh_cached_images(root: Path, previous: dict, faces: dict, *, verify_con
             continue
         try:
             emit("progress", message="更新已缓存图片 " + key)
-            extract_image(root, key, replace=True)
+            if runtime_root is None:
+                extract_image(root, key, replace=True)
+            else:
+                extract_image(root, key, replace=True, runtime_root=runtime_root)
         except Exception as error:
             # Individual image failures never replace a valid old PNG.
             emit("imageFailed", visualKey=key, error=str(error))
@@ -782,6 +927,9 @@ def main() -> int:
     parser.add_argument("--extract-image", action="store_true")
     parser.add_argument("--visual-key")
     parser.add_argument("--replace", action="store_true")
+    parser.add_argument("--attempt")
+    parser.add_argument("--prepare-only", action="store_true")
+    parser.add_argument("--verify-all", action="store_true")
     parser.add_argument("--components", default="",
                         help="comma-separated subset of: " + ",".join(COMPONENTS) + " (default: all)")
     args = parser.parse_args()
@@ -799,16 +947,13 @@ def main() -> int:
             emit("finished", success=True, **result)
             return 0
         with update_lock(root):
-            tools = root / "data-tools"
-            tools.mkdir(exist_ok=True)
-            with tempfile.TemporaryDirectory(prefix="update-", dir=tools) as scratch:
-                result = Updater(root, args.baseline.resolve(), Path(scratch)).run(components)
-            success = all(v["status"] != "failed" and not v.get("error") for v in result.values())
-            checked = "、".join(label for name, label in COMPONENT_LABELS if name in result)
-            changed = [label for name, label in COMPONENT_LABELS if result.get(name, {}).get("status") == "updated"]
-            summary = ("，已更新：" + "、".join(changed)) if changed else "，均已是最新"
-            message = ("检查完成：" + checked + summary) if success else "已保留可用数据，仍有未完成或待补齐的项目"
-            emit("finished", success=success, message=message, components=result)
+            from public_update_store import run_update
+            report = run_update(root, args.baseline.resolve(), components, attempt=args.attempt,
+                                verify_all=args.verify_all, prepare_only=args.prepare_only, emit=emit)
+            success = report['state'] in ('prepared', 'diskCommitted')
+            emit("finished", success=success, message='候选资料已准备，等待工作台校验载入' if args.prepare_only and success else
+                 '公共资料已保存' if success else report.get('error', '检查未完成'), components={key: {field: value[field] for field in
+                 ('status', 'error', 'counts', 'scanCounts') if field in value} for key, value in report.get('components', {}).items()})
             return 0 if success else 2
     except Exception as error:
         emit("finished", success=False, error=str(error), components={})

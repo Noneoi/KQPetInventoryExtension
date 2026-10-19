@@ -20,6 +20,7 @@ struct PetDerivedFactsRecord {
   std::shared_ptr<void> memoryRetention;
   PetDerivationKey key;
   PetAnalysisFacts facts;
+  QByteArray packedFacts;
   quint64 chargedBytes = 0;
 };
 using PetDerivedFactsHandle = std::shared_ptr<const PetDerivedFactsRecord>;

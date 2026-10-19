@@ -141,6 +141,10 @@ void AssetAnalysisController::setDerivationCache(PetDerivationCache* cache) {
   derivations_ = cache;
   if (!cache) return;
   cache->bindSession(account_, repository_->sessionGeneration());
+  connect(cache, &PetDerivationCache::cacheCleared, this, [this] {
+    clearPreparedFrames();
+    if (preparingFacts_) preparationStarted_ = false;
+  });
   rawAvailableConnection_ = connect(repository_, &PetRepository::rawRecordAvailable, this, [this](const RawPetRecordHandle& raw) {
     if (raw && raw->key.account == account_ && raw->key.epoch == repository_->sessionGeneration())
       queueDerivation(raw->key.instanceId);
@@ -160,7 +164,8 @@ void AssetAnalysisController::setDerivationCache(PetDerivationCache* cache) {
       ++preparationReadAdmissionRetries_;
       queueDerivation(id); return;
     }
-    if (!loaded) localReadChecked_.insert(id);
+    if (!loaded) { localReadChecked_.insert(id); localReadUnavailable_.insert(id); }
+    else localReadUnavailable_.remove(id);
     if (!loaded && readMissingDetail(id)) return;
     if (!loaded && version.complete && !repository_->rawRecordResident(id) && !derivations_->lookup(derivationKey(id))) {
       if (preparingFacts_ && preparationIds_.contains(id))
@@ -183,8 +188,12 @@ void AssetAnalysisController::setDerivationCache(PetDerivationCache* cache) {
     if (key == derivationKey(key.record.instanceId) && status != PetDerivationStatus::Cancelled &&
         status != PetDerivationStatus::Superseded) emit derivedFactsFailed(key,error);
     if (key == derivationKey(key.record.instanceId) && preparingFacts_ && preparationIds_.contains(key.record.instanceId) &&
-        status != PetDerivationStatus::Cancelled && status != PetDerivationStatus::Superseded)
-      failPreparation(QStringLiteral("实例 %1 派生未完成：%2；已保留上次分析").arg(key.record.instanceId).arg(error));
+        status != PetDerivationStatus::Cancelled && status != PetDerivationStatus::Superseded) {
+      if (status == PetDerivationStatus::BudgetExceeded)
+        failPreparation(QStringLiteral("分析达到派生缓存容量：已准备 %1 / %2 只。本轮没有生成完整统计，保留上次结果及账号原始详情；当前版本尚不能继续超出容量的批次。")
+            .arg(preparedFrames_.size()).arg(preparationIds_.size()));
+      else failPreparation(QStringLiteral("实例 %1 派生未完成：%2；已保留上次分析").arg(key.record.instanceId).arg(error));
+    }
   });
   connect(cache, &PetDerivationCache::stateChanged, this, [this] {
     if (!closing_ && derivationPump_ && !derivationPump_->isActive()) derivationPump_->start(1);
@@ -245,7 +254,19 @@ void AssetAnalysisController::acceptDerivedFacts(const PetDerivationKey& key, co
     // is still checking the original file. It must not satisfy that pending
     // read or make the manual capture publish Unknown prematurely.
     if (repository_->recordVersion(key.record.instanceId).complete || localReadChecked_.contains(key.record.instanceId)) {
-      preparedHandles_.insert(key.record.instanceId, facts);
+      const qint64 id = key.record.instanceId;
+      const auto existing = preparedFrames_.constFind(id);
+      if (existing == preparedFrames_.cend() || !(existing->key == key)) {
+        auto bytes = facts->packedFacts;
+        const quint64 charge = quint64(bytes.capacity()) + sizeof(FactFrame) + 256 + quint64(key.record.account.size()) * 2;
+        const quint64 old = existing == preparedFrames_.cend() ? 0 : existing->chargedBytes;
+        if (bytes.isEmpty() || preparedFrameBytes_ - old + charge > 64ULL * 1024 * 1024) {
+          failPreparation(QStringLiteral("分析快照达到容量，保留上次完整统计；未发布部分结果")); return;
+        }
+        preparedFrameBytes_ = preparedFrameBytes_ - old + charge;
+        preparedFrames_.insert(id, {key, std::move(bytes), charge});
+        preparationStartedAt_ = transportMonotonicMs();
+      }
       awaitingFacts_.remove(key.record.instanceId);
     }
   }
@@ -266,6 +287,9 @@ void AssetAnalysisController::setDetailRefreshController(PetRefreshController* r
 bool AssetAnalysisController::readMissingDetail(qint64 id) {
   if (!preparingFacts_ || !preparationIds_.contains(id) || !detailRefresh_ ||
       !repository_->isAuthenticated()) return false;
+  // Eviction is not a failed disk read. Complete originals can be loaded again
+  // locally; only a terminal missing/corrupt read may trigger a server repair.
+  if (repository_->recordVersion(id).complete && !localReadUnavailable_.contains(id)) return false;
   if (detailReadPending_ == id) return true;
   if (detailReadAttempted_.contains(id)) return false;
   if (detailReadPending_) { queueDerivation(id); return true; }
@@ -300,22 +324,31 @@ void AssetAnalysisController::failPreparation(const QString& reason) {
   finished.key = currentJob_; finished.outcome = AnalysisJobOutcome::InputRejected;
   finished.phase = AnalysisJobPhase::Preparation; finished.error = reason;
   preparingFacts_ = false; preparationStarted_ = false; analysisQueued_ = false;
-  preparationIds_.clear(); awaitingFacts_.clear(); preparedHandles_.clear();
+  preparationIds_.clear(); awaitingFacts_.clear(); clearPreparedFrames();
   QPointer<AssetAnalysisController> alive(this);
   emit analysisRunningChanged(false);
   if (alive) emit statusChanged(reason);
   if (alive) emit analysisJobFinished(finished);
 }
 
+void AssetAnalysisController::removePreparedFrame(qint64 id) {
+  auto found = preparedFrames_.find(id);
+  if (found == preparedFrames_.end()) return;
+  preparedFrameBytes_ -= found->chargedBytes; preparedFrames_.erase(found);
+}
+void AssetAnalysisController::clearPreparedFrames() { preparedFrames_.clear(); preparedFrameBytes_ = 0; }
+
 void AssetAnalysisController::refreshPreparationMembers() {
   const auto ids = currentIds();
   QSet<qint64> next(ids.begin(), ids.end());
-  for (auto id : preparationIds_ - next) { awaitingFacts_.remove(id); preparedHandles_.remove(id); }
+  const auto cachedIds = preparedFrames_.keys();
+  for (auto id : cachedIds) if (!next.contains(id)) removePreparedFrame(id);
+  for (auto id : preparationIds_ - next) { awaitingFacts_.remove(id); removePreparedFrame(id); }
   for (auto id : next) {
-    const auto existing = preparedHandles_.value(id);
-    if (!existing || !(existing->key == derivationKey(id)) ||
+    const auto existing = preparedFrames_.constFind(id);
+    if (existing == preparedFrames_.cend() || !(existing->key == derivationKey(id)) ||
         (!repository_->recordVersion(id).complete && !localReadChecked_.contains(id))) {
-      preparedHandles_.remove(id); awaitingFacts_.insert(id); derivationBacklog_.insert(id);
+      removePreparedFrame(id); awaitingFacts_.insert(id); derivationBacklog_.insert(id);
       if (repository_->rawRecordResident(id)) readyRawDerivations_.insert(id);
     }
   }
@@ -481,7 +514,7 @@ void AssetAnalysisController::metadataChanged() {
   if (derivations_) {
     const auto metadata = petMetadataSnapshot();
     derivations_->invalidateMetadata(metadata ? metadata->revision : 0, metadata ? metadata->contentDigest : QByteArray{});
-    preparedHandles_.clear();
+    clearPreparedFrames();
     if (preparingFacts_) awaitingFacts_ = preparationIds_;
     for (auto id : currentIds()) queueDerivation(id);
   }
@@ -524,22 +557,16 @@ std::shared_ptr<const AnalysisWorkInput> AssetAnalysisController::capture(const 
     input->overview.shopDataKnown = shopController_ && shopController_->hasObservedPacket();
     const auto ids = currentIds();
     input->overview.totalPets = ids.size(); input->overview.pets.clear();
-    input->preparedFacts.reserve(ids.size());
+    input->preparedFrames.reserve(ids.size());
     const PetMetadataView metadata(petMetadata);
     for (auto id : ids) {
       const auto expected = derivationKey(id);
-      auto handle = preparedHandles_.value(id);
-      if (!handle || !(handle->key == expected)) handle = derivations_->lookup(expected);
-      if (!handle) return {};
-      auto facts = handle->facts;
+      const auto frame = preparedFrames_.constFind(id);
+      if (frame == preparedFrames_.cend() || !(frame->key == expected)) return {};
       const auto version = repository_->recordVersion(id);
       const auto seed = AssetAnalyzer::summarySeed(repository_->briefFor(id), version.complete, version.sourceKnown, metadata);
-      // These display fields are deliberately independent of cultivation cache
-      // keys. Moves/renames must not require parsing the original star inventory.
-      facts.asset.name = seed.name; facts.asset.location = seed.location; facts.asset.pet = seed.pet;
-      facts.asset.observationVerified = facts.asset.observationVerified && seed.observationVerified;
-      input->overview.sourceVerified &= facts.asset.observationVerified;
-      input->preparedFacts.append(std::move(facts));
+      input->overview.sourceVerified &= seed.observationVerified;
+      input->preparedFrames.append({frame->bytes, seed});
     }
   } else input->overview = analyzer_.captureInput(petMetadata);
   input->overview.sourceVerified = input->overview.sourceVerified && compatibilityVerified_;
@@ -552,6 +579,7 @@ std::shared_ptr<const AnalysisWorkInput> AssetAnalysisController::capture(const 
   input->resourceCountsKnown = trusted && shopController_ && shopController_->hasMaterialCounts();
   input->sourceInvalidated = !trusted;
   ShopConditionContext context;
+  context.priceEvaluationAt = QDateTime::currentDateTimeUtc();
   context.shopPacketKnown = shopController_ && shopController_->hasPacket();
   context.shopSource = source; context.petSource = source;
   context.petObservedAt = input->overview.inventoryUpdatedAt;
@@ -568,7 +596,7 @@ std::shared_ptr<const AnalysisWorkInput> AssetAnalysisController::capture(const 
   // A GUI catalog update can occur during capture; never label mixed input as
   // the previous version. Only the descriptor is retried, not a calculation.
   if (!(key.versions == versions())) return {};
-  preparedHandles_.clear(); preparationIds_.clear(); awaitingFacts_.clear();
+  preparationIds_.clear(); awaitingFacts_.clear();
   ++analysisRunCount_;
   emit analysisInputCaptured(key.jobId);
   return input;
@@ -621,19 +649,33 @@ void AssetAnalysisController::finishJob(const AnalysisJobFinished& finished) {
     return;
   }
   analysisQueued_ = false;
-  preparingFacts_ = false; preparationStarted_ = false; preparedHandles_.clear();
+  preparingFacts_ = false; preparationStarted_ = false;
   QPointer<AssetAnalysisController> alive(this);
   emit analysisRunningChanged(false);
   if (!alive) return;
   if (!closing_ && currentJob_.jobId == finished.key.jobId && !analysisQueued_ &&
-      finished.outcome != AnalysisJobOutcome::Published && finished.outcome != AnalysisJobOutcome::Cancelled)
-    emit statusChanged(QStringLiteral("分析未完成（状态 %1），已保留上次结果").arg(static_cast<int>(finished.outcome)));
+      finished.outcome != AnalysisJobOutcome::Published && finished.outcome != AnalysisJobOutcome::Cancelled) {
+    const auto previous = currentStateIfPresent();
+    const QString retained = previous && previous->hasAnalysis
+        ? QStringLiteral("保留 %1 的完整结果；本轮没有替换统计").arg(previous->lastAnalysisAt.toString("yyyy-MM-dd HH:mm:ss"))
+        : QStringLiteral("尚无完整结果，本轮没有生成全账号统计");
+    if (finished.outcome == AnalysisJobOutcome::BudgetExceeded)
+      emit statusChanged(QStringLiteral("分析达到内存预算：当前范围 %1 只，已测输入 %2 MiB。%3。账号详情已保留，可先查看单只精灵；重复点击不会解决容量限制。")
+          .arg(currentIds().size()).arg(finished.measuredInputBytes / 1048576.0, 0, 'f', 1).arg(retained));
+    else emit statusChanged(QStringLiteral("分析未完成：%1。%2")
+        .arg(finished.error.isEmpty() ? QStringLiteral("输入已变化或准备未完成，可重新分析") : finished.error, retained));
+  }
   if (alive) emit analysisJobFinished(finished);
 }
 
 void AssetAnalysisController::requestAnalysis() {
   if (closing_ || !repository_) return;
   checkInputFreshness();
+  if (analysisQueued_ && currentJob_.account == account_ &&
+      currentJob_.epoch == repository_->sessionGeneration() && currentJob_.versions == versions()) {
+    emit statusChanged(QStringLiteral("当前资料的分析已在进行，继续现有任务；可取消后重新开始"));
+    return;
+  }
   const bool wasRunning = analysisQueued_;
   AnalysisJobFinished superseded;
   const bool reportSuperseded = wasRunning && (preparingFacts_ || !worker_.busy());
@@ -643,10 +685,11 @@ void AssetAnalysisController::requestAnalysis() {
   }
   currentJob_ = nextJobKey(); analysisQueued_ = true;
   detailReadAttempted_.clear(); detailReadPending_ = 0;
+  localReadUnavailable_.clear();
   if (derivations_) {
     worker_.cancel();
     preparingFacts_ = true; preparationStarted_ = false;
-    preparationIds_.clear(); awaitingFacts_.clear(); preparedHandles_.clear(); localReadChecked_.clear();
+    preparationIds_.clear(); awaitingFacts_.clear(); localReadChecked_.clear();
     derivationPump_->start(0);
   } else worker_.submit(currentJob_);
   QPointer<AssetAnalysisController> alive(this);
@@ -663,7 +706,7 @@ void AssetAnalysisController::cancelAnalysis() {
   analysisQueued_ = false; ++nextJobId_; currentJob_ = {};
   detailReadPending_ = 0; detailReadAttempted_.clear();
   preparingFacts_ = false; preparationStarted_ = false;
-  preparationIds_.clear(); awaitingFacts_.clear(); preparedHandles_.clear();
+  preparationIds_.clear(); awaitingFacts_.clear(); clearPreparedFrames();
   worker_.cancel();
   QPointer<AssetAnalysisController> alive(this);
   emit analysisRunningChanged(false);
@@ -673,7 +716,7 @@ void AssetAnalysisController::cancelAnalysis() {
 
 bool AssetAnalysisController::shutdownAnalysis(int maximumWaitMilliseconds) {
   closing_ = true; analysisQueued_ = false; currentJob_ = {};
-  preparingFacts_ = false; preparedHandles_.clear(); derivationBacklog_.clear();
+  preparingFacts_ = false; clearPreparedFrames(); derivationBacklog_.clear();
   readyRawDerivations_.clear();
   if (derivationPump_) derivationPump_->stop();
   if (derivations_) derivations_->shutdown();
@@ -751,9 +794,9 @@ void AssetAnalysisController::changeAccount(const QString& account, quint64) {
   analysisQueued_ = false; currentJob_ = {}; worker_.cancel();
   account_ = account;
   preparingFacts_ = false; preparationStarted_ = false;
-  preparedHandles_.clear(); preparationIds_.clear(); awaitingFacts_.clear(); derivationBacklog_.clear();
+  clearPreparedFrames(); preparationIds_.clear(); awaitingFacts_.clear(); derivationBacklog_.clear();
   readyRawDerivations_.clear();
-  localReadChecked_.clear(); localReadPending_.clear();
+  localReadChecked_.clear(); localReadUnavailable_.clear(); localReadPending_.clear();
   derivationVersions_.clear();
   if (derivations_) derivations_->bindSession(account_, repository_->sessionGeneration());
   snapshotHistoryError_.clear();
@@ -812,9 +855,9 @@ void AssetAnalysisController::handlePetDetailChanged(qint64 instanceId) {
   if (derivations_) {
     queueDerivation(instanceId);
     if (preparingFacts_ && preparationIds_.contains(instanceId)) {
-      const auto found = preparedHandles_.value(instanceId);
-      if (!found || !(found->key == derivationKey(instanceId))) {
-        preparedHandles_.remove(instanceId); awaitingFacts_.insert(instanceId);
+      const auto found = preparedFrames_.constFind(instanceId);
+      if (found == preparedFrames_.cend() || !(found->key == derivationKey(instanceId))) {
+        removePreparedFrame(instanceId); awaitingFacts_.insert(instanceId);
       }
     }
   }

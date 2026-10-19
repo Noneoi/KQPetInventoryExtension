@@ -498,7 +498,7 @@ bool retainedBudgetAndExecutorGuard() {
   bool ok = true;
   ExistingCompute compute;
   PetDerivationCacheLimits limits;
-  limits.retainedBytes = 32 * 1024; limits.residentBytes = 16 * 1024; limits.maximumFactBytes = 16 * 1024; limits.residentEntries = 1;
+  limits.retainedBytes = 64 * 1024; limits.residentBytes = 32 * 1024; limits.maximumFactBytes = 32 * 1024; limits.residentEntries = 1;
   PetDerivationCache cache(compute.executor(), nullptr, limits); cache.bindSession(QStringLiteral("A"), 1);
   QList<PetDerivedFactsHandle> held;
   quint64 finished = 0;

@@ -152,6 +152,9 @@ struct RecommendationSession::Impl {
   PreparedShopConditions prepared;
   ShopPetMetadataSnapshot metadata;
   QList<PetAnalysisFacts> preparedFacts;
+  FactReader factReader;
+  std::optional<PetAnalysisFacts> currentFact;
+  qsizetype factCount = 0;
   QSet<qint64> validatedIdentities;
   qsizetype validationIndex = 0;
   bool compactFacts = false;
@@ -184,10 +187,19 @@ struct RecommendationSession::Impl {
 
   Impl(const QString& key, const AccountAssetOverview& pets,
        const PreparedShopConditions& conditions, const ShopPetMetadataSnapshot& definitions,
-       AlgorithmPipelineStats* counters, bool fullOverview, const QList<PetAnalysisFacts>* facts)
+       AlgorithmPipelineStats* counters, bool fullOverview, const QList<PetAnalysisFacts>* facts, FactReader reader)
       : account(key), overview(pets), prepared(conditions), metadata(definitions),
         stats(counters ? counters : &ownedStats), deriveOverview(fullOverview || facts) {
+    factReader = std::move(reader);
+    if (factReader && facts) { status = Status::InvalidInput; return; }
+    if (factReader) {
+      compactFacts = deriveOverview = true; factCount = overview.totalPets;
+      if (account.isEmpty() || overview.account != account || !overview.pets.isEmpty() || factCount < 0) {
+        status = Status::InvalidInput; return;
+      }
+    }
     if (facts) {
+      factCount = facts->size();
       compactFacts = true;
       factsValidated = false;
       preparedFacts = *facts;
@@ -220,14 +232,16 @@ struct RecommendationSession::Impl {
   }
 
   quint64 candidateScratchBytes() const {
-    return retainedCatalogRows.isEmpty() ? 0 : 64 + (quint64(retainedCatalogRows.size()) + 7) / 8;
+    return (retainedCatalogRows.isEmpty() ? 0 : 64 + (quint64(retainedCatalogRows.size()) + 7) / 8) +
+        (factReader ? quint64(validatedIdentities.size()) * 64 + quint64(validatedIdentities.capacity()) * sizeof(qint64) : 0) +
+        (currentFact ? petAnalysisFactsRetainedBytes(*currentFact) : 0);
   }
   void observeCandidate(quint64 transientBytes) {
     timing.peakCandidateChargedBytes = qMax(timing.peakCandidateChargedBytes,
         candidateScratchBytes() + transientBytes);
   }
   void reserveOutput(quint64 budget) {
-    const quint64 count = quint64(compactFacts ? preparedFacts.size() : overview.pets.size());
+    const quint64 count = quint64(compactFacts ? factCount : overview.pets.size());
     // A successful full overview retains P rows. Recommendations contain at
     // most one row per pet. Reserve that exact upper bound only after admission;
     // avoid Qt's byte-growth capacity overshooting P at the final allocation.
@@ -302,11 +316,20 @@ struct RecommendationSession::Impl {
   void beginPet() {
     PetBattlePowerState calculatedPower;
     bool cultivationDerived = false;
-    if (petIndex >= (compactFacts ? preparedFacts.size() : overview.pets.size())) { readyToSort = true; return; }
+    if (petIndex >= (compactFacts ? factCount : overview.pets.size())) { readyToSort = true; return; }
     if (compactFacts) {
+      currentFact.reset();
+      if (factReader) {
+        currentFact = factReader(petIndex);
+        if (!currentFact || !validatePetAnalysisFacts(*currentFact) || validatedIdentities.contains(currentFact->asset.instanceId)) {
+          cancel(Status::InvalidInput); return;
+        }
+        validatedIdentities.insert(currentFact->asset.instanceId); observeCandidate(0);
+      }
       const auto oldCapacity = overview.pets.capacity();
-      overview.pets.append(preparedFacts.at(petIndex).asset);
+      overview.pets.append(factReader ? currentFact->asset : preparedFacts.at(petIndex).asset);
       overview.pets.last().shopImprovable = false;
+      overview.sourceVerified &= overview.pets.last().observationVerified;
       overviewHeapBytes += quint64(overview.pets.capacity() - oldCapacity) * sizeof(PetAssetRecord);
       ++stats->preparedFactsReused;
       refreshCharge();
@@ -336,9 +359,9 @@ struct RecommendationSession::Impl {
     const bool ownedStarAction = pet.gapKeys.contains(QStringLiteral("sg_equip")) ||
         pet.gapKeys.contains(QStringLiteral("sg_level"));
     if (!pet.detailAvailable || pet.instanceId <= 0 || (!deriveOverview && !recommendationEligible && !ownedStarAction)) {
-      finishOverviewPet(); ++petIndex; return;
+      finishOverviewPet(); currentFact.reset(); ++petIndex; return;
     }
-    if (compactFacts) derived = preparedFacts.at(petIndex).eligibility;
+    if (compactFacts) derived = factReader ? currentFact->eligibility : preparedFacts.at(petIndex).eligibility;
     else if (!cultivationDerived) derived = deriveShopPet(pet.pet, pet.detailAvailable, metadata, stats);
     const auto& catalog = prepared.catalog();
     const bool petInvalidated =
@@ -488,7 +511,7 @@ struct RecommendationSession::Impl {
     }
     finishOverviewPet();
     petActive = false;
-    best = {};
+    best = {}; currentFact.reset();
     ++petIndex;
   }
 
@@ -498,6 +521,7 @@ struct RecommendationSession::Impl {
     result.squeeze();
     if (deriveOverview) { overview.pets.clear(); overview.pets.squeeze(); }
     validatedIdentities.clear(); validatedIdentities.squeeze();
+    currentFact.reset();
     best = {};
     timing.resultChargedBytes = 0;
   }
@@ -506,8 +530,8 @@ struct RecommendationSession::Impl {
 RecommendationSession::RecommendationSession(
     const QString& account, const AccountAssetOverview& overview,
     const PreparedShopConditions& prepared, const ShopPetMetadataSnapshot& metadata,
-    AlgorithmPipelineStats* stats, bool deriveOverview, const QList<PetAnalysisFacts>* preparedFacts)
-    : impl_(std::make_unique<Impl>(account, overview, prepared, metadata, stats, deriveOverview, preparedFacts)) {}
+    AlgorithmPipelineStats* stats, bool deriveOverview, const QList<PetAnalysisFacts>* preparedFacts, FactReader reader)
+    : impl_(std::make_unique<Impl>(account, overview, prepared, metadata, stats, deriveOverview, preparedFacts, std::move(reader))) {}
 
 RecommendationSession::~RecommendationSession() = default;
 

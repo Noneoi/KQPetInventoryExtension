@@ -19,7 +19,7 @@ H5 = "https://aoqi.100bt.com/h5/"
 ARCHIVES = (
     "config/battleconfig.aqz", "config/formation.aqz", "config/petdictionarydata.json.aqz",
     "config/petdata.json.aqz", "config/relation.aqz", "config/changepetskin.aqz",
-    "config/equipment4pet.aqz",
+    "config/equipment4pet.aqz", "config/multipleformpet.aqz",
 )
 DIRECT = ("config/pet/petinfoconfig.json", "config/pet/petevoconfig.json", "config/pet/tiebaconfig.json")
 
@@ -45,57 +45,68 @@ def versioned(path: str, version: str) -> str:
 
 
 def safe_extract(data: bytes, destination: Path) -> None:
+    from public_update_support import child
     with zipfile.ZipFile(io.BytesIO(data)) as package:
-        for item in package.infolist():
-            name = PurePosixPath(item.filename)
-            if name.is_absolute() or ".." in name.parts or item.file_size > 16 * 1024 * 1024:
+        entries = package.infolist()
+        if len(entries) > 5000 or sum(item.file_size for item in entries) > 96 * 1024 * 1024:
+            raise ValueError('official skill archive exceeds extraction limit')
+        seen = set()
+        for item in entries:
+            name = PurePosixPath(item.filename.replace('\\', '/'))
+            if name.is_absolute() or ".." in name.parts or item.file_size > 16 * 1024 * 1024 or name.as_posix().casefold() in seen:
                 raise ValueError("unsafe official skill archive")
-            target = destination.joinpath(*name.parts)
+            seen.add(name.as_posix().casefold())
+            target = child(destination, name.as_posix())
             target.parent.mkdir(parents=True, exist_ok=True)
             if not item.is_dir():
                 target.write_bytes(package.read(item))
 
 
 def update_skills(updater, writer, _versions=None) -> bool:
-    start = json.loads(fetch_bytes(f"start~{int(time.time() * 1000)}.json", 2 * 1024 * 1024))
-    release = str(start.get("version", ""))
-    if not release.isdecimal():
-        raise ValueError("official H5 skill version is invalid")
-    current = updater.current("skills")
-    if current.get("schema") == 1 and current.get("source", {}).get("version") == release \
-            and len(current.get("pets", {})) >= 9000 and len(current.get("skills", {})) >= 20000:
-        target = updater.catalog / "pet-skill-data.json"
+    from concurrent.futures import ThreadPoolExecutor
+    from public_update_support import PublicSources, canonical, sha, file_sha
+    sources = getattr(updater, 'sources', None)
+    if sources is None:
+        def transport(url, output):
+            output.write_bytes(fetch_bytes(url[len(H5):]))
+        sources = PublicSources(updater.scratch, transport)
+    chain = sources.h5()
+    release = chain['version']
+    current = updater.current('skills')
+    paths = (*ARCHIVES, *DIRECT)
+    with ThreadPoolExecutor(max_workers=4) as pool:
+        fetched = list(pool.map(sources.h5_resource, paths))
+    resources = {name: record for name, (_, record) in zip(paths, fetched)}
+    rules = {name: file_sha(Path(__file__).with_name(name)) for name in
+             ('public_skill_updater.py', 'generate_pet_skill_data.py', 'public_pet_relations.py')}
+    fingerprint = sha(canonical({'resources': resources, 'rules': rules, 'schema': 2}))
+    content = {key: value for key, value in current.items() if key != 'source'}
+    previous_source = current.get('source', {})
+    if current.get('schema') == 1 and previous_source.get('fingerprint') == fingerprint and \
+            previous_source.get('contentSha256') == sha(canonical(content)) and \
+            len(current.get('pets', {})) >= 9000 and len(current.get('skills', {})) >= 20000:
+        target = updater.catalog / 'pet-skill-data.json'
         if not target.is_file():
             writer(target, current)
         return False
-
-    manifest = json.loads(fetch_bytes(f"version~{release}.json", 4 * 1024 * 1024))
-    if not isinstance(manifest, dict):
-        raise ValueError("official H5 version manifest is invalid")
-    source_root = updater.scratch / "skill-h5"
-    resources = {}
-    for path in ARCHIVES:
-        revision = str(manifest.get(path, ""))
-        if not revision.isdecimal():
-            raise ValueError("official H5 skill archive is missing: " + path)
-        data = fetch_bytes(versioned(path, revision))
-        folder = Path(path).name.removesuffix(".aqz")
-        safe_extract(data, source_root / folder)
-        resources[path] = {"version": revision, "sha256": hashlib.sha256(data).hexdigest(), "bytes": len(data)}
-    for path in DIRECT:
-        revision = str(start.get("files", {}).get(path) or manifest.get(path, ""))
-        if not revision.isdecimal():
-            raise ValueError("official H5 skill sheet is missing: " + path)
-        data = fetch_bytes(versioned(path, revision))
-        target = source_root / path.removeprefix("config/")
-        target.parent.mkdir(parents=True, exist_ok=True)
-        target.write_bytes(data)
-        resources[path] = {"version": revision, "sha256": hashlib.sha256(data).hexdigest(), "bytes": len(data)}
-
-    catalog = build_catalog(source_root, {"kind": "aoqi-official-h5-skill-data", "version": release,
-                                          "resources": resources})
-    if len(catalog.get("pets", {})) < 9000 or len(catalog.get("skills", {})) < 20000 \
-            or len(catalog.get("entries", {})) < 100:
-        raise ValueError("official skill catalog is incomplete; the previous cache was kept")
-    writer(updater.catalog / "pet-skill-data.json", catalog)
+    source_root = updater.scratch / 'skill-h5'
+    for name, (path, _) in zip(paths, fetched):
+        sources.operations.check()
+        with sources.operations.measure('unpack', component='skills', resource=name):
+            if name in ARCHIVES:
+                safe_extract(path.read_bytes(), source_root / Path(name).name.removesuffix('.aqz'))
+            else:
+                target = source_root / name.removeprefix('config/')
+                target.parent.mkdir(parents=True, exist_ok=True)
+                target.write_bytes(path.read_bytes())
+    catalog = build_catalog(source_root, {'kind': 'aoqi-official-h5-skill-data', 'version': release,
+                                         'resources': resources, 'fingerprint': fingerprint, 'rules': rules})
+    if len(catalog.get('pets', {})) < 9000 or len(catalog.get('skills', {})) < 20000 or len(catalog.get('entries', {})) < 100:
+        raise ValueError('官方技能资料不完整，现用资料保留')
+    relations = catalog.get('relationRules', {})
+    if relations.get('schema') != 1 or any(relations.get(group, {}).get('available') is not True
+                                           for group in ('summon', 'carry')):
+        raise ValueError('官方召唤或携同关系配置不完整，现用资料保留')
+    catalog['source']['contentSha256'] = sha(canonical({key: value for key, value in catalog.items() if key != 'source'}))
+    writer(updater.catalog / 'pet-skill-data.json', catalog)
     return catalog != current

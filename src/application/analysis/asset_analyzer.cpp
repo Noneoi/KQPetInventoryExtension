@@ -304,6 +304,7 @@ AccountAssetOverview AssetAnalyzer::analyze() const {
   const AccountResourceView resources(shopController_ ? shopController_->materialCounts() : QHash<QString, qint64>{},
       input.sourceVerified && shopController_ && shopController_->hasMaterialCounts(), {}, {}, !input.sourceVerified);
   ShopConditionContext context;
+  context.priceEvaluationAt = QDateTime::currentDateTimeUtc();
   context.shopPacketKnown = input.shopDataKnown;
   context.petFreshness = ShopConditionFreshness::Current;
   context.shopFreshness = input.sourceVerified ? ShopConditionFreshness::Current : ShopConditionFreshness::Invalidated;

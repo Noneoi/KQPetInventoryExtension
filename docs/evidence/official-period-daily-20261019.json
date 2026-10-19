@@ -1,0 +1,540 @@
+{
+  "scope": "Official daily/weekly diamond tasks and their server time bootstrap only. Versioned public artifacts, not a live server boundary test.",
+  "status": "Evidence gathered; no production edits, build, installation, account access or git commit.",
+  "privateAccountData": false,
+  "newSources": [
+    {
+      "resource": "library/socketclient",
+      "url": "https://aoqi.100bt.com/play/library/socketclient~2025071722745937.swf",
+      "version": "2025071722745937",
+      "path": "validation\\roadmap-4.1.0\\period-daily\\raw\\socketclient.swf",
+      "bytes": 34772,
+      "sha256": "e32b56683887b7bcb30d0896d782b1e3bc99a76ef20ee18920807743e82ae192",
+      "javaSha256": "82051fdab26319d77d20cc0065045d05ec00b3e3d05f44935d7c06b96b621d55",
+      "ffdecSha256": "090ab695053ad94cba6408574c7d7eea20ec60b6ae789ee6056a23f45106762f",
+      "scriptCount": 44
+    },
+    {
+      "resource": "play",
+      "url": "https://aoqi.100bt.com/play/play~2026091011614836.swf",
+      "version": "2026091011614836",
+      "path": "validation\\roadmap-4.1.0\\period-daily\\raw\\play.swf",
+      "bytes": 171892,
+      "sha256": "0e0d903460ad3e0136b31ceff4e45e218baea8cd390fe4363ae48c82ccbe13f7",
+      "javaSha256": "82051fdab26319d77d20cc0065045d05ec00b3e3d05f44935d7c06b96b621d55",
+      "ffdecSha256": "090ab695053ad94cba6408574c7d7eea20ec60b6ae789ee6056a23f45106762f",
+      "scriptCount": 220
+    },
+    {
+      "resource": "login/loginservice",
+      "url": "https://aoqi.100bt.com/play/login/loginservice~2026091776736973.swf",
+      "version": "2026091776736973",
+      "path": "validation\\roadmap-4.1.0\\period-daily\\raw\\loginservice.swf",
+      "bytes": 38637,
+      "sha256": "b18a5ef323af713d11def34981653c242d9bcf82d4d6c42bb68040e7abba86fa",
+      "javaSha256": "82051fdab26319d77d20cc0065045d05ec00b3e3d05f44935d7c06b96b621d55",
+      "ffdecSha256": "090ab695053ad94cba6408574c7d7eea20ec60b6ae789ee6056a23f45106762f",
+      "scriptCount": 33
+    },
+    {
+      "resource": "js/services/loginservice.js",
+      "url": "https://aoqi.100bt.com/h5/js/services/loginservice~2026101525310563.js",
+      "version": "2026101525310563",
+      "path": "validation\\roadmap-4.1.0\\period-daily\\raw\\loginservice.js",
+      "bytes": 62285,
+      "sha256": "38a915d81c808c519bb04e1753e9eceb7862d58ab6d2ab9b87114a55adbe506e"
+    },
+    {
+      "resource": "js/services/dailytaskservice.js",
+      "url": "https://aoqi.100bt.com/h5/js/services/dailytaskservice~2026093092452521.js",
+      "version": "2026093092452521",
+      "path": "validation\\roadmap-4.1.0\\period-daily\\raw\\dailytaskservice.js",
+      "bytes": 44817,
+      "sha256": "5f0cefbadafef850ef0cc5e7d25e2c9df020ac89f93000dba4385326a7cb8b57"
+    },
+    {
+      "resource": "dailytask/dailytask_res.fui",
+      "url": "https://aoqi.100bt.com/h5/dailytask/dailytask_res~2026093092452521.fui",
+      "version": "2026093092452521",
+      "path": "validation\\roadmap-4.1.0\\period-daily\\raw\\dailytask_res.fui",
+      "bytes": 18945,
+      "sha256": "3a65b9fa3842ae32c3587aa32e918f0dc85d0dd5741e6a968b3edd6bce007014"
+    },
+    {
+      "resource": "newactivityext/newact20250403/monthlywelfarecenter/monthlywelfarecenter",
+      "url": "https://aoqi.100bt.com/play/newactivityext/newact20250403/monthlywelfarecenter/monthlywelfarecenter~2026093021560874.swf",
+      "version": "2026093021560874",
+      "path": "validation\\roadmap-4.1.0\\period-daily\\raw\\monthlywelfarecenter.swf",
+      "bytes": 20508,
+      "sha256": "4c74a2fab1d4849085d3e08be7f1f3e1af15a8524bc381c68d825d110615e4d2",
+      "javaSha256": "82051fdab26319d77d20cc0065045d05ec00b3e3d05f44935d7c06b96b621d55",
+      "ffdecSha256": "090ab695053ad94cba6408574c7d7eea20ec60b6ae789ee6056a23f45106762f",
+      "scriptCount": 23
+    },
+    {
+      "resource": "library/fairygui",
+      "url": "https://aoqi.100bt.com/play/library/fairygui~2026031261541352.swf",
+      "version": "2026031261541352",
+      "path": "validation\\roadmap-4.1.0\\period-daily\\raw\\fairygui.swf",
+      "bytes": 165668,
+      "sha256": "6b8efe67417dacc3fba652c56bc8c5c42f687114da83165098fed1138c740a2f",
+      "javaSha256": "82051fdab26319d77d20cc0065045d05ec00b3e3d05f44935d7c06b96b621d55",
+      "ffdecSha256": "090ab695053ad94cba6408574c7d7eea20ec60b6ae789ee6056a23f45106762f",
+      "scriptCount": 113
+    },
+    {
+      "resource": "dailytask/dailytask_res@res",
+      "url": "https://aoqi.100bt.com/play/dailytask/dailytask_res@res~2026093021560874.fui",
+      "version": "2026093021560874",
+      "path": "validation\\roadmap-4.1.0\\period-daily\\raw\\flash-dailytask_res@res.fui",
+      "bytes": 770606,
+      "sha256": "dd9d5f3be9d1c93547d615bc2fd9b66033ac5bbfe1805d843e1c82ff028af0b7"
+    },
+    {
+      "resource": "dailytask/dailytask_res",
+      "url": "https://aoqi.100bt.com/play/dailytask/dailytask_res~2026093021560874.fui",
+      "version": "2026093021560874",
+      "path": "validation\\roadmap-4.1.0\\period-daily\\raw\\flash-dailytask_res.fui",
+      "bytes": 10645,
+      "sha256": "1a85e2d3657928a2c5e3b03b3f73a0bde8fd6e50871fa011fc51a57a9baa6401"
+    },
+    {
+      "resource": "stoptime/stoptime_service",
+      "url": "https://aoqi.100bt.com/play/stoptime/stoptime_service~2018030919163439.swf",
+      "version": "2018030919163439",
+      "path": "validation\\roadmap-4.1.0\\period-daily\\raw\\stoptime_service.swf",
+      "bytes": 3024,
+      "sha256": "ad3a1cd31c1c116ecd5fb8a174d41a554e014b96ea00493587b6826849a4d783",
+      "javaSha256": "82051fdab26319d77d20cc0065045d05ec00b3e3d05f44935d7c06b96b621d55",
+      "ffdecSha256": "090ab695053ad94cba6408574c7d7eea20ec60b6ae789ee6056a23f45106762f",
+      "scriptCount": 2
+    }
+  ],
+  "reusedSources": [
+    {
+      "resource": "library/util",
+      "url": "https://aoqi.100bt.com/play/library/util~261016739421061.swf",
+      "path": "validation\\service-discovery-audit\\raw\\util.swf",
+      "sha256": "40abedc82059350b634f8a101a91c4c3c617be426d5e66b208cfaf7f42ed325d",
+      "manifest": "validation\\service-discovery-audit\\source-manifest.json"
+    },
+    {
+      "resource": "loader",
+      "url": "https://aoqi.100bt.com/play/loader~2026101571078066.swf",
+      "path": "validation\\service-discovery-audit\\raw\\loader.swf",
+      "sha256": "3f31a7b8c3ef90f9621eaab61916ba3484ef78e12851101266851fabcd92f4fc",
+      "manifest": "validation\\service-discovery-audit\\source-manifest.json"
+    },
+    {
+      "resource": "dailytask/dailytaskservice",
+      "url": "https://aoqi.100bt.com/play/dailytask/dailytaskservice~2026093021560874.swf",
+      "path": "validation\\official-coverage-audit\\raw\\dailytaskservice.swf",
+      "sha256": "1fb5befb544ac301b8009a02d10518213f033ff1772158ac790f5af137537b7b",
+      "manifest": "validation\\official-coverage-audit\\source-manifest.json"
+    },
+    {
+      "resource": "H5 aqlib.js",
+      "path": "validation\\metadata-coverage-audit\\raw\\aqlib.js",
+      "sha256": "cdcdf487c9cf7bd1ea7110f373e8afbf933e5595fc9e3e6bfd66620ab058094a"
+    }
+  ],
+  "citations": {
+    "timeCommand": {
+      "path": "validation/roadmap-4.1.0/period-daily/official/socketclient/scripts/mmo/framework/comm/Commands.as",
+      "sha256": "5f3c4cf91609a954567e07b4122cca363110feb20163c214f2bb016636d4ec43",
+      "needle": "getTime:*",
+      "locations": [
+        {
+          "line": 28,
+          "lastLine": 30,
+          "text": "      public static const getTime:* = \"getCurrentTime\";\n      \n      public static const getOnlineState:* = \"getOnlineState\";"
+        }
+      ]
+    },
+    "timeSend": {
+      "path": "validation/roadmap-4.1.0/period-daily/official/socketclient/scripts/mmo/framework/comm/SocketClient.as",
+      "sha256": "508750264ff8986540f3ddb499efb681c500f9394876fbd690d58507e743eb31",
+      "needle": "public function getTime()",
+      "locations": [
+        {
+          "line": 645,
+          "lastLine": 649,
+          "text": "      public function getTime() : void\n      {\n         this.sendXtMessage(\"UserExtension\",Commands.getTime,{});\n      }\n      "
+        }
+      ]
+    },
+    "extensionMap": {
+      "path": "validation/roadmap-4.1.0/period-daily/official/socketclient/scripts/mmo/framework/comm/ExtMap.as",
+      "sha256": "9a58ff444ddd80fbfaa1ae83de02f834ffd8d5730efb35a021f321976b84a666",
+      "needle": "em[\"UserExtension\"]",
+      "locations": [
+        {
+          "line": 54,
+          "lastLine": 56,
+          "text": "         em[\"UserExtension\"] = 1;\n         em[\"PJXExtension\"] = 2;\n         em[\"MaterialExtension\"] = 3;"
+        }
+      ]
+    },
+    "responseDispatch": {
+      "path": "validation/roadmap-4.1.0/period-daily/official/socketclient/scripts/mmo/framework/comm/SocketClient.as",
+      "sha256": "508750264ff8986540f3ddb499efb681c500f9394876fbd690d58507e743eb31",
+      "needle": "var _loc2_:Object = param1.params.dataObj;",
+      "locations": [
+        {
+          "line": 224,
+          "lastLine": 236,
+          "text": "         var _loc2_:Object = param1.params.dataObj;\n         var _loc3_:String = _loc2_._cmd;\n         var _loc4_:Function = this.cmdHandlers[_loc3_];\n         if(_loc4_ != null)\n         {\n            _loc4_.apply(this,[param1]);\n         }\n         else\n         {\n            _loc5_ = new SocketClientEvent(_loc3_,_loc2_);\n            this.dispatchEvent(_loc5_);\n         }\n      }"
+        }
+      ]
+    },
+    "timeConsumer": {
+      "path": "validation/roadmap-4.1.0/period-daily/official/play/scripts/mmo/play/BootLoader.as",
+      "sha256": "bf25a899bafc6184f8594029a2d481dc8b9b2d4fea49d5bf288e2005ea7194b3",
+      "needle": "DateUtil.init(param1.params.t",
+      "locations": [
+        {
+          "line": 289,
+          "lastLine": 294,
+          "text": "               DateUtil.init(param1.params.t,LoaderContainer.instance.stage);\n               resolve(null);\n            });\n            SocketClient.instance.getTime();\n         })]).then(function(param1:Array):void\n         {"
+        }
+      ]
+    },
+    "timeInit": {
+      "path": "validation/service-discovery-audit/official/util/scripts/mmo/common/DateUtil.as",
+      "sha256": "4663b7974a5448a30e6ecd6e2c02f25bebce468e1ca5ccdd0f93465ba46208df",
+      "needle": "initServerMs = timeMs;",
+      "locations": [
+        {
+          "line": 50,
+          "lastLine": 59,
+          "text": "         initServerMs = timeMs;\n         initTime = getTimerO();\n         initServerMs_initTime = initServerMs - initTime;\n         date = new Date();\n         var d:Date = new Date();\n         d.setTime(getServerTimeInMS());\n         d.setHours((timezoneOffset - d.timezoneOffset) / 60,0,0,0);\n         todayZeroClock = d.getTime();\n         isInited = true;\n         if(stage != null && !enterFrameListenerReadied)"
+        }
+      ]
+    },
+    "rawTime": {
+      "path": "validation/service-discovery-audit/official/util/scripts/mmo/common/DateUtil.as",
+      "sha256": "4663b7974a5448a30e6ecd6e2c02f25bebce468e1ca5ccdd0f93465ba46208df",
+      "needle": "function getServerTimeInMS_SRC()",
+      "locations": [
+        {
+          "line": 113,
+          "lastLine": 117,
+          "text": "      public static function getServerTimeInMS_SRC() : Number\n      {\n         return initServerMs + getTimerO() - initTime;\n      }\n      "
+        }
+      ]
+    },
+    "displayTime": {
+      "path": "validation/service-discovery-audit/official/util/scripts/mmo/common/DateUtil.as",
+      "sha256": "4663b7974a5448a30e6ecd6e2c02f25bebce468e1ca5ccdd0f93465ba46208df",
+      "needle": "function getServerTimeInMS()",
+      "locations": [
+        {
+          "line": 106,
+          "lastLine": 111,
+          "text": "      public static function getServerTimeInMS() : Number\n      {\n         var _loc1_:Number = initServerMs + getTimerO() - initTime;\n         date = new Date();\n         return _loc1_ + (date.timezoneOffset - timezoneOffset) * 60 * 1000;\n      }"
+        }
+      ]
+    },
+    "timezone": {
+      "path": "validation/service-discovery-audit/official/util/scripts/mmo/common/DateUtil.as",
+      "sha256": "4663b7974a5448a30e6ecd6e2c02f25bebce468e1ca5ccdd0f93465ba46208df",
+      "needle": "timezoneOffset:* = -480;",
+      "locations": [
+        {
+          "line": 29,
+          "lastLine": 29,
+          "text": "      private static var timezoneOffset:* = -480;"
+        }
+      ]
+    },
+    "closeClock": {
+      "path": "validation/service-discovery-audit/official/util/scripts/mmo/common/DateUtil.as",
+      "sha256": "4663b7974a5448a30e6ecd6e2c02f25bebce468e1ca5ccdd0f93465ba46208df",
+      "needle": "function isRegardAsYesterday()",
+      "locations": [
+        {
+          "line": 355,
+          "lastLine": 359,
+          "text": "      public static function isRegardAsYesterday() : Boolean\n      {\n         var _loc1_:Number = (getServerTimeInMS_SRC() - getTodayZeroClockInMs()) % FULL_DAY;\n         return getGameCloseClockTime() > _loc1_;\n      }"
+        }
+      ]
+    },
+    "bootTimeoutIsOnlyNotice": {
+      "path": "validation/roadmap-4.1.0/period-daily/official/play/scripts/mmo/play/util/TimeOutMonitor.as",
+      "sha256": "8d21ce2f2193ccb071405a45d36f78e5c60a1315220bc4e326130558c553692f",
+      "needle": "if(_loc2_ >= _loc5_)",
+      "locations": [
+        {
+          "line": 85,
+          "lastLine": 90,
+          "text": "            if(_loc2_ >= _loc5_)\n            {\n               this.removeItemByIndex(_loc3_);\n               NewDialog.showFailMessage(\"进入奥奇传说超时\" + \"，请联系客服！\\n\" + \"操作:\" + _loc4_.key + \"_\" + _loc4_.itemId);\n            }\n            _loc3_--;"
+        }
+      ]
+    },
+    "zoneSwitchCommands": {
+      "path": "validation/roadmap-4.1.0/period-daily/official/loginservice/scripts/mmo/login/swicth/ZoneSwicthManager.as",
+      "sha256": "ea11810a6a669d1d3d630d98892632675c0d3730ae9d9cc6f29ecad61a09e1a3",
+      "needle": "private var extMsgArr:",
+      "locations": [
+        {
+          "line": 46,
+          "lastLine": 46,
+          "text": "      private var extMsgArr:Array = [new ExtItem(\"MaterialExtension\",\"3_11\")];"
+        }
+      ]
+    },
+    "zoneSwitchDormantTimeHandler": {
+      "path": "validation/roadmap-4.1.0/period-daily/official/loginservice/scripts/mmo/login/swicth/ZoneSwicthManager.as",
+      "sha256": "ea11810a6a669d1d3d630d98892632675c0d3730ae9d9cc6f29ecad61a09e1a3",
+      "needle": "if(_loc2_ == \"getCurrentTime\")",
+      "locations": [
+        {
+          "line": 152,
+          "lastLine": 156,
+          "text": "         if(_loc2_ == \"getCurrentTime\")\n         {\n            this.onGetSerTime(param1);\n         }\n         if(this._count >= this.extMsgArr.length)"
+        }
+      ]
+    },
+    "dailyCommand": {
+      "path": "validation/official-coverage-audit/official/dailytaskservice/scripts/mmo/h5version/DiamondTaskClient.as",
+      "sha256": "41d91a0b2159a8497db3db91046cffbd1e0bb7a3b453bcc68ea0617b1adfc613",
+      "needle": "cmdGetInfo:String",
+      "locations": [
+        {
+          "line": 13,
+          "lastLine": 20,
+          "text": "      public static var cmdGetInfo:String = \"1008_20170623_dt_0\";\n      \n      public static var cmdGetDayPrize:String = \"1008_20170623_dt_1\";\n      \n      public static var cmdGetWeekPrize:String = \"1008_20170623_dt_2\";\n      \n      public static var onTaskUpdate:String = \"1008_20170623_dt_3\";\n      "
+        }
+      ]
+    },
+    "dailyFields": {
+      "path": "validation/official-coverage-audit/official/dailytaskservice/scripts/mmo/h5version/DiamondTaskModel.as",
+      "sha256": "27e3b5814380136e7803e133295d643ce5c304926841fdcce146aa2553577b1d",
+      "needle": "this.dayActiveValue = params[\"av\"];",
+      "locations": [
+        {
+          "line": 53,
+          "lastLine": 60,
+          "text": "         this.dayActiveValue = params[\"av\"];\n         this.weekActiveValue = params[\"wav\"];\n         this.dayPrizeStates = params[\"bi\"];\n         this.dayTaskValues = params[\"ti\"];\n         this.weekPrizeStates = params[\"wbi\"];\n         this.weekTaskValues = params[\"wti\"];\n         this.weekDailyTaskValues = params[\"wdti\"];\n         if(!DiamondTaskConfig.isWeekTaskOpen())"
+        }
+      ]
+    },
+    "dailyUpdateNotification": {
+      "path": "validation/official-coverage-audit/official/dailytaskservice/scripts/mmo/h5version/DiamondTaskModel.as",
+      "sha256": "27e3b5814380136e7803e133295d643ce5c304926841fdcce146aa2553577b1d",
+      "needle": "var taskId:Number = Number(e.params.aid);",
+      "locations": [
+        {
+          "line": 84,
+          "lastLine": 88,
+          "text": "         var taskId:Number = Number(e.params.aid);\n         var taskValue:Number = Number(e.params.val);\n         var weekTaskValue:Number = Number(e.params.wval);\n         var weekDailyTaskValue:Number = Number(e.params.wdval);\n         var taskDefine:DiamondTaskDefine = NewDiamondTaskManager.instance.getTaskDefineById(taskId);"
+        }
+      ]
+    },
+    "weeklyDailyLimit": {
+      "path": "validation/official-coverage-audit/official/dailytaskservice/scripts/mmo/h5version/DiamondTaskItemRenderer.as",
+      "sha256": "b18861cc4a8fe27da1527001b050cad96f102aff8c35bd5ef38165ffde9a919a",
+      "needle": "getDayProgressOfWeekTask",
+      "locations": [
+        {
+          "line": 101,
+          "lastLine": 115,
+          "text": "               _loc7_ = define.getDayProgressOfWeekTask(DiamondTaskModel.instance.getWeekDailyTaskValue(define.getId()));\n               _loc8_ = define.getWeekProgress(_loc4_);\n               _loc9_ = DiamondTaskModel.instance.getWeekDailyTaskValue(define.getId()) >= define.getWeekDailyMaxValue();\n               _loc10_ = _loc4_ * define.getWeekActiveValue() + \"/\" + define.getWeekMaxActiveValue();\n               if(StringUtil.isNullOrEmpty(_loc7_))\n               {\n                  _loc11_ = \"每周:<font color=\\'#e46537\\'>\" + _loc8_ + \"</font>\" + _loc3_ + \"<br>活跃:<font color=\\'#e46537\\'>\" + _loc10_ + \"</font>\";\n               }\n               else\n               {\n                  _loc11_ = \"今日:<font color=\\'#e46537\\'>\" + _loc7_ + \"</font>\" + _loc3_ + \"&nbsp;本周:<font color=\\'#e46537\\'>\" + _loc8_ + \"</font>\" + _loc3_ + \"<br>活跃:<font color=\\'#e46537\\'>\" + _loc10_ + \"</font>\";\n               }\n               setResPacker.setText(\"txtState\",_loc11_);\n               if(DiamondTaskModel.instance.hasFinishWeekTask(define.getId()))\n               {"
+        }
+      ]
+    },
+    "dailyResourceConsumer": {
+      "path": "validation/official-coverage-audit/official/dailytaskservice/scripts/mmo/h5version/DiamondTaskPanelSplit.as",
+      "sha256": "ab5fb232614954427c2f8eddeeb3b9909a54e24b0fc38cb7763591f8895759e3",
+      "needle": "super(DiamondTaskConfig.url",
+      "locations": [
+        {
+          "line": 41,
+          "lastLine": 44,
+          "text": "         super(DiamondTaskConfig.url(\"dailytask_res\"),\"DailyTaskPanel\");\n         this.taskType = param1;\n      }\n      "
+        }
+      ]
+    },
+    "dailyOpenHint": {
+      "path": "validation/roadmap-4.1.0/period-daily/official/dailytask-ui/hxe4i.xml",
+      "sha256": "18e1a07f1c6e7f3128bc6ac517617fe3a054af49c75744662cb8d16565f519ea",
+      "needle": "每日任务每天开服重置",
+      "locations": [
+        {
+          "line": 23,
+          "lastLine": 23,
+          "text": "    <text id=\"n44_sq3v\" name=\"n44\" xy=\"16,-2\" size=\"164,24\" fontSize=\"16\" color=\"#8b6034\" text=\"每日任务每天开服重置\"/>"
+        }
+      ]
+    },
+    "weeklyResetHint": {
+      "path": "validation/roadmap-4.1.0/period-daily/official/dailytask-ui/hxe4i.xml",
+      "sha256": "18e1a07f1c6e7f3128bc6ac517617fe3a054af49c75744662cb8d16565f519ea",
+      "needle": "每周任务每周五6点重置",
+      "locations": [
+        {
+          "line": 24,
+          "lastLine": 24,
+          "text": "    <text id=\"n48_hzy5\" name=\"n48\" xy=\"12,15\" size=\"173,24\" fontSize=\"16\" color=\"#8b6034\" text=\"每周任务每周五6点重置\"/>"
+        }
+      ]
+    },
+    "currentActivityRouting": {
+      "path": "validation/roadmap-4.1.0/period-daily/official/monthlywelfarecenter/scripts/mmo/activityext/newact20250403/monthlywelfarecenter/config/MWCConfig.as",
+      "sha256": "b3d096cb8ed70d427eaadfdbb8eb1fb6dee3d1383a29b1d02511b442a474d661",
+      "needle": "\"actName\":\"dailytaskrouter\"",
+      "locations": [
+        {
+          "line": 34,
+          "lastLine": 38,
+          "text": "         \"actName\":\"dailytaskrouter\",\n         \"redPointConfigNode\":10011,\n         \"actParams\":\"showPanelDay\",\n         \"matchPanelClsName\":\"mmo.h5version::DiamondTaskPanelSplit\"\n      },{"
+        },
+        {
+          "line": 42,
+          "lastLine": 46,
+          "text": "         \"actName\":\"dailytaskrouter\",\n         \"actParams\":\"showPanelWeek\",\n         \"matchPanelClsName\":\"mmo.h5version::DiamondTaskPanelSplit\"\n      },{\n         \"id\":5,"
+        }
+      ]
+    },
+    "nativeCapture": {
+      "path": "src/bridge/original_bridge.cpp",
+      "sha256": "85ce1b9d1b37c285a9d06249027e93bdf0ed05001d73711df6641ce8f16ab7a4",
+      "needle": "void OriginalBridge::capture(",
+      "locations": [
+        {
+          "line": 329,
+          "lastLine": 339,
+          "text": "void OriginalBridge::capture(quintptr, quintptr, quintptr, const QString& method,\n                             const QList<QVariant>& arguments) {\n  if (method != QStringLiteral(\"recivedata\") && method != QStringLiteral(\"cutdata\") &&\n      method != QStringLiteral(\"otherreturn\")) return;\n  InboundEnvelope envelope;\n  envelope.method = method;\n  envelope.receivedMonotonicMs = std::chrono::duration_cast<std::chrono::milliseconds>(\n      std::chrono::steady_clock::now().time_since_epoch()).count();\n  // Dispatch arguments have not been proved to identify a connection/account.\n  // Leave source/epoch unverified; never substitute Core's current account.\n  if (!arguments.isEmpty() && arguments.constFirst().metaType().id() == QMetaType::QString)"
+        }
+      ]
+    },
+    "nativeDispatch": {
+      "path": "src/protocol/protocol_transport.cpp",
+      "sha256": "5ea23131733f499353b1f46ec20c48d858af331cfbe82e10b50299a8ff799dd3",
+      "needle": "receipt.dispatchedAtMs = nowMs;",
+      "locations": [
+        {
+          "line": 115,
+          "lastLine": 123,
+          "text": "  receipt.dispatchedAtMs = nowMs;\n  if (weakRead) receipt.error = QStringLiteral(\"read-only unverified observation; no source/order authority granted\");\n  receipt.responseDeadlineMs = nowMs + intent.ticket.responseTimeoutMs;\n  // Exceptions after claiming cannot prove non-submission. The original\n  // durable write intent remains Unknown and must never trigger fallback.\n  try { receipt.outcome = submit(intent); }\n  catch (...) { receipt.outcome = SubmissionOutcome::Unknown; receipt.error = QStringLiteral(\"host submission raised an exception\"); }\n  intent.permit.complete(receipt.outcome);\n  return receipt;"
+        }
+      ]
+    },
+    "nativeValidityContract": {
+      "path": "src/application/common/observation_freshness.h",
+      "sha256": "2063772dbbdd6d17f7eb55163bec39496b0611c12f86e5a0cc1bcb8acbd2aff1",
+      "needle": "struct TrustedObservationValidity",
+      "locations": [
+        {
+          "line": 20,
+          "lastLine": 35,
+          "text": "struct TrustedObservationValidity {\n  QString account;\n  quint64 epoch = 0;\n  QString group;\n  quint64 observationSequence = 0;\n  QString periodKey;\n  QString periodId;\n  QDateTime validFromUtc;\n  QDateTime validUntilUtc;\n  QDateTime observedServerUtc;\n  // Includes server timestamp precision and its transport-to-capture error.\n  qint64 serverUncertaintyMs = -1;\n  QString evidenceReference;\n};\n\n// Core-owned, no timer, I/O, server request or local-midnight/TTL policy. Call"
+        }
+      ]
+    },
+    "nativeCurrentGate": {
+      "path": "src/application/routine/routine_overview_controller.cpp",
+      "sha256": "598c902fce0e72a02dade30ba4d6226ccfac685ea018f34caa93564fb9e2e692",
+      "needle": "bool RoutineOverviewController::acceptPeriodValidityEvidence",
+      "locations": [
+        {
+          "line": 168,
+          "lastLine": 185,
+          "text": "bool RoutineOverviewController::acceptPeriodValidityEvidence(const TrustedObservationValidity& evidence, QString* error) {\n  const QPointer<RoutineOverviewController> alive(this);\n  checkFreshness();\n  if (!alive) return false;\n  const QString expectedPeriod = periodForGroup(evidence.group);\n  if (evidence.periodKey != expectedPeriod || !observedAt_.contains(evidence.group) ||\n      (fieldState(evidence.group) != PacketFieldState::Empty && fieldState(evidence.group) != PacketFieldState::Value)) {\n    if (error) *error = QStringLiteral(\"周期证据不对应有效日常/活动观察与已登记的周期键\");\n    return false;\n  }\n  if (!repository_ || !repository_->sessionContext().canPersist()) {\n    if (error) *error = QStringLiteral(\"当前来源不可验证周期证据\");\n    return false;\n  }\n  const quint64 before = freshness_.revision();\n  const bool accepted = freshness_.acceptValidityEvidence(evidence, error);\n  if (before != freshness_.revision()) publishFreshness();\n  return accepted;"
+        }
+      ]
+    }
+  },
+  "timeProtocol": {
+    "extension": "UserExtension",
+    "extensionId": 1,
+    "command": "getCurrentTime",
+    "parameters": {},
+    "responseCommandField": "_cmd",
+    "responseTimeField": "t",
+    "unit": "Unix epoch milliseconds",
+    "unitEvidence": "BootLoader -> DateUtil.init(params.t) -> new Date and getTimer difference, without multiplication/division.",
+    "producerPrecisionMs": null,
+    "echoedRequestId": null,
+    "echoedSendTime": null,
+    "bootstrapRequestVerified": true,
+    "zoneSwitchRequestVerified": false,
+    "zoneSwitchNote": "Handler exists, but the current extMsgArr contains only MaterialExtension/3_11.",
+    "passiveLatencyUpperBoundMs": null,
+    "timeoutNote": "Boot TimeOutMonitor default 60000 only displays a message; it does not cancel the time listener or bound an accepted response age.",
+    "rawTime": "DateUtil.getServerTimeInMS_SRC = initServerMs + timerElapsed",
+    "displayTime": "getServerTimeInMS adds (hostTimezoneOffset - (-480))*60000; do not interpret this shifted value as UTC."
+  },
+  "taskProtocol": {
+    "extension": "TimelinessActExtension",
+    "getInfoCommand": "1008_20170623_dt_0",
+    "dailyGroups": [
+      "av",
+      "bi",
+      "ti",
+      "wdti"
+    ],
+    "weeklyGroups": [
+      "wav",
+      "wbi",
+      "wti"
+    ],
+    "wdtiMeaning": "Today's progress cap inside a weekly task, explicitly rendered alongside current-week progress.",
+    "responseTimestampOrPeriodIdConsumed": false,
+    "updateNotification": {
+      "command": "1008_20170623_dt_3",
+      "fields": [
+        "aid",
+        "val",
+        "wval",
+        "wdval"
+      ],
+      "meaning": "Partial task progress update, not a complete snapshot or clock."
+    }
+  },
+  "periodRules": [
+    {
+      "scope": "diamond tasks",
+      "period": "daily",
+      "text": "每日任务每天开服重置",
+      "exactHour": null,
+      "canComputeFiniteBoundary": false,
+      "uiPath": "DailyTaskPanel.spHY.n44"
+    },
+    {
+      "scope": "diamond tasks",
+      "period": "weekly",
+      "text": "每周任务每周五6点重置",
+      "weekday": "Friday",
+      "hour": 6,
+      "minute": 0,
+      "zone": "UTC+08:00",
+      "canComputeFiniteBoundary": true,
+      "evidenceGrade": "Official currently referenced UI declaration, not server implementation or live test.",
+      "uiPath": "DailyTaskPanel.spHY.n48"
+    }
+  ],
+  "notEquivalentPolicies": [
+    "DateUtil gameCloseClock=02:00 is used by generic isRegardAsYesterday/getPassedDays and event closing helpers.",
+    "LocalCache.getWeeklyVersion selects Friday by calendar date and already changes at Friday 00:00.",
+    "Neither helper is the weekly diamond-task Friday 06:00 reset.",
+    "Shop weeks/months/quarters declared as server-opening boundaries do not acquire a 06:00 hour from diamond tasks.",
+    "28/84-day exchange-center periods are not natural calendar months/quarters without anchors."
+  ],
+  "sharedShopRuleScope": {
+    "ownerReport": "validation/roadmap-4.1.0/period-shop/findings.json",
+    "weekly": "Friday server opening; hour unknown",
+    "monthly": "Day 1 server opening; hour unknown",
+    "quarterly": "Jan/Apr/Jul/Oct day 1 server opening; hour unknown",
+    "period": "Each specific shop update; per-shop anchor/end not generically established",
+    "total": "No recurring reset; config identity and observation provenance still required; no synthetic year-9999 validity",
+    "rollingPeriods": "EC 4-week/12-week periods stay distinct from natural month/quarter"
+  },
+  "unresolved": [
+    "Daily task server-opening hour, including exceptional maintenance opening changes.",
+    "Server producer implementation: precision/quantization and timestamp generation point.",
+    "Command-only response causal attribution amid game-owned or late requests; current bridge captures no verified source/order.",
+    "No server timestamp/period id consumed on daily quota replies; the request-generation interval must stay inside one verified period.",
+    "No cross-week live server experiment was performed, and no entire-game reset policy is claimed."
+  ]
+}

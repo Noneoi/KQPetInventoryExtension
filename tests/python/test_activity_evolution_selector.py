@@ -142,6 +142,31 @@ class ActivityEvolutionSelectorTests(unittest.TestCase):
                 self.expand(values)
         self.assertEqual(self.updater.calls, [])
 
+    def shared(self, seeds, pets, **overrides):
+        tables = selector._load_tables(self.updater, self.versions)
+        tables.update(orderedEvolutionVerified=True, **overrides)
+        return selector.shared_cultivation_targets(tables,seeds,pets)
+
+    def test_shared_panel_preserves_own_package_before_following_forward_chain(self):
+        self.assertEqual(self.shared([1000],{'100':{}})[0]['race'],100)
+        self.assertEqual(self.shared([101],{'300':{},'201':{}})[0]['evolutionPath'],[100,200,300])
+        self.assertEqual(self.shared([100],{'200':{},'300':{}})[0]['race'],300)
+        # Two requested races have no single-race fallback; no @sb branch union.
+        self.assertEqual([r['race'] for r in self.shared([100,200],{'300':{}})],[100,200])
+
+    def test_shared_panel_rejects_ambiguous_or_cyclic_targets(self):
+        for edges in ({'100':[200,300]},{'100':[200],'200':[100]}):
+            with self.assertRaisesRegex(ValueError,'分支或循环'):
+                self.shared([100],{},evolution={'excel':edges,'legacy':{}})
+        tables=selector._load_tables(self.updater,self.versions)
+        with self.assertRaisesRegex(ValueError,'尚未验证'):
+            selector.shared_cultivation_targets(tables,[100],{})
+
+    def test_shared_panel_does_not_invent_missing_catalog_or_hidden_skin_target(self):
+        self.assertEqual(self.shared([100],{})[0]['race'],300)
+        self.assertEqual(self.shared([1001],{})[0]['race'],1001)
+        self.assertEqual(self.shared([9000],{})[0]['race'],9000)
+
 
 if __name__ == "__main__":
     unittest.main()

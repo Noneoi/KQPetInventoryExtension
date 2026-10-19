@@ -1,0 +1,1937 @@
+{
+  "date": "2026-10-18",
+  "scope": "Official static consumer evidence; no account payment/claim requests.",
+  "beforePending": [
+    {
+      "table": "NFC26Config.DICEC_ID",
+      "reason": "公共商城购买入口尚未与奖励、费用和次数完整关联",
+      "description": "神·时空龙源兽*3+万变红星*1",
+      "itemId": 4,
+      "module": "newactivityext/newact20260618/newfirstcharge2026/newfirstcharge2026",
+      "activityName": "首充首兑送SSS神宠及专属养成"
+    },
+    {
+      "table": "XJFNY_MainPanel.sharedCultivation",
+      "reason": "公共养成面板尚无该入口精灵的可验证独立配置",
+      "module": "newactivityext/newact20220930/xingjifantasynuoya/xingjifantasynuoya",
+      "activityName": "星迹幻诺挑战"
+    }
+  ],
+  "afterPending": [],
+  "regression": {
+    "replayedModules": 68,
+    "previousGoods": 240,
+    "currentGoods": 254,
+    "newGoods": 14,
+    "removedGoods": 0,
+    "changedExistingEligibility": 0
+  },
+  "genericRules": [
+    "Consumed external DirectBuyInfo matched to branch-selected reward row; preserve reward identity and external price units.",
+    "Shared cultivation normalizes skin/form; only a single missing catalog entry follows verified ordered evolution to terminal race.",
+    "Shared navigation participates in evolution dependency invalidation; ambiguous branches and modified payment consumers remain pending."
+  ],
+  "modules": [
+    {
+      "module": "newactivityext/newact20260618/newfirstcharge2026/newfirstcharge2026",
+      "source": {
+        "url": "https://aoqi.100bt.com/play/newactivityext/newact20260618/newfirstcharge2026/newfirstcharge2026~2026072319495749.swf",
+        "sha256": "efe215400a459d6eeb2f7a494797ef73262be9e2c956cdac7719782320428ca7",
+        "bytes": 9721
+      },
+      "activity": {
+        "name": "newfirstcharge2026",
+        "desc": "新手首兑",
+        "type": "world",
+        "cls": "mmo.activityext.newact20260618.newfirstcharge2026.NewFirstCharge2026",
+        "file": "newactivityext/newact20260618/newfirstcharge2026/newfirstcharge2026",
+        "surveyId": "40845",
+        "releaseVersion": "20260618",
+        "activityName": "首充首兑送SSS神宠及专属养成",
+        "startTime": "20260618",
+        "endTime": "",
+        "activityAlias": "newfirstcharge2026",
+        "periodEvidence": [
+          {
+            "startTime": "20260618",
+            "kind": "hud",
+            "alias": "newfirstcharge2026"
+          }
+        ],
+        "navigationLink": "btnNewAct_newfirstcharge2026_showMainPanel",
+        "activityEvidence": "hud",
+        "activityEvidenceDate": "20260618"
+      },
+      "shops": [
+        {
+          "sourceKey": "newactivityext/newact20260618/newfirstcharge2026/newfirstcharge2026#NFC26Config.REWARD",
+          "shopId": 1,
+          "name": "活动·首充首兑送SSS神宠及专属养成",
+          "rewardTier": null,
+          "activityName": "首充首兑送SSS神宠及专属养成",
+          "goods": [
+            {
+              "id": 2,
+              "itemServerId": 2,
+              "description": "100钻+[灵初]时溯王者·时空神运极品（含满级、完美天赋、满金星+万变金星、源兽神觉满星级、满级元魂）",
+              "manualSelectionRequired": false,
+              "acquisitionKind": "exchange",
+              "displayIdentityOnly": true,
+              "tab": 0,
+              "cost": "",
+              "costKnown": false,
+              "costRaw": {
+                "cost": 100
+              },
+              "costDescription": "",
+              "enhanceType": "11-62-31-91-41",
+              "raceIds": [
+                6840
+              ],
+              "shelfTime": "20260618",
+              "removalTime": "",
+              "availableKnown": true,
+              "officialShelfTime": "20260618",
+              "officialRemovalTime": "",
+              "limit": "",
+              "limitIndex": -1,
+              "limitCount": -1,
+              "limitKey": "",
+              "limitLabel": "",
+              "quotaKnown": false,
+              "quotaRaw": {},
+              "unlock": "",
+              "conditionsRaw": {
+                "index": 2,
+                "filter": [
+                  6840
+                ]
+              },
+              "rewardRaw": "CommonEnhancePrize,,,11-62-31-91-41,6840",
+              "selectablePackageIds": [],
+              "source": {
+                "configClass": "NFC26Config.REWARD",
+                "configFile": "scripts/mmo/activityext/newact20260618/newfirstcharge2026/config/NFC26Config.as",
+                "commands": {},
+                "shelfTimeSource": "activity",
+                "removalTimeSource": "activity",
+                "periodBounds": {
+                  "rowStart": "",
+                  "rowEnd": "",
+                  "moduleStart": "",
+                  "moduleEnd": "",
+                  "tableEnd": ""
+                },
+                "selection": "tagged-strengthen",
+                "activityPeriodEvidence": [
+                  {
+                    "startTime": "20260618",
+                    "kind": "hud",
+                    "alias": "newfirstcharge2026"
+                  }
+                ]
+              },
+              "startsAt": "2026-06-18T00:00:00+08:00",
+              "endsAt": "",
+              "availabilityClosed": false,
+              "rewardStructure": "tagged-strengthen",
+              "rewardOptions": [],
+              "targetingRaw": [
+                6840
+              ],
+              "officialRewardRaw": "{\"filter\": [6840], \"rewardParams\": \"11-62-31-91-41?4:1336:10\", \"rewardType\": \"Strengthen\"}",
+              "exchangeKind": "activity"
+            },
+            {
+              "id": 4,
+              "itemServerId": 4,
+              "description": "神·时空龙源兽*3+灵初王者时空龙装备万变红星*1+经验元魂*200+微灵星元*1万",
+              "manualSelectionRequired": false,
+              "acquisitionKind": "exchange",
+              "displayIdentityOnly": true,
+              "tab": 0,
+              "cost": "",
+              "costKnown": false,
+              "costRaw": {
+                "cost": 150,
+                "externalPurchase": {
+                  "consumer": "DirectBuyInfo.forNormal -> IWealthManagerService.buyDirectly",
+                  "configTable": "NFC26Config.DICEC_ID",
+                  "rewardTable": "NFC26Config.REWARD",
+                  "rowIndex": 4,
+                  "selection": "index == NFC26Config.REWARD.length - 1",
+                  "goodsId": 135000110,
+                  "goodsName": "神·时空龙源兽*3+万变红星*1",
+                  "goodsPrice": 1500,
+                  "goodsNum": 1,
+                  "paymentKind": "external",
+                  "configFile": "scripts/mmo/activityext/newact20260618/newfirstcharge2026/view/NFC26MainPanel.as"
+                }
+              },
+              "costDescription": "商城付费购买后领取；支付金额以商城结算为准",
+              "enhanceType": "33",
+              "raceIds": [
+                6840
+              ],
+              "shelfTime": "20260618",
+              "removalTime": "",
+              "availableKnown": true,
+              "officialShelfTime": "20260618",
+              "officialRemovalTime": "",
+              "limit": "",
+              "limitIndex": -1,
+              "limitCount": 1,
+              "limitKey": "",
+              "limitLabel": "领取",
+              "quotaKnown": true,
+              "quotaRaw": {
+                "claimOnce": {
+                  "property": "hasGain",
+                  "prefixes": [
+                    "b",
+                    "oo"
+                  ]
+                }
+              },
+              "unlock": "购买后激活领取资格；已领取的奖励不能重复领取",
+              "conditionsRaw": {
+                "index": 4,
+                "filter": [
+                  6840
+                ]
+              },
+              "rewardRaw": "CommonEnhancePrize,,,33,6840",
+              "selectablePackageIds": [],
+              "source": {
+                "configClass": "NFC26Config.REWARD",
+                "configFile": "scripts/mmo/activityext/newact20260618/newfirstcharge2026/config/NFC26Config.as",
+                "commands": {},
+                "shelfTimeSource": "activity",
+                "removalTimeSource": "activity",
+                "periodBounds": {
+                  "rowStart": "",
+                  "rowEnd": "",
+                  "moduleStart": "",
+                  "moduleEnd": "",
+                  "tableEnd": ""
+                },
+                "selection": "tagged-strengthen",
+                "activityPeriodEvidence": [
+                  {
+                    "startTime": "20260618",
+                    "kind": "hud",
+                    "alias": "newfirstcharge2026"
+                  }
+                ],
+                "tradeFacts": {
+                  "purchase": {
+                    "consumer": "DirectBuyInfo.forNormal -> IWealthManagerService.buyDirectly",
+                    "configTable": "NFC26Config.DICEC_ID",
+                    "rewardTable": "NFC26Config.REWARD",
+                    "rowIndex": 4,
+                    "selection": "index == NFC26Config.REWARD.length - 1",
+                    "goodsId": 135000110,
+                    "goodsName": "神·时空龙源兽*3+万变红星*1",
+                    "goodsPrice": 1500,
+                    "goodsNum": 1,
+                    "paymentKind": "external",
+                    "configFile": "scripts/mmo/activityext/newact20260618/newfirstcharge2026/view/NFC26MainPanel.as"
+                  },
+                  "claim": {
+                    "property": "hasGain",
+                    "prefixes": [
+                      "b",
+                      "oo"
+                    ],
+                    "maximum": 1,
+                    "statePath": [
+                      "b4",
+                      "oo4"
+                    ]
+                  }
+                }
+              },
+              "startsAt": "2026-06-18T00:00:00+08:00",
+              "endsAt": "",
+              "availabilityClosed": false,
+              "rewardStructure": "tagged-strengthen",
+              "rewardOptions": [],
+              "targetingRaw": [
+                6840
+              ],
+              "officialRewardRaw": "{\"filter\": [6840], \"rewardParams\": \"33?4:1336:10\", \"rewardType\": \"Strengthen\"}",
+              "exchangeKind": "activity",
+              "quotaCycleKnown": false,
+              "quotaDescription": "领取限 1 次；当前购买及领取状态以活动内为准"
+            }
+          ],
+          "observation": {
+            "schema": 1,
+            "requests": []
+          },
+          "navigationLink": "btnNewAct_newfirstcharge2026_showMainPanel",
+          "activityEvidence": "hud",
+          "activityEvidenceDate": "20260618",
+          "source": {
+            "module": "newactivityext/newact20260618/newfirstcharge2026/newfirstcharge2026",
+            "activityAlias": "newfirstcharge2026",
+            "class": "NFC26Config.REWARD",
+            "commands": {},
+            "navigationLinkSource": "activity",
+            "quotaSupported": false
+          }
+        },
+        {
+          "sourceKey": "newactivityext/newact20260618/newfirstcharge2026/newfirstcharge2026#NFC26Config.REWARD_VIP",
+          "shopId": 1,
+          "name": "活动·首充首兑送SSS神宠及专属养成",
+          "rewardTier": null,
+          "activityName": "首充首兑送SSS神宠及专属养成",
+          "goods": [
+            {
+              "id": 11,
+              "itemServerId": 11,
+              "description": "[灵初]御界次元·龙尊神运极品（含满级、完美天赋、满金星+万变金星、源兽神觉满星级、满级元魂）",
+              "manualSelectionRequired": true,
+              "acquisitionKind": "reward",
+              "displayIdentityOnly": true,
+              "tab": 0,
+              "cost": "",
+              "costKnown": false,
+              "costRaw": {},
+              "costDescription": "充值月数：2；达成后领取，当前进度与领取状态以活动内为准",
+              "enhanceType": "11-62-31-91-41",
+              "raceIds": [
+                6645
+              ],
+              "shelfTime": "20260618",
+              "removalTime": "",
+              "availableKnown": true,
+              "officialShelfTime": "20260618",
+              "officialRemovalTime": "",
+              "limit": "",
+              "limitIndex": -1,
+              "limitCount": -1,
+              "limitKey": "",
+              "limitLabel": "",
+              "quotaKnown": false,
+              "quotaRaw": {},
+              "unlock": "",
+              "conditionsRaw": {
+                "index": 1,
+                "filter": [
+                  6645
+                ]
+              },
+              "rewardRaw": "CommonEnhancePrize,,,11-62-31-91-41,6645",
+              "selectablePackageIds": [],
+              "source": {
+                "configClass": "NFC26Config.REWARD_VIP",
+                "configFile": "scripts/mmo/activityext/newact20260618/newfirstcharge2026/config/NFC26Config.as",
+                "commands": {},
+                "shelfTimeSource": "activity",
+                "removalTimeSource": "activity",
+                "periodBounds": {
+                  "rowStart": "",
+                  "rowEnd": "",
+                  "moduleStart": "",
+                  "moduleEnd": "",
+                  "tableEnd": ""
+                },
+                "selection": "ActReward.Strengthen",
+                "activityPeriodEvidence": [
+                  {
+                    "startTime": "20260618",
+                    "kind": "hud",
+                    "alias": "newfirstcharge2026"
+                  }
+                ]
+              },
+              "startsAt": "2026-06-18T00:00:00+08:00",
+              "endsAt": "",
+              "availabilityClosed": false,
+              "rewardStructure": "ActReward.Strengthen",
+              "rewardOptions": [],
+              "targetingRaw": [
+                6645
+              ],
+              "officialRewardRaw": "{\"filter\": [6645], \"rewardParams\": \"11-62-31-91-41?4:731:2#8:1:30000#4:3091:1000#4:1384:100\", \"rewardType\": \"Strengthen\"}",
+              "exchangeKind": "activity",
+              "claimConditionsRaw": {
+                "index": 1,
+                "serverIndex": 11,
+                "month": 2,
+                "rewardParams": "11-62-31-91-41?4:731:2#8:1:30000#4:3091:1000#4:1384:100",
+                "rewardType": "Strengthen",
+                "filter": [
+                  6645
+                ],
+                "_structure": "ActReward.Strengthen",
+                "_targeting": [
+                  6645
+                ],
+                "_manualReward": false,
+                "_rawReward": "{\"filter\": [6645], \"rewardParams\": \"11-62-31-91-41?4:731:2#8:1:30000#4:3091:1000#4:1384:100\", \"rewardType\": \"Strengthen\"}",
+                "_typedCodes": "11-62-31-91-41"
+              }
+            },
+            {
+              "id": 13,
+              "itemServerId": 13,
+              "description": "[灵初]御鼎龙尊·圣主神运极品（含满级、完美天赋、满金星+万变金星、源兽神觉满星级、满级元魂）",
+              "manualSelectionRequired": true,
+              "acquisitionKind": "reward",
+              "displayIdentityOnly": true,
+              "tab": 0,
+              "cost": "",
+              "costKnown": false,
+              "costRaw": {},
+              "costDescription": "充值月数：4；达成后领取，当前进度与领取状态以活动内为准",
+              "enhanceType": "11-62-31-91-41",
+              "raceIds": [
+                6711
+              ],
+              "shelfTime": "20260618",
+              "removalTime": "",
+              "availableKnown": true,
+              "officialShelfTime": "20260618",
+              "officialRemovalTime": "",
+              "limit": "",
+              "limitIndex": -1,
+              "limitCount": -1,
+              "limitKey": "",
+              "limitLabel": "",
+              "quotaKnown": false,
+              "quotaRaw": {},
+              "unlock": "",
+              "conditionsRaw": {
+                "index": 3,
+                "filter": [
+                  6711
+                ]
+              },
+              "rewardRaw": "CommonEnhancePrize,,,11-62-31-91-41,6711",
+              "selectablePackageIds": [],
+              "source": {
+                "configClass": "NFC26Config.REWARD_VIP",
+                "configFile": "scripts/mmo/activityext/newact20260618/newfirstcharge2026/config/NFC26Config.as",
+                "commands": {},
+                "shelfTimeSource": "activity",
+                "removalTimeSource": "activity",
+                "periodBounds": {
+                  "rowStart": "",
+                  "rowEnd": "",
+                  "moduleStart": "",
+                  "moduleEnd": "",
+                  "tableEnd": ""
+                },
+                "selection": "ActReward.Strengthen",
+                "activityPeriodEvidence": [
+                  {
+                    "startTime": "20260618",
+                    "kind": "hud",
+                    "alias": "newfirstcharge2026"
+                  }
+                ]
+              },
+              "startsAt": "2026-06-18T00:00:00+08:00",
+              "endsAt": "",
+              "availabilityClosed": false,
+              "rewardStructure": "ActReward.Strengthen",
+              "rewardOptions": [],
+              "targetingRaw": [
+                6711
+              ],
+              "officialRewardRaw": "{\"filter\": [6711], \"rewardParams\": \"11-62-31-91-41?138:66:1\", \"rewardType\": \"Strengthen\"}",
+              "exchangeKind": "activity",
+              "claimConditionsRaw": {
+                "index": 3,
+                "serverIndex": 13,
+                "month": 4,
+                "rewardParams": "11-62-31-91-41?138:66:1",
+                "rewardType": "Strengthen",
+                "filter": [
+                  6711
+                ],
+                "_structure": "ActReward.Strengthen",
+                "_targeting": [
+                  6711
+                ],
+                "_manualReward": false,
+                "_rawReward": "{\"filter\": [6711], \"rewardParams\": \"11-62-31-91-41?138:66:1\", \"rewardType\": \"Strengthen\"}",
+                "_typedCodes": "11-62-31-91-41"
+              }
+            }
+          ],
+          "observation": {
+            "schema": 1,
+            "requests": []
+          },
+          "navigationLink": "btnNewAct_newfirstcharge2026_showMainPanel",
+          "activityEvidence": "hud",
+          "activityEvidenceDate": "20260618",
+          "source": {
+            "module": "newactivityext/newact20260618/newfirstcharge2026/newfirstcharge2026",
+            "activityAlias": "newfirstcharge2026",
+            "class": "NFC26Config.REWARD_VIP",
+            "commands": {},
+            "navigationLinkSource": "activity",
+            "quotaSupported": false
+          }
+        }
+      ],
+      "pending": [],
+      "hasEvolutionSelector": false,
+      "scripts": {
+        "scripts/mmo/activityext/newact20260618/newfirstcharge2026/config/NFC26Config.as": "402f7a017129fbeafb0ad8b683bf791dd73b81366e88494d82d18d25acadec6d",
+        "scripts/mmo/activityext/newact20260618/newfirstcharge2026/controller/NFC26Controller.as": "0242c457ff028a7e66f3c0c9f2b4ecb38dcb1fc5f2905d2120f87b91edf54adf",
+        "scripts/mmo/activityext/newact20260618/newfirstcharge2026/model/NFC26ExReward.as": "2b3ec431da5d61b8bd1cebb8e7bbea288908fbaa33d7e2c7f83d595a4918b649",
+        "scripts/mmo/activityext/newact20260618/newfirstcharge2026/model/NFC26Model.as": "f90ce832a31c07ab40c13614c934e57d8d20eaa7ebf17ca856ec0a8fef304457",
+        "scripts/mmo/activityext/newact20260618/newfirstcharge2026/view/NFC26MainPanel.as": "984f6cd109e9b3565388415518a907e5eaf11e142483cdfbf9ade83dab5fd3b1"
+      }
+    },
+    {
+      "module": "newactivityext/newact20220930/xingjifantasynuoya/xingjifantasynuoya",
+      "source": {
+        "url": "https://aoqi.100bt.com/play/newactivityext/newact20220930/xingjifantasynuoya/xingjifantasynuoya~2022092395130637.swf",
+        "sha256": "6c1018229c2d796918a113f12d1a8926a536b1eb5336b7a1bd1504306d5c039b",
+        "bytes": 17404
+      },
+      "activity": {
+        "name": "xingjifantasynuoya",
+        "desc": "星迹幻诺挑战",
+        "cls": "mmo.activityext.newact20220930.xingjifantasynuoya.XingJiFantasyNuoYa",
+        "file": "newactivityext/newact20220930/xingjifantasynuoya/xingjifantasynuoya",
+        "surveyId": "27591",
+        "releaseVersion": "20220930",
+        "activityName": "星迹幻诺挑战",
+        "startTime": "",
+        "endTime": "",
+        "activityAlias": "xingjifantasynuoya",
+        "periodEvidence": [],
+        "navigationLink": "",
+        "activityEvidence": "referenced",
+        "activityEvidenceDate": ""
+      },
+      "shops": [
+        {
+          "sourceKey": "newactivityext/newact20220930/xingjifantasynuoya/xingjifantasynuoya#XJFNY_MainPanel.sharedCultivation",
+          "shopId": 1,
+          "name": "活动·星迹幻诺挑战",
+          "rewardTier": null,
+          "activityName": "星迹幻诺挑战",
+          "goods": [
+            {
+              "id": 197884811,
+              "itemServerId": 197884811,
+              "description": "满级 / 完美天赋 / 满金星+万变金星 / 源兽神觉升至满星 / 满级元魂",
+              "manualSelectionRequired": true,
+              "acquisitionKind": "exchange",
+              "displayIdentityOnly": true,
+              "tab": 0,
+              "cost": "",
+              "costKnown": false,
+              "costRaw": {
+                "publicPrice": {
+                  "id": 122,
+                  "outerType": "套餐",
+                  "innerType": "7007",
+                  "strengthenParams": "11-62-31-91-41",
+                  "stablePrice": 1988,
+                  "discountChecker": "",
+                  "discountPrice": "788",
+                  "discountShown": "4"
+                },
+                "binding": "122$788"
+              },
+              "costDescription": "钻石基础价：788；折扣、抵扣及适用条件以养成面板为准",
+              "enhanceType": "11-62-31-91-41",
+              "raceIds": [
+                5864
+              ],
+              "shelfTime": "",
+              "removalTime": "",
+              "availableKnown": false,
+              "officialShelfTime": "",
+              "officialRemovalTime": "",
+              "limit": "",
+              "limitIndex": -1,
+              "limitCount": -1,
+              "limitKey": "",
+              "limitLabel": "",
+              "quotaKnown": false,
+              "quotaRaw": {
+                "unlock": "公共养成套餐；折扣、生效条件和费用请在游戏养成面板确认"
+              },
+              "unlock": "公共养成；按所选精灵当前培养状态判断是否可购买",
+              "conditionsRaw": {},
+              "rewardRaw": "CommonEnhancePrize,,,11-62-31-91-41,5864",
+              "selectablePackageIds": [],
+              "source": {
+                "configClass": "XJFNY_MainPanel.sharedCultivation",
+                "configFile": "scripts/mmo/activityext/newact20220930/xingjifantasynuoya/view/XJFNY_MainPanel.as",
+                "commands": {},
+                "shelfTimeSource": "activity",
+                "removalTimeSource": "activity",
+                "periodBounds": {
+                  "rowStart": "",
+                  "rowEnd": "",
+                  "moduleStart": "",
+                  "moduleEnd": "",
+                  "tableEnd": ""
+                },
+                "selection": "shared-cultivation",
+                "activityPeriodEvidence": [],
+                "callEvidence": {
+                  "consumer": "IStrengthenComboService.showPanelCombo",
+                  "race": 5864,
+                  "requestedRaces": [
+                    4487
+                  ],
+                  "normalizedRace": 4487,
+                  "evolutionPath": [
+                    4487,
+                    5864
+                  ]
+                },
+                "tradeFacts": {
+                  "price": {
+                    "consumer": "StrengthenComboPriceDefine",
+                    "binding": "122$788"
+                  }
+                }
+              },
+              "startsAt": "",
+              "endsAt": "",
+              "availabilityClosed": false,
+              "rewardStructure": "shared-cultivation",
+              "rewardOptions": [],
+              "targetingRaw": [
+                5864
+              ],
+              "officialRewardRaw": "{\"filter\": [5864], \"rewardParams\": \"11-62-31-91-41\", \"rewardType\": \"Strengthen\"}",
+              "exchangeKind": "diamond",
+              "priceOptions": [
+                {
+                  "cost": "8:2:788",
+                  "label": "公共养成基础价"
+                }
+              ]
+            },
+            {
+              "id": 160049558,
+              "itemServerId": 160049558,
+              "description": "1个红色星神",
+              "manualSelectionRequired": true,
+              "acquisitionKind": "exchange",
+              "displayIdentityOnly": true,
+              "tab": 0,
+              "cost": "",
+              "costKnown": false,
+              "costRaw": {
+                "publicPrice": {
+                  "id": 304,
+                  "outerType": "星神",
+                  "innerType": "3001",
+                  "strengthenParams": "39",
+                  "stablePrice": 149,
+                  "discountChecker": "",
+                  "discountPrice": "99",
+                  "discountShown": "7"
+                },
+                "binding": "304"
+              },
+              "costDescription": "钻石基础价：99；折扣、抵扣及适用条件以养成面板为准",
+              "enhanceType": "39",
+              "raceIds": [
+                5864
+              ],
+              "shelfTime": "",
+              "removalTime": "",
+              "availableKnown": false,
+              "officialShelfTime": "",
+              "officialRemovalTime": "",
+              "limit": "",
+              "limitIndex": -1,
+              "limitCount": -1,
+              "limitKey": "",
+              "limitLabel": "",
+              "quotaKnown": false,
+              "quotaRaw": {
+                "unlock": "公共养成套餐；折扣、生效条件和费用请在游戏养成面板确认"
+              },
+              "unlock": "公共养成；按所选精灵当前培养状态判断是否可购买",
+              "conditionsRaw": {},
+              "rewardRaw": "CommonEnhancePrize,,,39,5864",
+              "selectablePackageIds": [],
+              "source": {
+                "configClass": "XJFNY_MainPanel.sharedCultivation",
+                "configFile": "scripts/mmo/activityext/newact20220930/xingjifantasynuoya/view/XJFNY_MainPanel.as",
+                "commands": {},
+                "shelfTimeSource": "activity",
+                "removalTimeSource": "activity",
+                "periodBounds": {
+                  "rowStart": "",
+                  "rowEnd": "",
+                  "moduleStart": "",
+                  "moduleEnd": "",
+                  "tableEnd": ""
+                },
+                "selection": "shared-cultivation",
+                "activityPeriodEvidence": [],
+                "callEvidence": {
+                  "consumer": "IStrengthenComboService.showPanelCombo",
+                  "race": 5864,
+                  "requestedRaces": [
+                    4487
+                  ],
+                  "normalizedRace": 4487,
+                  "evolutionPath": [
+                    4487,
+                    5864
+                  ]
+                },
+                "tradeFacts": {
+                  "price": {
+                    "consumer": "StrengthenComboPriceDefine",
+                    "binding": "304"
+                  }
+                }
+              },
+              "startsAt": "",
+              "endsAt": "",
+              "availabilityClosed": false,
+              "rewardStructure": "shared-cultivation",
+              "rewardOptions": [],
+              "targetingRaw": [
+                5864
+              ],
+              "officialRewardRaw": "{\"filter\": [5864], \"rewardParams\": \"39\", \"rewardType\": \"Strengthen\"}",
+              "exchangeKind": "diamond",
+              "priceOptions": [
+                {
+                  "cost": "8:2:99",
+                  "label": "公共养成基础价"
+                }
+              ]
+            },
+            {
+              "id": 72418979,
+              "itemServerId": 72418979,
+              "description": "万变红星",
+              "manualSelectionRequired": true,
+              "acquisitionKind": "exchange",
+              "displayIdentityOnly": true,
+              "tab": 0,
+              "cost": "",
+              "costKnown": false,
+              "costRaw": {
+                "publicPrice": {
+                  "id": 311,
+                  "outerType": "星神",
+                  "innerType": "3002",
+                  "strengthenParams": "33$1",
+                  "stablePrice": 179,
+                  "discountChecker": "",
+                  "discountPrice": "149",
+                  "discountShown": "9"
+                },
+                "binding": "311"
+              },
+              "costDescription": "钻石基础价：149；折扣、抵扣及适用条件以养成面板为准",
+              "enhanceType": "33$1",
+              "raceIds": [
+                5864
+              ],
+              "shelfTime": "",
+              "removalTime": "",
+              "availableKnown": false,
+              "officialShelfTime": "",
+              "officialRemovalTime": "",
+              "limit": "",
+              "limitIndex": -1,
+              "limitCount": -1,
+              "limitKey": "",
+              "limitLabel": "",
+              "quotaKnown": false,
+              "quotaRaw": {
+                "unlock": "公共养成套餐；折扣、生效条件和费用请在游戏养成面板确认"
+              },
+              "unlock": "公共养成；按所选精灵当前培养状态判断是否可购买",
+              "conditionsRaw": {},
+              "rewardRaw": "CommonEnhancePrize,,,33$1,5864",
+              "selectablePackageIds": [],
+              "source": {
+                "configClass": "XJFNY_MainPanel.sharedCultivation",
+                "configFile": "scripts/mmo/activityext/newact20220930/xingjifantasynuoya/view/XJFNY_MainPanel.as",
+                "commands": {},
+                "shelfTimeSource": "activity",
+                "removalTimeSource": "activity",
+                "periodBounds": {
+                  "rowStart": "",
+                  "rowEnd": "",
+                  "moduleStart": "",
+                  "moduleEnd": "",
+                  "tableEnd": ""
+                },
+                "selection": "shared-cultivation",
+                "activityPeriodEvidence": [],
+                "callEvidence": {
+                  "consumer": "IStrengthenComboService.showPanelCombo",
+                  "race": 5864,
+                  "requestedRaces": [
+                    4487
+                  ],
+                  "normalizedRace": 4487,
+                  "evolutionPath": [
+                    4487,
+                    5864
+                  ]
+                },
+                "tradeFacts": {
+                  "price": {
+                    "consumer": "StrengthenComboPriceDefine",
+                    "binding": "311"
+                  }
+                }
+              },
+              "startsAt": "",
+              "endsAt": "",
+              "availabilityClosed": false,
+              "rewardStructure": "shared-cultivation",
+              "rewardOptions": [],
+              "targetingRaw": [
+                5864
+              ],
+              "officialRewardRaw": "{\"filter\": [5864], \"rewardParams\": \"33$1\", \"rewardType\": \"Strengthen\"}",
+              "exchangeKind": "diamond",
+              "priceOptions": [
+                {
+                  "cost": "8:2:149",
+                  "label": "公共养成基础价"
+                }
+              ]
+            },
+            {
+              "id": 79399180,
+              "itemServerId": 79399180,
+              "description": "源兽神觉提升1阶",
+              "manualSelectionRequired": true,
+              "acquisitionKind": "exchange",
+              "displayIdentityOnly": true,
+              "tab": 0,
+              "cost": "",
+              "costKnown": false,
+              "costRaw": {
+                "publicPrice": {
+                  "id": 910,
+                  "outerType": "源兽神觉",
+                  "innerType": "9002",
+                  "strengthenParams": "92",
+                  "stablePrice": 179,
+                  "discountChecker": "",
+                  "discountPrice": "125",
+                  "discountShown": "7"
+                },
+                "binding": "910$79"
+              },
+              "costDescription": "钻石基础价：79；折扣、抵扣及适用条件以养成面板为准",
+              "enhanceType": "92",
+              "raceIds": [
+                5864
+              ],
+              "shelfTime": "",
+              "removalTime": "",
+              "availableKnown": false,
+              "officialShelfTime": "",
+              "officialRemovalTime": "",
+              "limit": "",
+              "limitIndex": -1,
+              "limitCount": -1,
+              "limitKey": "",
+              "limitLabel": "",
+              "quotaKnown": false,
+              "quotaRaw": {
+                "unlock": "公共养成套餐；折扣、生效条件和费用请在游戏养成面板确认"
+              },
+              "unlock": "公共养成；按所选精灵当前培养状态判断是否可购买",
+              "conditionsRaw": {},
+              "rewardRaw": "CommonEnhancePrize,,,92,5864",
+              "selectablePackageIds": [],
+              "source": {
+                "configClass": "XJFNY_MainPanel.sharedCultivation",
+                "configFile": "scripts/mmo/activityext/newact20220930/xingjifantasynuoya/view/XJFNY_MainPanel.as",
+                "commands": {},
+                "shelfTimeSource": "activity",
+                "removalTimeSource": "activity",
+                "periodBounds": {
+                  "rowStart": "",
+                  "rowEnd": "",
+                  "moduleStart": "",
+                  "moduleEnd": "",
+                  "tableEnd": ""
+                },
+                "selection": "shared-cultivation",
+                "activityPeriodEvidence": [],
+                "callEvidence": {
+                  "consumer": "IStrengthenComboService.showPanelCombo",
+                  "race": 5864,
+                  "requestedRaces": [
+                    4487
+                  ],
+                  "normalizedRace": 4487,
+                  "evolutionPath": [
+                    4487,
+                    5864
+                  ]
+                },
+                "tradeFacts": {
+                  "price": {
+                    "consumer": "StrengthenComboPriceDefine",
+                    "binding": "910$79"
+                  }
+                }
+              },
+              "startsAt": "",
+              "endsAt": "",
+              "availabilityClosed": false,
+              "rewardStructure": "shared-cultivation",
+              "rewardOptions": [],
+              "targetingRaw": [
+                5864
+              ],
+              "officialRewardRaw": "{\"filter\": [5864], \"rewardParams\": \"92\", \"rewardType\": \"Strengthen\"}",
+              "exchangeKind": "diamond",
+              "priceOptions": [
+                {
+                  "cost": "8:2:79",
+                  "label": "公共养成基础价"
+                }
+              ]
+            },
+            {
+              "id": 174491494,
+              "itemServerId": 174491494,
+              "description": "源兽神觉提升1阶",
+              "manualSelectionRequired": true,
+              "acquisitionKind": "exchange",
+              "displayIdentityOnly": true,
+              "tab": 0,
+              "cost": "",
+              "costKnown": false,
+              "costRaw": {
+                "publicPrice": {
+                  "id": 912,
+                  "outerType": "源兽神觉",
+                  "innerType": "9005",
+                  "strengthenParams": "95",
+                  "stablePrice": 249,
+                  "discountChecker": "",
+                  "discountPrice": "79",
+                  "discountShown": "4"
+                },
+                "binding": "912"
+              },
+              "costDescription": "钻石基础价：79；折扣、抵扣及适用条件以养成面板为准",
+              "enhanceType": "95",
+              "raceIds": [
+                5864
+              ],
+              "shelfTime": "",
+              "removalTime": "",
+              "availableKnown": false,
+              "officialShelfTime": "",
+              "officialRemovalTime": "",
+              "limit": "",
+              "limitIndex": -1,
+              "limitCount": -1,
+              "limitKey": "",
+              "limitLabel": "",
+              "quotaKnown": false,
+              "quotaRaw": {
+                "unlock": "公共养成套餐；折扣、生效条件和费用请在游戏养成面板确认"
+              },
+              "unlock": "公共养成；按所选精灵当前培养状态判断是否可购买",
+              "conditionsRaw": {},
+              "rewardRaw": "CommonEnhancePrize,,,95,5864",
+              "selectablePackageIds": [],
+              "source": {
+                "configClass": "XJFNY_MainPanel.sharedCultivation",
+                "configFile": "scripts/mmo/activityext/newact20220930/xingjifantasynuoya/view/XJFNY_MainPanel.as",
+                "commands": {},
+                "shelfTimeSource": "activity",
+                "removalTimeSource": "activity",
+                "periodBounds": {
+                  "rowStart": "",
+                  "rowEnd": "",
+                  "moduleStart": "",
+                  "moduleEnd": "",
+                  "tableEnd": ""
+                },
+                "selection": "shared-cultivation",
+                "activityPeriodEvidence": [],
+                "callEvidence": {
+                  "consumer": "IStrengthenComboService.showPanelCombo",
+                  "race": 5864,
+                  "requestedRaces": [
+                    4487
+                  ],
+                  "normalizedRace": 4487,
+                  "evolutionPath": [
+                    4487,
+                    5864
+                  ]
+                },
+                "tradeFacts": {
+                  "price": {
+                    "consumer": "StrengthenComboPriceDefine",
+                    "binding": "912"
+                  }
+                }
+              },
+              "startsAt": "",
+              "endsAt": "",
+              "availabilityClosed": false,
+              "rewardStructure": "shared-cultivation",
+              "rewardOptions": [],
+              "targetingRaw": [
+                5864
+              ],
+              "officialRewardRaw": "{\"filter\": [5864], \"rewardParams\": \"95\", \"rewardType\": \"Strengthen\"}",
+              "exchangeKind": "diamond",
+              "priceOptions": [
+                {
+                  "cost": "8:2:79",
+                  "label": "公共养成基础价"
+                }
+              ]
+            },
+            {
+              "id": 129498030,
+              "itemServerId": 129498030,
+              "description": "源兽神觉升至满阶",
+              "manualSelectionRequired": true,
+              "acquisitionKind": "exchange",
+              "displayIdentityOnly": true,
+              "tab": 0,
+              "cost": "",
+              "costKnown": false,
+              "costRaw": {
+                "publicPrice": {
+                  "id": 911,
+                  "outerType": "源兽神觉",
+                  "innerType": "9003",
+                  "strengthenParams": "94",
+                  "stablePrice": 1144,
+                  "discountChecker": "",
+                  "discountPrice": "786",
+                  "discountShown": "7"
+                },
+                "binding": "911$379"
+              },
+              "costDescription": "钻石基础价：379；折扣、抵扣及适用条件以养成面板为准",
+              "enhanceType": "94",
+              "raceIds": [
+                5864
+              ],
+              "shelfTime": "",
+              "removalTime": "",
+              "availableKnown": false,
+              "officialShelfTime": "",
+              "officialRemovalTime": "",
+              "limit": "",
+              "limitIndex": -1,
+              "limitCount": -1,
+              "limitKey": "",
+              "limitLabel": "",
+              "quotaKnown": false,
+              "quotaRaw": {
+                "unlock": "公共养成套餐；折扣、生效条件和费用请在游戏养成面板确认"
+              },
+              "unlock": "公共养成；按所选精灵当前培养状态判断是否可购买",
+              "conditionsRaw": {},
+              "rewardRaw": "CommonEnhancePrize,,,94,5864",
+              "selectablePackageIds": [],
+              "source": {
+                "configClass": "XJFNY_MainPanel.sharedCultivation",
+                "configFile": "scripts/mmo/activityext/newact20220930/xingjifantasynuoya/view/XJFNY_MainPanel.as",
+                "commands": {},
+                "shelfTimeSource": "activity",
+                "removalTimeSource": "activity",
+                "periodBounds": {
+                  "rowStart": "",
+                  "rowEnd": "",
+                  "moduleStart": "",
+                  "moduleEnd": "",
+                  "tableEnd": ""
+                },
+                "selection": "shared-cultivation",
+                "activityPeriodEvidence": [],
+                "callEvidence": {
+                  "consumer": "IStrengthenComboService.showPanelCombo",
+                  "race": 5864,
+                  "requestedRaces": [
+                    4487
+                  ],
+                  "normalizedRace": 4487,
+                  "evolutionPath": [
+                    4487,
+                    5864
+                  ]
+                },
+                "tradeFacts": {
+                  "price": {
+                    "consumer": "StrengthenComboPriceDefine",
+                    "binding": "911$379"
+                  }
+                }
+              },
+              "startsAt": "",
+              "endsAt": "",
+              "availabilityClosed": false,
+              "rewardStructure": "shared-cultivation",
+              "rewardOptions": [],
+              "targetingRaw": [
+                5864
+              ],
+              "officialRewardRaw": "{\"filter\": [5864], \"rewardParams\": \"94\", \"rewardType\": \"Strengthen\"}",
+              "exchangeKind": "diamond",
+              "priceOptions": [
+                {
+                  "cost": "8:2:379",
+                  "label": "公共养成基础价"
+                }
+              ]
+            },
+            {
+              "id": 232061690,
+              "itemServerId": 232061690,
+              "description": "1个满级元魂",
+              "manualSelectionRequired": true,
+              "acquisitionKind": "exchange",
+              "displayIdentityOnly": true,
+              "tab": 0,
+              "cost": "",
+              "costKnown": false,
+              "costRaw": {
+                "publicPrice": {
+                  "id": 401,
+                  "outerType": "元魂",
+                  "innerType": "4001",
+                  "strengthenParams": "43",
+                  "stablePrice": 179,
+                  "discountChecker": "",
+                  "discountPrice": "79",
+                  "discountShown": "5"
+                },
+                "binding": "401"
+              },
+              "costDescription": "钻石基础价：79；折扣、抵扣及适用条件以养成面板为准",
+              "enhanceType": "43",
+              "raceIds": [
+                5864
+              ],
+              "shelfTime": "",
+              "removalTime": "",
+              "availableKnown": false,
+              "officialShelfTime": "",
+              "officialRemovalTime": "",
+              "limit": "",
+              "limitIndex": -1,
+              "limitCount": -1,
+              "limitKey": "",
+              "limitLabel": "",
+              "quotaKnown": false,
+              "quotaRaw": {
+                "unlock": "公共养成套餐；折扣、生效条件和费用请在游戏养成面板确认"
+              },
+              "unlock": "公共养成；按所选精灵当前培养状态判断是否可购买",
+              "conditionsRaw": {},
+              "rewardRaw": "CommonEnhancePrize,,,43,5864",
+              "selectablePackageIds": [],
+              "source": {
+                "configClass": "XJFNY_MainPanel.sharedCultivation",
+                "configFile": "scripts/mmo/activityext/newact20220930/xingjifantasynuoya/view/XJFNY_MainPanel.as",
+                "commands": {},
+                "shelfTimeSource": "activity",
+                "removalTimeSource": "activity",
+                "periodBounds": {
+                  "rowStart": "",
+                  "rowEnd": "",
+                  "moduleStart": "",
+                  "moduleEnd": "",
+                  "tableEnd": ""
+                },
+                "selection": "shared-cultivation",
+                "activityPeriodEvidence": [],
+                "callEvidence": {
+                  "consumer": "IStrengthenComboService.showPanelCombo",
+                  "race": 5864,
+                  "requestedRaces": [
+                    4487
+                  ],
+                  "normalizedRace": 4487,
+                  "evolutionPath": [
+                    4487,
+                    5864
+                  ]
+                },
+                "tradeFacts": {
+                  "price": {
+                    "consumer": "StrengthenComboPriceDefine",
+                    "binding": "401"
+                  }
+                }
+              },
+              "startsAt": "",
+              "endsAt": "",
+              "availabilityClosed": false,
+              "rewardStructure": "shared-cultivation",
+              "rewardOptions": [],
+              "targetingRaw": [
+                5864
+              ],
+              "officialRewardRaw": "{\"filter\": [5864], \"rewardParams\": \"43\", \"rewardType\": \"Strengthen\"}",
+              "exchangeKind": "diamond",
+              "priceOptions": [
+                {
+                  "cost": "8:2:79",
+                  "label": "公共养成基础价"
+                }
+              ]
+            },
+            {
+              "id": 36365879,
+              "itemServerId": 36365879,
+              "description": "1个觉醒元魂",
+              "manualSelectionRequired": true,
+              "acquisitionKind": "exchange",
+              "displayIdentityOnly": true,
+              "tab": 0,
+              "cost": "",
+              "costKnown": false,
+              "costRaw": {
+                "publicPrice": {
+                  "id": 412,
+                  "outerType": "元魂",
+                  "innerType": "4002",
+                  "strengthenParams": "44",
+                  "stablePrice": 169,
+                  "discountChecker": "",
+                  "discountPrice": "79",
+                  "discountShown": "5"
+                },
+                "binding": "412$69"
+              },
+              "costDescription": "钻石基础价：69；折扣、抵扣及适用条件以养成面板为准",
+              "enhanceType": "44",
+              "raceIds": [
+                5864
+              ],
+              "shelfTime": "",
+              "removalTime": "",
+              "availableKnown": false,
+              "officialShelfTime": "",
+              "officialRemovalTime": "",
+              "limit": "",
+              "limitIndex": -1,
+              "limitCount": -1,
+              "limitKey": "",
+              "limitLabel": "",
+              "quotaKnown": false,
+              "quotaRaw": {
+                "unlock": "公共养成套餐；折扣、生效条件和费用请在游戏养成面板确认"
+              },
+              "unlock": "公共养成；按所选精灵当前培养状态判断是否可购买",
+              "conditionsRaw": {},
+              "rewardRaw": "CommonEnhancePrize,,,44,5864",
+              "selectablePackageIds": [],
+              "source": {
+                "configClass": "XJFNY_MainPanel.sharedCultivation",
+                "configFile": "scripts/mmo/activityext/newact20220930/xingjifantasynuoya/view/XJFNY_MainPanel.as",
+                "commands": {},
+                "shelfTimeSource": "activity",
+                "removalTimeSource": "activity",
+                "periodBounds": {
+                  "rowStart": "",
+                  "rowEnd": "",
+                  "moduleStart": "",
+                  "moduleEnd": "",
+                  "tableEnd": ""
+                },
+                "selection": "shared-cultivation",
+                "activityPeriodEvidence": [],
+                "callEvidence": {
+                  "consumer": "IStrengthenComboService.showPanelCombo",
+                  "race": 5864,
+                  "requestedRaces": [
+                    4487
+                  ],
+                  "normalizedRace": 4487,
+                  "evolutionPath": [
+                    4487,
+                    5864
+                  ]
+                },
+                "tradeFacts": {
+                  "price": {
+                    "consumer": "StrengthenComboPriceDefine",
+                    "binding": "412$69"
+                  }
+                }
+              },
+              "startsAt": "",
+              "endsAt": "",
+              "availabilityClosed": false,
+              "rewardStructure": "shared-cultivation",
+              "rewardOptions": [],
+              "targetingRaw": [
+                5864
+              ],
+              "officialRewardRaw": "{\"filter\": [5864], \"rewardParams\": \"44\", \"rewardType\": \"Strengthen\"}",
+              "exchangeKind": "diamond",
+              "priceOptions": [
+                {
+                  "cost": "8:2:69",
+                  "label": "公共养成基础价"
+                }
+              ]
+            },
+            {
+              "id": 87355983,
+              "itemServerId": 87355983,
+              "description": "激活1个内圈星迹",
+              "manualSelectionRequired": true,
+              "acquisitionKind": "exchange",
+              "displayIdentityOnly": true,
+              "tab": 0,
+              "cost": "",
+              "costKnown": false,
+              "costRaw": {
+                "publicPrice": {
+                  "id": 801,
+                  "outerType": "星迹",
+                  "innerType": "8001",
+                  "strengthenParams": "81",
+                  "stablePrice": 50,
+                  "discountChecker": "",
+                  "discountPrice": "29",
+                  "discountShown": "6"
+                },
+                "binding": "801"
+              },
+              "costDescription": "钻石基础价：29；折扣、抵扣及适用条件以养成面板为准",
+              "enhanceType": "81",
+              "raceIds": [
+                5864
+              ],
+              "shelfTime": "",
+              "removalTime": "",
+              "availableKnown": false,
+              "officialShelfTime": "",
+              "officialRemovalTime": "",
+              "limit": "",
+              "limitIndex": -1,
+              "limitCount": -1,
+              "limitKey": "",
+              "limitLabel": "",
+              "quotaKnown": false,
+              "quotaRaw": {
+                "unlock": "公共养成套餐；折扣、生效条件和费用请在游戏养成面板确认"
+              },
+              "unlock": "公共养成；按所选精灵当前培养状态判断是否可购买",
+              "conditionsRaw": {},
+              "rewardRaw": "CommonEnhancePrize,,,81,5864",
+              "selectablePackageIds": [],
+              "source": {
+                "configClass": "XJFNY_MainPanel.sharedCultivation",
+                "configFile": "scripts/mmo/activityext/newact20220930/xingjifantasynuoya/view/XJFNY_MainPanel.as",
+                "commands": {},
+                "shelfTimeSource": "activity",
+                "removalTimeSource": "activity",
+                "periodBounds": {
+                  "rowStart": "",
+                  "rowEnd": "",
+                  "moduleStart": "",
+                  "moduleEnd": "",
+                  "tableEnd": ""
+                },
+                "selection": "shared-cultivation",
+                "activityPeriodEvidence": [],
+                "callEvidence": {
+                  "consumer": "IStrengthenComboService.showPanelCombo",
+                  "race": 5864,
+                  "requestedRaces": [
+                    4487
+                  ],
+                  "normalizedRace": 4487,
+                  "evolutionPath": [
+                    4487,
+                    5864
+                  ]
+                },
+                "tradeFacts": {
+                  "price": {
+                    "consumer": "StrengthenComboPriceDefine",
+                    "binding": "801"
+                  }
+                }
+              },
+              "startsAt": "",
+              "endsAt": "",
+              "availabilityClosed": false,
+              "rewardStructure": "shared-cultivation",
+              "rewardOptions": [],
+              "targetingRaw": [
+                5864
+              ],
+              "officialRewardRaw": "{\"filter\": [5864], \"rewardParams\": \"81\", \"rewardType\": \"Strengthen\"}",
+              "exchangeKind": "diamond",
+              "priceOptions": [
+                {
+                  "cost": "8:2:29",
+                  "label": "公共养成基础价"
+                }
+              ]
+            },
+            {
+              "id": 44048111,
+              "itemServerId": 44048111,
+              "description": "激活1个外圈星迹",
+              "manualSelectionRequired": true,
+              "acquisitionKind": "exchange",
+              "displayIdentityOnly": true,
+              "tab": 0,
+              "cost": "",
+              "costKnown": false,
+              "costRaw": {
+                "publicPrice": {
+                  "id": 802,
+                  "outerType": "星迹",
+                  "innerType": "8002",
+                  "strengthenParams": "82",
+                  "stablePrice": 100,
+                  "discountChecker": "",
+                  "discountPrice": "59",
+                  "discountShown": "6"
+                },
+                "binding": "802"
+              },
+              "costDescription": "钻石基础价：59；折扣、抵扣及适用条件以养成面板为准",
+              "enhanceType": "82",
+              "raceIds": [
+                5864
+              ],
+              "shelfTime": "",
+              "removalTime": "",
+              "availableKnown": false,
+              "officialShelfTime": "",
+              "officialRemovalTime": "",
+              "limit": "",
+              "limitIndex": -1,
+              "limitCount": -1,
+              "limitKey": "",
+              "limitLabel": "",
+              "quotaKnown": false,
+              "quotaRaw": {
+                "unlock": "公共养成套餐；折扣、生效条件和费用请在游戏养成面板确认"
+              },
+              "unlock": "公共养成；按所选精灵当前培养状态判断是否可购买",
+              "conditionsRaw": {},
+              "rewardRaw": "CommonEnhancePrize,,,82,5864",
+              "selectablePackageIds": [],
+              "source": {
+                "configClass": "XJFNY_MainPanel.sharedCultivation",
+                "configFile": "scripts/mmo/activityext/newact20220930/xingjifantasynuoya/view/XJFNY_MainPanel.as",
+                "commands": {},
+                "shelfTimeSource": "activity",
+                "removalTimeSource": "activity",
+                "periodBounds": {
+                  "rowStart": "",
+                  "rowEnd": "",
+                  "moduleStart": "",
+                  "moduleEnd": "",
+                  "tableEnd": ""
+                },
+                "selection": "shared-cultivation",
+                "activityPeriodEvidence": [],
+                "callEvidence": {
+                  "consumer": "IStrengthenComboService.showPanelCombo",
+                  "race": 5864,
+                  "requestedRaces": [
+                    4487
+                  ],
+                  "normalizedRace": 4487,
+                  "evolutionPath": [
+                    4487,
+                    5864
+                  ]
+                },
+                "tradeFacts": {
+                  "price": {
+                    "consumer": "StrengthenComboPriceDefine",
+                    "binding": "802"
+                  }
+                }
+              },
+              "startsAt": "",
+              "endsAt": "",
+              "availabilityClosed": false,
+              "rewardStructure": "shared-cultivation",
+              "rewardOptions": [],
+              "targetingRaw": [
+                5864
+              ],
+              "officialRewardRaw": "{\"filter\": [5864], \"rewardParams\": \"82\", \"rewardType\": \"Strengthen\"}",
+              "exchangeKind": "diamond",
+              "priceOptions": [
+                {
+                  "cost": "8:2:59",
+                  "label": "公共养成基础价"
+                }
+              ]
+            },
+            {
+              "id": 18641706,
+              "itemServerId": 18641706,
+              "description": "激活1条星迹",
+              "manualSelectionRequired": true,
+              "acquisitionKind": "exchange",
+              "displayIdentityOnly": true,
+              "tab": 0,
+              "cost": "",
+              "costKnown": false,
+              "costRaw": {
+                "publicPrice": {
+                  "id": 804,
+                  "outerType": "星迹",
+                  "innerType": "8004",
+                  "strengthenParams": "84",
+                  "stablePrice": 150,
+                  "discountChecker": "",
+                  "discountPrice": "79",
+                  "discountShown": "6"
+                },
+                "binding": "804"
+              },
+              "costDescription": "钻石基础价：79；折扣、抵扣及适用条件以养成面板为准",
+              "enhanceType": "84",
+              "raceIds": [
+                5864
+              ],
+              "shelfTime": "",
+              "removalTime": "",
+              "availableKnown": false,
+              "officialShelfTime": "",
+              "officialRemovalTime": "",
+              "limit": "",
+              "limitIndex": -1,
+              "limitCount": -1,
+              "limitKey": "",
+              "limitLabel": "",
+              "quotaKnown": false,
+              "quotaRaw": {
+                "unlock": "公共养成套餐；折扣、生效条件和费用请在游戏养成面板确认"
+              },
+              "unlock": "公共养成；按所选精灵当前培养状态判断是否可购买",
+              "conditionsRaw": {},
+              "rewardRaw": "CommonEnhancePrize,,,84,5864",
+              "selectablePackageIds": [],
+              "source": {
+                "configClass": "XJFNY_MainPanel.sharedCultivation",
+                "configFile": "scripts/mmo/activityext/newact20220930/xingjifantasynuoya/view/XJFNY_MainPanel.as",
+                "commands": {},
+                "shelfTimeSource": "activity",
+                "removalTimeSource": "activity",
+                "periodBounds": {
+                  "rowStart": "",
+                  "rowEnd": "",
+                  "moduleStart": "",
+                  "moduleEnd": "",
+                  "tableEnd": ""
+                },
+                "selection": "shared-cultivation",
+                "activityPeriodEvidence": [],
+                "callEvidence": {
+                  "consumer": "IStrengthenComboService.showPanelCombo",
+                  "race": 5864,
+                  "requestedRaces": [
+                    4487
+                  ],
+                  "normalizedRace": 4487,
+                  "evolutionPath": [
+                    4487,
+                    5864
+                  ]
+                },
+                "tradeFacts": {
+                  "price": {
+                    "consumer": "StrengthenComboPriceDefine",
+                    "binding": "804"
+                  }
+                }
+              },
+              "startsAt": "",
+              "endsAt": "",
+              "availabilityClosed": false,
+              "rewardStructure": "shared-cultivation",
+              "rewardOptions": [],
+              "targetingRaw": [
+                5864
+              ],
+              "officialRewardRaw": "{\"filter\": [5864], \"rewardParams\": \"84\", \"rewardType\": \"Strengthen\"}",
+              "exchangeKind": "diamond",
+              "priceOptions": [
+                {
+                  "cost": "8:2:79",
+                  "label": "公共养成基础价"
+                }
+              ]
+            },
+            {
+              "id": 249134843,
+              "itemServerId": 249134843,
+              "description": "满普通星迹",
+              "manualSelectionRequired": true,
+              "acquisitionKind": "exchange",
+              "displayIdentityOnly": true,
+              "tab": 0,
+              "cost": "",
+              "costKnown": false,
+              "costRaw": {
+                "publicPrice": {
+                  "id": 805,
+                  "outerType": "星迹",
+                  "innerType": "8005",
+                  "strengthenParams": "85",
+                  "stablePrice": 329,
+                  "discountChecker": "",
+                  "discountPrice": "299",
+                  "discountShown": "10"
+                },
+                "binding": "805"
+              },
+              "costDescription": "钻石基础价：299；折扣、抵扣及适用条件以养成面板为准",
+              "enhanceType": "85",
+              "raceIds": [
+                5864
+              ],
+              "shelfTime": "",
+              "removalTime": "",
+              "availableKnown": false,
+              "officialShelfTime": "",
+              "officialRemovalTime": "",
+              "limit": "",
+              "limitIndex": -1,
+              "limitCount": -1,
+              "limitKey": "",
+              "limitLabel": "",
+              "quotaKnown": false,
+              "quotaRaw": {
+                "unlock": "公共养成套餐；折扣、生效条件和费用请在游戏养成面板确认"
+              },
+              "unlock": "公共养成；按所选精灵当前培养状态判断是否可购买",
+              "conditionsRaw": {},
+              "rewardRaw": "CommonEnhancePrize,,,85,5864",
+              "selectablePackageIds": [],
+              "source": {
+                "configClass": "XJFNY_MainPanel.sharedCultivation",
+                "configFile": "scripts/mmo/activityext/newact20220930/xingjifantasynuoya/view/XJFNY_MainPanel.as",
+                "commands": {},
+                "shelfTimeSource": "activity",
+                "removalTimeSource": "activity",
+                "periodBounds": {
+                  "rowStart": "",
+                  "rowEnd": "",
+                  "moduleStart": "",
+                  "moduleEnd": "",
+                  "tableEnd": ""
+                },
+                "selection": "shared-cultivation",
+                "activityPeriodEvidence": [],
+                "callEvidence": {
+                  "consumer": "IStrengthenComboService.showPanelCombo",
+                  "race": 5864,
+                  "requestedRaces": [
+                    4487
+                  ],
+                  "normalizedRace": 4487,
+                  "evolutionPath": [
+                    4487,
+                    5864
+                  ]
+                },
+                "tradeFacts": {
+                  "price": {
+                    "consumer": "StrengthenComboPriceDefine",
+                    "binding": "805"
+                  }
+                }
+              },
+              "startsAt": "",
+              "endsAt": "",
+              "availabilityClosed": false,
+              "rewardStructure": "shared-cultivation",
+              "rewardOptions": [],
+              "targetingRaw": [
+                5864
+              ],
+              "officialRewardRaw": "{\"filter\": [5864], \"rewardParams\": \"85\", \"rewardType\": \"Strengthen\"}",
+              "exchangeKind": "diamond",
+              "priceOptions": [
+                {
+                  "cost": "8:2:299",
+                  "label": "公共养成基础价"
+                }
+              ]
+            },
+            {
+              "id": 263458404,
+              "itemServerId": 263458404,
+              "description": "激活1个专属星迹",
+              "manualSelectionRequired": true,
+              "acquisitionKind": "exchange",
+              "displayIdentityOnly": true,
+              "tab": 0,
+              "cost": "",
+              "costKnown": false,
+              "costRaw": {
+                "publicPrice": {
+                  "id": 803,
+                  "outerType": "星迹",
+                  "innerType": "8003",
+                  "strengthenParams": "83",
+                  "stablePrice": 150,
+                  "discountChecker": "",
+                  "discountPrice": "129",
+                  "discountShown": "9"
+                },
+                "binding": "803$119"
+              },
+              "costDescription": "钻石基础价：119；折扣、抵扣及适用条件以养成面板为准",
+              "enhanceType": "83",
+              "raceIds": [
+                5864
+              ],
+              "shelfTime": "",
+              "removalTime": "",
+              "availableKnown": false,
+              "officialShelfTime": "",
+              "officialRemovalTime": "",
+              "limit": "",
+              "limitIndex": -1,
+              "limitCount": -1,
+              "limitKey": "",
+              "limitLabel": "",
+              "quotaKnown": false,
+              "quotaRaw": {
+                "unlock": "公共养成套餐；折扣、生效条件和费用请在游戏养成面板确认"
+              },
+              "unlock": "公共养成；按所选精灵当前培养状态判断是否可购买",
+              "conditionsRaw": {},
+              "rewardRaw": "CommonEnhancePrize,,,83,5864",
+              "selectablePackageIds": [],
+              "source": {
+                "configClass": "XJFNY_MainPanel.sharedCultivation",
+                "configFile": "scripts/mmo/activityext/newact20220930/xingjifantasynuoya/view/XJFNY_MainPanel.as",
+                "commands": {},
+                "shelfTimeSource": "activity",
+                "removalTimeSource": "activity",
+                "periodBounds": {
+                  "rowStart": "",
+                  "rowEnd": "",
+                  "moduleStart": "",
+                  "moduleEnd": "",
+                  "tableEnd": ""
+                },
+                "selection": "shared-cultivation",
+                "activityPeriodEvidence": [],
+                "callEvidence": {
+                  "consumer": "IStrengthenComboService.showPanelCombo",
+                  "race": 5864,
+                  "requestedRaces": [
+                    4487
+                  ],
+                  "normalizedRace": 4487,
+                  "evolutionPath": [
+                    4487,
+                    5864
+                  ]
+                },
+                "tradeFacts": {
+                  "price": {
+                    "consumer": "StrengthenComboPriceDefine",
+                    "binding": "803$119"
+                  }
+                }
+              },
+              "startsAt": "",
+              "endsAt": "",
+              "availabilityClosed": false,
+              "rewardStructure": "shared-cultivation",
+              "rewardOptions": [],
+              "targetingRaw": [
+                5864
+              ],
+              "officialRewardRaw": "{\"filter\": [5864], \"rewardParams\": \"83\", \"rewardType\": \"Strengthen\"}",
+              "exchangeKind": "diamond",
+              "priceOptions": [
+                {
+                  "cost": "8:2:119",
+                  "label": "公共养成基础价"
+                }
+              ]
+            },
+            {
+              "id": 64405514,
+              "itemServerId": 64405514,
+              "description": "完美天赋",
+              "manualSelectionRequired": true,
+              "acquisitionKind": "exchange",
+              "displayIdentityOnly": true,
+              "tab": 0,
+              "cost": "",
+              "costKnown": false,
+              "costRaw": {
+                "publicPrice": {
+                  "id": 601,
+                  "outerType": "天赋",
+                  "innerType": "6001",
+                  "strengthenParams": "62",
+                  "stablePrice": 288,
+                  "discountChecker": "",
+                  "discountPrice": "99",
+                  "discountShown": "4"
+                },
+                "binding": "601"
+              },
+              "costDescription": "钻石基础价：99；折扣、抵扣及适用条件以养成面板为准",
+              "enhanceType": "62",
+              "raceIds": [
+                5864
+              ],
+              "shelfTime": "",
+              "removalTime": "",
+              "availableKnown": false,
+              "officialShelfTime": "",
+              "officialRemovalTime": "",
+              "limit": "",
+              "limitIndex": -1,
+              "limitCount": -1,
+              "limitKey": "",
+              "limitLabel": "",
+              "quotaKnown": false,
+              "quotaRaw": {
+                "unlock": "公共养成套餐；折扣、生效条件和费用请在游戏养成面板确认"
+              },
+              "unlock": "公共养成；按所选精灵当前培养状态判断是否可购买",
+              "conditionsRaw": {},
+              "rewardRaw": "CommonEnhancePrize,,,62,5864",
+              "selectablePackageIds": [],
+              "source": {
+                "configClass": "XJFNY_MainPanel.sharedCultivation",
+                "configFile": "scripts/mmo/activityext/newact20220930/xingjifantasynuoya/view/XJFNY_MainPanel.as",
+                "commands": {},
+                "shelfTimeSource": "activity",
+                "removalTimeSource": "activity",
+                "periodBounds": {
+                  "rowStart": "",
+                  "rowEnd": "",
+                  "moduleStart": "",
+                  "moduleEnd": "",
+                  "tableEnd": ""
+                },
+                "selection": "shared-cultivation",
+                "activityPeriodEvidence": [],
+                "callEvidence": {
+                  "consumer": "IStrengthenComboService.showPanelCombo",
+                  "race": 5864,
+                  "requestedRaces": [
+                    4487
+                  ],
+                  "normalizedRace": 4487,
+                  "evolutionPath": [
+                    4487,
+                    5864
+                  ]
+                },
+                "tradeFacts": {
+                  "price": {
+                    "consumer": "StrengthenComboPriceDefine",
+                    "binding": "601"
+                  }
+                }
+              },
+              "startsAt": "",
+              "endsAt": "",
+              "availabilityClosed": false,
+              "rewardStructure": "shared-cultivation",
+              "rewardOptions": [],
+              "targetingRaw": [
+                5864
+              ],
+              "officialRewardRaw": "{\"filter\": [5864], \"rewardParams\": \"62\", \"rewardType\": \"Strengthen\"}",
+              "exchangeKind": "diamond",
+              "priceOptions": [
+                {
+                  "cost": "8:2:99",
+                  "label": "公共养成基础价"
+                }
+              ]
+            }
+          ],
+          "observation": {
+            "schema": 1,
+            "requests": []
+          },
+          "navigationLink": "",
+          "activityEvidence": "referenced",
+          "activityEvidenceDate": "",
+          "source": {
+            "module": "newactivityext/newact20220930/xingjifantasynuoya/xingjifantasynuoya",
+            "activityAlias": "xingjifantasynuoya",
+            "class": "XJFNY_MainPanel.sharedCultivation",
+            "commands": {},
+            "navigationLinkSource": "",
+            "quotaSupported": false
+          }
+        }
+      ],
+      "pending": [],
+      "hasEvolutionSelector": true,
+      "scripts": {
+        "scripts/mmo/activityext/newact20220930/xingjifantasynuoya/config/XJFNY_Config.as": "1e87a76a7effbd1ddefb0a1e167eeb39a68620845a480c0b4317217fcea72482",
+        "scripts/mmo/activityext/newact20220930/xingjifantasynuoya/model/XJFNY_IModel.as": "70f3ce2d6797e89c6846fadf16c698bd736651809e4324dec60efc436af04074",
+        "scripts/mmo/activityext/newact20220930/xingjifantasynuoya/model/XJFNY_Model.as": "56edced36a2cdd2f8ca56328e4a62a98bdb4d02800dd069b5ed6bbd0001bc846",
+        "scripts/mmo/activityext/newact20220930/xingjifantasynuoya/model/XJFNY_ModelEvent.as": "1cccf10a1d693a725ad3c3bced659c3147e97ee7e721431df6a8b3c746079df8",
+        "scripts/mmo/activityext/newact20220930/xingjifantasynuoya/view/XJFNY_MainPanel.as": "3bab3d399c143315d79650c7e6c5ce9b6b1b7941bf96dbe4d50a8f27d443cfb5"
+      }
+    }
+  ],
+  "supportContracts": {
+    "versions": {
+      "library/interfaces": "2026101571078066",
+      "wealthmanager/wealthmanager": "2026091011614836",
+      "strengthencombo/strengthencomboservice": "2026101571078066"
+    },
+    "directBuyVerified": true,
+    "sharedPanelRuleVerified": true,
+    "sharedRedirectRaces": [
+      5990,
+      6984
+    ]
+  },
+  "wealthSource": {
+    "url": "https://aoqi.100bt.com/play/wealthmanager/wealthmanager~2026091011614836.swf",
+    "sha256": "be39c2ad64b507cddacb90aa7c6d26a329b0fd5a4612006f5a64d218db99ffc9",
+    "bytes": 11419,
+    "version": "2026091011614836"
+  },
+  "tests": {
+    "activityParser": 70,
+    "evolutionSelector": 11,
+    "tradeFacts": 12,
+    "updater": 25
+  },
+  "runtimeValidation": "See release-bound native test report and local installed-result receipt."
+}

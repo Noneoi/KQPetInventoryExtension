@@ -2,6 +2,7 @@
 
 #include "application/views/analysis_read_view.h"
 #include "contracts/local_stargod_statistics.h"
+#include "contracts/cultivation_material_inventory.h"
 
 #include <QDialog>
 
@@ -9,7 +10,7 @@ class QCheckBox;
 class QComboBox;
 class QLabel;
 class QLineEdit;
-class QPlainTextEdit;
+class CultivationMaterialPanel;
 class QPushButton;
 class QTableWidget;
 class QTableView;
@@ -33,6 +34,7 @@ public:
 public slots:
   void resetSessionContext();
   void setLocalStargodStatistics(const LocalStargodStatistics& result);
+  void setCultivationMaterials(const MaterialInventorySnapshot& materials);
 
 signals:
   void petRequested(qint64 instanceId);
@@ -41,6 +43,7 @@ signals:
   void routineRequested();
   void localStargodStatisticsRequested();
   void localStargodStatisticsCancelled();
+  void cultivationMaterialsRefreshRequested();
 
 private slots:
   void refreshAnalysis();
@@ -75,9 +78,13 @@ private:
   void scheduleAnalysisStatusUpdate();
   void updateAnalysisStatus();
   void updateDiagnosticSummary();
+  void updateCultivationTotals();
   void rebuildRecommendations();
 
   AnalysisReadView* controller_ = nullptr;
+  MaterialInventorySnapshot cultivationMaterials_;
+  QPushButton* refreshMaterials_ = nullptr;
+  QCheckBox* selectedMaterialsOnly_ = nullptr;
   AccountInventorySummary inventory_;
   AccountAssetOverview overview_;
   AccountAssetOverview routineSummary_;
@@ -107,7 +114,7 @@ private:
   QComboBox* cultivationFilter_ = nullptr;
   QComboBox* eraFilter_ = nullptr;
   QComboBox* ratingFilter_ = nullptr;
-  QPlainTextEdit* cultivationTotals_ = nullptr;
+  CultivationMaterialPanel* cultivationTotals_ = nullptr;
   QLineEdit* search_ = nullptr;
   QLabel* diagnosticSummary_ = nullptr;
   QTableView* diagnosticTable_ = nullptr;

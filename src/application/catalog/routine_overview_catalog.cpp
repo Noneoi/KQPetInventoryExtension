@@ -1,4 +1,5 @@
 #include "routine_overview_catalog.h"
+#include "embedded_public_data.h"
 #include "protocol/packet_contract.h"
 
 #include <QHash>
@@ -128,9 +129,8 @@ bool collectHudEntries(const QJsonValue& value, QHash<QString, QJsonObject>* ent
   const QString key = object.value(QStringLiteral("key")).toString().trimmed();
   const QString name = object.value(QStringLiteral("name")).toString().trimmed();
   const QString service = object.value(QStringLiteral("tryGetService")).toString();
-  if (!key.isEmpty() && !name.isEmpty() && !service.isEmpty() &&
-      (service.contains(QStringLiteral("NewActivityService")) ||
-       object.contains(QStringLiteral("startTime")) ||
+  if (!key.isEmpty() && !name.isEmpty() &&
+      (!service.isEmpty() || object.contains(QStringLiteral("startTime")) ||
        object.contains(QStringLiteral("redPointId"))))
     entries->insert(key, object);
   for (auto iterator = object.begin(); iterator != object.end(); ++iterator)
@@ -189,7 +189,11 @@ RoutineOverviewCatalog& RoutineOverviewCatalog::instance() {
 }
 
 RoutineOverviewCatalog::RoutineOverviewCatalog() {
-  snapshot_ = prepare(builtInRoot(), QStringLiteral("程序内置日常/周常配置"), {}, nullptr);
+  QFile file(QStringLiteral(":/kqpet/routine-overview.json"));
+  if (file.open(QIODevice::ReadOnly))
+    snapshot_ = prepare(QJsonDocument::fromJson(file.readAll()).object(),
+        embeddedPublicDataLabel(QStringLiteral("程序内置日常/活动配置")), embeddedPublicDataVerifiedAt(), nullptr);
+  if (!snapshot_) snapshot_ = prepare(builtInRoot(), QStringLiteral("程序内置日常/周常基础配置"), {}, nullptr);
   if (!snapshot_) snapshot_ = std::make_shared<RoutineCatalogSnapshot>();
 }
 
@@ -269,6 +273,11 @@ std::shared_ptr<const RoutineCatalogSnapshot> RoutineOverviewCatalog::prepare(co
     ActivityOverviewDefinition activity;
     activity.key = object.value(QStringLiteral("key")).toString();
     activity.name = object.value(QStringLiteral("name")).toString();
+    activity.appearCondition = object.value(QStringLiteral("appearCondition")).toString();
+    activity.appearanceDescription = object.value(QStringLiteral("appearanceDescription")).toString();
+    activity.appearanceRule = object.value(QStringLiteral("appearanceRule")).toObject();
+    if (activity.appearanceDescription.isEmpty() && !activity.appearCondition.isEmpty())
+      activity.appearanceDescription = QStringLiteral("原始入口条件：%1").arg(activity.appearCondition);
     activity.startDate = QDate::fromString(object.value(QStringLiteral("startTime")).toString(),
                                            QStringLiteral("yyyyMMdd"));
     activity.redPointId = object.value(QStringLiteral("redPointId")).toInt();
@@ -395,6 +404,7 @@ QJsonObject RoutineOverviewCatalog::parseOfficialTexts(QString taskText, const Q
     for (int id : sortedIds) ids.append(id);
     activities.append(QJsonObject{{QStringLiteral("key"), key},
                                   {QStringLiteral("name"), entry.value(QStringLiteral("name"))},
+                                  {QStringLiteral("appearCondition"), entry.value(QStringLiteral("appearCondition"))},
                                   {QStringLiteral("startTime"), entry.value(QStringLiteral("startTime"))},
                                   {QStringLiteral("redPointId"), redPointId},
                                   {QStringLiteral("redPointIds"), ids}});

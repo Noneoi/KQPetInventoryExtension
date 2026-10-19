@@ -5,6 +5,8 @@
 
 #include "asset_analysis_filter_proxy_model.h"
 #include "asset_analysis_model.h"
+#include "cultivation_material_panel.h"
+#include "cultivation_material_delegate.h"
 #include "diagnostics/build_info.h"
 #include "recommendation_model.h"
 #include "snapshot_history_model.h"
@@ -20,7 +22,8 @@
 #include <QHBoxLayout>
 #include <QLabel>
 #include <QLineEdit>
-#include <QPlainTextEdit>
+#include <QScrollBar>
+#include <QItemSelectionModel>
 #include <QPushButton>
 #include <QSignalBlocker>
 #include <QSplitter>
@@ -251,24 +254,34 @@ AssetAnalysisWindow::AssetAnalysisWindow(AnalysisReadView* controller,
   cultivationFilters->addWidget(eraFilter_); cultivationFilters->addWidget(ratingFilter_);
   cultivationFilters->addStretch();
   diagnosticLayout->addLayout(cultivationFilters);
-  auto* totalsNote = new QLabel(QStringLiteral("当前筛选的剩余培养消耗合计（未扣账号库存）；红星已计入每只精灵自身持有，普通红星和万变分列。"),diagnosticPage);
-  totalsNote->setWordWrap(true); diagnosticLayout->addWidget(totalsNote);
-  cultivationTotals_ = new QPlainTextEdit(diagnosticPage);
-  cultivationTotals_->setObjectName(QStringLiteral("KQCultivationTotals"));
-  cultivationTotals_->setReadOnly(true); cultivationTotals_->setMaximumHeight(130);
-  cultivationTotals_->setPlainText(QStringLiteral("请先重新计算养成分析"));
-  diagnosticLayout->addWidget(cultivationTotals_);
-  diagnosticTable_ = makeView(diagnosticPage);
+  selectedMaterialsOnly_ = new QCheckBox(QStringLiteral("只计算选中精灵"),diagnosticPage);
+  selectedMaterialsOnly_->setObjectName(QStringLiteral("KQCultivationSelectedOnly"));
+  refreshMaterials_ = new QPushButton(QStringLiteral("刷新材料库存"),diagnosticPage);
+  refreshMaterials_->setObjectName(QStringLiteral("KQCultivationRefreshMaterials"));
+  cultivationFilters->addWidget(selectedMaterialsOnly_);
+  cultivationFilters->addWidget(refreshMaterials_);
+  auto* diagnosticSplitter = new QSplitter(Qt::Vertical,diagnosticPage);
+  diagnosticSplitter->setObjectName(QStringLiteral("KQCultivationSplitter"));
+  diagnosticSplitter->setChildrenCollapsible(false);
+  diagnosticSplitter->setHandleWidth(7);
+  cultivationTotals_ = new CultivationMaterialPanel(diagnosticSplitter);
+  diagnosticTable_ = makeView(diagnosticSplitter);
+  diagnosticTable_->setMinimumHeight(160);
   diagnosticTable_->setObjectName(QStringLiteral("KQAssetDiagnosticTable"));
   analysisModel_ = new AssetAnalysisModel(this);
   analysisFilterModel_ = new AssetAnalysisFilterProxyModel(this);
   analysisFilterModel_->setSourceModel(analysisModel_);
   diagnosticTable_->setModel(analysisFilterModel_);
+  diagnosticTable_->setItemDelegateForColumn(AssetAnalysisModel::Materials,new CultivationMaterialDelegate(diagnosticTable_));
+  diagnosticTable_->setSelectionMode(QAbstractItemView::ExtendedSelection);
+  connect(selectedMaterialsOnly_, &QCheckBox::toggled, this, &AssetAnalysisWindow::updateCultivationTotals);
+  connect(refreshMaterials_, &QPushButton::clicked, this, &AssetAnalysisWindow::cultivationMaterialsRefreshRequested);
+  connect(diagnosticTable_->selectionModel(), &QItemSelectionModel::selectionChanged, this, &AssetAnalysisWindow::updateCultivationTotals);
   diagnosticTable_->setSortingEnabled(true);
   diagnosticTable_->setWordWrap(true);
   diagnosticTable_->verticalHeader()->setSectionResizeMode(QHeaderView::ResizeToContents);
   diagnosticTable_->verticalHeader()->setResizeContentsPrecision(50);
-  diagnosticTable_->verticalHeader()->setMaximumSectionSize(160);
+  diagnosticTable_->setVerticalScrollMode(QAbstractItemView::ScrollPerPixel);
   auto* diagnosticHeader = diagnosticTable_->horizontalHeader();
   diagnosticHeader->setSectionResizeMode(QHeaderView::Interactive);
   diagnosticHeader->setStretchLastSection(false);
@@ -280,7 +293,14 @@ AssetAnalysisWindow::AssetAnalysisWindow(AnalysisReadView* controller,
   diagnosticTable_->setColumnWidth(AssetAnalysisModel::Rating,60);
   diagnosticTable_->setColumnWidth(AssetAnalysisModel::Materials,390);
   diagnosticTable_->setColumnWidth(AssetAnalysisModel::Gaps,260);
-  diagnosticLayout->addWidget(diagnosticTable_, 1);
+  diagnosticSplitter->addWidget(cultivationTotals_);
+  diagnosticSplitter->addWidget(diagnosticTable_);
+  diagnosticSplitter->setStretchFactor(0,0);
+  diagnosticSplitter->setStretchFactor(1,1);
+  diagnosticSplitter->setSizes({230,450});
+  diagnosticSplitter->handle(1)->setToolTip(QStringLiteral("拖动可调整材料清单与精灵列表的高度"));
+  UiPreferences::bindSplitter(diagnosticSplitter,QStringLiteral("assets/materialSplitter"));
+  diagnosticLayout->addWidget(diagnosticSplitter, 1);
   tabs_->addTab(diagnosticPage, QStringLiteral("养成诊断中心"));
 
   auto* recommendationPage = new QWidget(tabs_);
@@ -526,7 +546,28 @@ void AssetAnalysisWindow::setLocalStargodStatistics(const LocalStargodStatistics
   localStargodSummary_->setText(text);
 }
 
+void AssetAnalysisWindow::setCultivationMaterials(const MaterialInventorySnapshot& value) {
+  if (cultivationMaterials_.counts == value.counts && cultivationMaterials_.knownTypes == value.knownTypes &&
+      cultivationMaterials_.knownExtraGroups == value.knownExtraGroups && cultivationMaterials_.observedTimes == value.observedTimes &&
+      cultivationMaterials_.observedAt == value.observedAt && cultivationMaterials_.running == value.running) return;
+  cultivationMaterials_ = value;
+  refreshMaterials_->setEnabled(!value.running);
+  refreshMaterials_->setText(value.running ? QStringLiteral("正在读取材料…") : QStringLiteral("刷新材料库存"));
+  updateCultivationTotals();
+}
+
+void AssetAnalysisWindow::updateCultivationTotals() {
+  if (!analysisReady_) return;
+  QSet<qint64> ids;
+  for (const auto& index : diagnosticTable_->selectionModel()->selectedRows())
+    ids.insert(index.data(AssetAnalysisModel::InstanceIdRole).toLongLong());
+  const bool onlySelected = selectedMaterialsOnly_->isChecked();
+  cultivationTotals_->setPlan(analysisFilterModel_->materialPlanDetails(cultivationMaterials_,ids,onlySelected),onlySelected);
+}
+
 void AssetAnalysisWindow::resetSessionContext() {
+  cultivationMaterials_ = {};
+  refreshMaterials_->setEnabled(true);
   emit localStargodStatisticsCancelled();
   localStargodStatistics_->setEnabled(true);
   cancelLocalStargodStatistics_->hide();
@@ -549,7 +590,7 @@ void AssetAnalysisWindow::resetSessionContext() {
   instanceId_->clear();
   accountSummary_->setText(QStringLiteral("等待当前账号数据"));
   diagnosticSummary_->clear();
-  cultivationTotals_->setPlainText(QStringLiteral("请先重新计算养成分析"));
+  cultivationTotals_->resetPlan();
   changeSummary_->clear();
   historyState_->clear();
   instanceHistoryState_->clear();
@@ -864,7 +905,7 @@ void AssetAnalysisWindow::applyDiagnosticFilter() {
 
 void AssetAnalysisWindow::updateDiagnosticSummary() {
   if (!analysisReady_ || !analysisFilterModel_ || !controller_) return;
-  cultivationTotals_->setPlainText(analysisFilterModel_->materialSummary());
+  updateCultivationTotals();
   const bool cultivationStale = controller_->inventoryAnalysisStale() ||
                                 !controller_->dirtyPetIds().isEmpty();
   QString staleNote;

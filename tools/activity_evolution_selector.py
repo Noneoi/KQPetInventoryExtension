@@ -14,7 +14,7 @@ import re
 
 from public_routine_updater import _arguments, _atomic_json, _balanced, _declaration, _read
 
-PARSER_VERSION = 1
+PARSER_VERSION = 2
 FILENAME = "activity-evolution-data.json"
 RESOURCES = (
     ("evolution", "pet/petdataservice", (
@@ -71,6 +71,36 @@ def verify_evolution_algorithm(manager: str, define: str) -> None:
             raise ValueError("官方进化表优先级已变化，保留活动原适用范围")
     if 'this._strPutPetRaceIds.split("#")' not in re.sub(r"\s+", "", _method(define, "tryInitDefine")):
         raise ValueError("官方进化前置字段已变化，保留活动原适用范围")
+
+
+def verify_ordered_evolution_algorithm(manager: str) -> bool:
+    """Verify the separate ordered-chain API; @sb includes other form branches."""
+    try:
+        body = re.sub(r'\s+', '', _method(manager, 'getPetOrderEvoLink'))
+    except ValueError:
+        return False
+    expected = '''{
+        var _loc5_:PetEvoPanelDefine=null; var _loc7_:Array=null;
+        var _loc8_:int=0; var _loc9_:int=0; var _loc2_:Array=[];
+        var _loc3_:int=this.getPetOriginalRaceId(param1); var _loc4_:int=_loc3_;
+        if(this._multipleFormPetService){
+            _loc7_=this._multipleFormPetService.getSwitchPetRaceIds(_loc3_);
+            if(_loc7_.length>0){_loc4_=int(_loc7_[0]);}
+        }
+        _loc2_.push(_loc4_); _loc5_=this.getTargetPetEvoDef(_loc4_);
+        while(_loc5_!=null){
+            _loc8_=int(this.resetRealPetRaceIds(_loc5_.arrayPutPetRaceIds)[0]);
+            if(_loc2_.indexOf(_loc8_)>=0){break;}
+            _loc2_.unshift(_loc8_); _loc5_=this.getTargetPetEvoDef(_loc8_);
+        }
+        _loc5_=this.findPetEvoDef(_loc4_);
+        while(_loc5_!=null){
+            _loc9_=_loc5_.raceId; if(_loc2_.indexOf(_loc9_)>=0){break;}
+            _loc2_.push(_loc9_); _loc5_=this.findPetEvoDef(_loc9_);
+        }
+        var _loc6_:int=_loc2_.indexOf(_loc4_); _loc2_[_loc6_]=_loc3_; return _loc2_;
+    }'''
+    return body == re.sub(r'\s+', '', expected)
 
 
 def parse_evolution_config(text: str) -> dict:
@@ -205,6 +235,7 @@ def _load_tables(updater, versions: dict) -> dict:
         source = scripts["evolution"]
         verify_evolution_algorithm(source["PetEvoPanelManager"], source["PetEvoPanelDefine"])
         result["evolution"] = parse_evolution_config(source["PetEvoPanelConfig"])
+        result['orderedEvolutionVerified'] = verify_ordered_evolution_algorithm(source['PetEvoPanelManager'])
     if "forms" in changed:
         result["forms"] = parse_form_config(scripts["forms"]["MultipleFormPetConfig"])
     if "skins" in changed:
@@ -286,3 +317,43 @@ def expand_selector(updater, versions: dict, seeds: list[int]) -> list[int]:
     if not seeds:
         return []
     return expand_from_tables(_load_tables(updater, versions), seeds)
+
+
+def shared_cultivation_targets(tables: dict, seeds: list[int], pets: dict) -> list[dict]:
+    """Model.setPrimeRaces: normalize, then only a lone missing race advances.
+
+    A shared panel is not the @sb union. It picks the last ordered evolution,
+    never an intermediate package or a different form's evolution branch.
+    """
+    if not seeds or len(seeds) > 10000 or any(not _id(seed) for seed in seeds):
+        raise ValueError('公共养成入口必须提供明确的精灵编号')
+    normalized = []
+    for seed in seeds:
+        race = _original(seed, tables['skins'])
+        group = next((group for group in tables['forms'] if race in group), [])
+        race = group[0] if group else race
+        if race not in normalized:
+            normalized.append(race)
+    results = []
+    for race in normalized:
+        path = [race]
+        if len(normalized) == 1 and str(race) not in pets:
+            if not tables.get('orderedEvolutionVerified'):
+                raise ValueError('官方有序进化跳转规则尚未验证，保留原适用范围')
+            while True:
+                targets = tables['evolution']['excel'].get(str(path[-1]))
+                if targets is None:
+                    targets = tables['evolution']['legacy'].get(str(path[-1]), [])
+                targets = list(dict.fromkeys(targets))
+                if not targets:
+                    break
+                if len(targets) != 1 or targets[0] in path or len(path) >= 10000:
+                    raise ValueError('公共养成有序进化链存在分支或循环，不能确定跳转目标')
+                path.append(targets[0])
+        results.append({'race': path[-1], 'requestedRaces': list(seeds),
+                        'normalizedRace': race, 'evolutionPath': path})
+    return results
+
+
+def resolve_shared_cultivation(updater, versions: dict, seeds: list[int], pets: dict) -> list[dict]:
+    return shared_cultivation_targets(_load_tables(updater, versions), seeds, pets)

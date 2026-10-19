@@ -67,6 +67,7 @@ struct RuntimeDetailProgress {
   int failed = 0;
   qint64 instanceId = 0;
   int estimatedSeconds = 0;
+  int resumableCount = 0;
 };
 struct RuntimeMoveState {
   QString account;

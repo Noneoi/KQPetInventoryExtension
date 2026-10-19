@@ -108,6 +108,7 @@ struct Completion {
   PetDerivationStatus status = PetDerivationStatus::DeriveFailed;
   QString error;
   std::optional<PetAnalysisFacts> facts;
+  QByteArray packedFacts;
   std::shared_ptr<Reservation> reservation;
   qint64 elapsedUs = 0;
   QByteArray factsDigest;
@@ -290,9 +291,15 @@ void calculate(const std::shared_ptr<State>& state, const std::shared_ptr<Work>&
             result->facts.reset(); result->status = PetDerivationStatus::BudgetExceeded;
             result->error = QStringLiteral("derived fact exceeds its reserved output budget");
           }
-          if (result->facts && work->key.metadataDigest.size() == 32) {
+          if (result->facts) {
             const auto bytes = QJsonDocument(petAnalysisFactsToJson(*result->facts)).toJson(QJsonDocument::Compact);
-            if (quint64(bytes.size()) <= maximumIndexBytes / 2)
+            if (bytes.size() <= 1024 * 1024) result->packedFacts = qCompress(bytes, 1);
+            if (result->packedFacts.isEmpty() || petAnalysisFactsRetainedBytes(*result->facts) +
+                recordOverhead(work->key) + quint64(result->packedFacts.capacity()) > reservation->bytes.load()) {
+              result->facts.reset(); result->status = PetDerivationStatus::BudgetExceeded;
+              result->error = QStringLiteral("compact frame exceeds its reserved output budget");
+            }
+            if (work->key.metadataDigest.size() == 32 && quint64(bytes.size()) <= maximumIndexBytes / 2)
               result->factsDigest = QCryptographicHash::hash(bytes, QCryptographicHash::Sha256);
           }
         }
@@ -586,10 +593,11 @@ void PetDerivationCache::receive(std::shared_ptr<Completion> completion) {
   auto status = completion->status;
   if (work->cancelled->load() || !impl_->current(work->key)) status = PetDerivationStatus::Cancelled;
   if (status == PetDerivationStatus::CacheHit && completion->facts) {
-    const quint64 bytes = petAnalysisFactsRetainedBytes(*completion->facts) + recordOverhead(work->key);
+    const quint64 bytes = petAnalysisFactsRetainedBytes(*completion->facts) + recordOverhead(work->key) + quint64(completion->packedFacts.capacity());
     auto lease = std::make_shared<FactLease>(); lease->state = impl_->state; lease->bytes = bytes;
     impl_->state->factsBytes.fetch_add(bytes); impl_->state->liveLeases.fetch_add(1);
     auto value = std::make_shared<PetDerivedFactsRecord>(); value->key = work->key; value->chargedBytes = bytes;
+    value->packedFacts = std::move(completion->packedFacts);
     value->memoryRetention = lease;
     value->facts = std::move(*completion->facts); value->facts.asset.memoryRetention = lease;
     // Convert the active result reservation to its measured immutable lease.
@@ -760,6 +768,8 @@ void PetDerivationCache::clear() {
   impl_->intents.clear(); impl_->intentById.clear(); impl_->intentBytes = 0;
   impl_->entries.clear(); impl_->residentById.clear(); impl_->lru.clear(); impl_->residentBytes = 0;
   const QPointer<PetDerivationCache> alive(this);
+  emit cacheCleared();
+  if (!alive) return;
   for (const auto& item : cancelled) {
     emit failed(item.first, item.second, PetDerivationStatus::Cancelled, QStringLiteral("cache generation was cleared before Compute"));
     if (!alive) return;

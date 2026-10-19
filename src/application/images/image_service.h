@@ -115,6 +115,7 @@ public:
   // Reloads only the local catalog file. Call after an explicit data update.
   void reloadImageIndex();
   void requestBatch(const QList<ImageRequest>& requests);
+  void retryFailedBatch();
   void pauseBatch(bool paused);
   void cancelBatch();
   void shutdown();

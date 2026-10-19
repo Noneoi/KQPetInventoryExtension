@@ -7,7 +7,9 @@
 add_library(KQPetDomain STATIC
   src/domain/account_resource_view.cpp
   src/domain/activity_shop_observation.cpp
+  src/domain/public_price_rule.cpp src/domain/public_price_rule.h
   src/domain/asset_derivation.cpp
+  src/domain/cultivation_material_plan.cpp src/domain/cultivation_material_plan.h
   src/domain/asset_snapshot_comparator.cpp
   src/domain/catalog_types.cpp
   src/domain/checked_json_numbers.cpp
@@ -16,6 +18,7 @@ add_library(KQPetDomain STATIC
   src/domain/pet_analysis_facts.cpp
   src/domain/pet_cultivation_requirements.cpp src/domain/pet_cultivation_requirements.h
   src/domain/pet_detail_preparation.cpp
+  src/domain/pet_relation_options.cpp src/domain/pet_relation_options.h
   src/domain/pet_era.cpp
   src/domain/pet_identity.cpp
   src/domain/pet_metadata_view.cpp
@@ -33,6 +36,7 @@ add_library(KQPet::Domain ALIAS KQPetDomain)
 
 # --- Storage: single I/O thread, frozen write contexts, atomic commits -------
 add_library(KQPetStorage STATIC
+  src/storage/public_catalog_store.cpp src/storage/public_catalog_store.h
   src/storage/storage_service.cpp src/storage/storage_service.h
   src/storage/storage_write_context.cpp src/storage/storage_write_context.h
   src/storage/storage_types.h

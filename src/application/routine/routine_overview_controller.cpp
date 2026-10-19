@@ -1,4 +1,5 @@
 #include "routine_overview_controller.h"
+#include "domain/official_period_rules.h"
 
 #include "diagnostics/diagnostic_logger.h"
 #include "application/common/controller_cache_storage.h"
@@ -190,6 +191,11 @@ QHash<QString, ObservationValidity> RoutineOverviewController::periodValiditySna
     const QString group = observed.key();
     const QString period = periodForGroup(group);
     auto value = freshness_.status(group, period);
+    if (period == QStringLiteral("daily") || period == QStringLiteral("weekly")) {
+      value.reason += QStringLiteral("；") + diamondResetRule(period);
+      if (period == QStringLiteral("weekly") && !value.current())
+        value.reason += QStringLiteral("；当前桥接未证明服务器时间回包与本次请求的对应关系");
+    }
     if (!repository_ || !repository_->sessionContext().canPersist() ||
         (fieldState(group) != PacketFieldState::Empty && fieldState(group) != PacketFieldState::Value)) {
       value.state = ObservationValidityState::Invalidated;
@@ -206,7 +212,8 @@ QString RoutineOverviewController::freshnessSummary() const {
     known |= value.current(); stale |= value.state == ObservationValidityState::Invalidated;
   }
   if (stale) return QStringLiteral("部分日常/活动数据已失效，显示的是上次读取的结果");
-  return known ? QStringLiteral("部分数据已确认，其余是上次读取的结果") : QStringLiteral("显示的是上次读取的结果，周期未确认，请以游戏内为准");
+  return known ? QStringLiteral("部分数据已确认，其余显示最近读取的结果")
+               : QStringLiteral("显示最近读取的结果；服务器重置时间尚未核验，跨天/跨周后请重新读取");
 }
 
 bool RoutineOverviewController::queueRequest(const QString& extension, const QString& command,

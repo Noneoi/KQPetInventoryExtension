@@ -1,4 +1,5 @@
 #include "original_bridge.h"
+#include "game_navigation_script.h"
 
 #include "diagnostics/target_compatibility_guard.h"
 #include "diagnostics/diagnostic_logger.h"
@@ -12,7 +13,6 @@
 #include <QJsonArray>
 #include <QJsonDocument>
 #include <QMetaObject>
-#include <QRegularExpression>
 #include <QThread>
 #include <QTimer>
 #include <QVariant>
@@ -34,13 +34,7 @@ OriginalBridge::OriginalBridge(QObject* parent) : QObject(parent) {
   navigationTimer_->setSingleShot(true);
   connect(navigationTimer_, &QTimer::timeout, this, [this] {
     if (navigationContext_.isEmpty()) return;
-    const QString detail = navigationFailure_.isEmpty()
-        ? QStringLiteral("游戏主页面没有返回跳转结果") : navigationFailure_;
-    DiagnosticLogger::warning(QStringLiteral("navigation"), detail);
-    navigationContext_.clear();
-    navigationFailure_.clear();
-    lastError_ = detail;
-    emit gameNavigationFinished(false, detail);
+    finishNavigation(false, QStringLiteral("游戏没有按时返回跳转结果，请先查看游戏窗口；本次不会重复调用"));
   });
 }
 
@@ -155,10 +149,8 @@ QList<QWidget*> findCefViews() {
   };
   std::sort(visible.begin(), visible.end(), largestFirst);
   std::sort(hidden.begin(), hidden.end(), largestFirst);
-  // A host may keep a second game view hidden while switching pages.  Do not
-  // discard it merely because another QCefView is visible: submit only the
-  // bounded official route to every host view and let the page result identify
-  // the one that owns AQLib.
+  // Keep hidden views as candidates; navigation visits them sequentially and
+  // only proceeds when the previous page explicitly did not dispatch a route.
   visible.append(hidden);
   return visible;
 }
@@ -206,18 +198,19 @@ SubmissionOutcome OriginalBridge::invokeFlashSubmission(const QString& method,
 }
 
 SubmissionOutcome OriginalBridge::openGameNavigation(const QString& link) {
-  // The catalog may only carry the same bounded btnNewAct key used by the
-  // official client.  Never evaluate a URL, service name, or arbitrary script
-  // supplied by downloaded data.
-  static const QRegularExpression allowed(
-      QStringLiteral("^btnNewAct_[A-Za-z][A-Za-z0-9]{1,100}(?:_[A-Za-z0-9]{1,64}){1,8}$"));
-  if (link.size() > 256 || !allowed.match(link).hasMatch()) {
+  // Catalog routes use the official activity key or a bounded service panel
+  // opener. Never evaluate downloaded URLs, arbitrary methods or script text.
+  if (!GameNavigationScript::isAllowedLink(link)) {
     lastError_ = QStringLiteral("游戏商店入口格式未通过校验。");
     return SubmissionOutcome::DefinitelyNotSubmitted;
   }
   QApplication* application = qobject_cast<QApplication*>(QCoreApplication::instance());
   if (!application || QThread::currentThread() != application->thread()) {
     lastError_ = QStringLiteral("游戏界面跳转必须在已就绪的GUI线程执行。");
+    return SubmissionOutcome::DefinitelyNotSubmitted;
+  }
+  if (!navigationContext_.isEmpty()) {
+    lastError_ = QStringLiteral("上一次商店跳转仍在等待游戏返回，请稍候。");
     return SubmissionOutcome::DefinitelyNotSubmitted;
   }
   const auto& compatibility = TargetCompatibilityGuard::lastReport();
@@ -230,11 +223,20 @@ SubmissionOutcome OriginalBridge::openGameNavigation(const QString& link) {
     lastError_ = QStringLiteral("找不到原版游戏界面，无法打开商店。");
     return SubmissionOutcome::DefinitelyNotSubmitted;
   }
-  // This target embeds QCefView 1.1's result API.  The already verified
-  // QCefView module is used here only through its exact reviewed export name.
-  // Unlike triggerEvent/broadcastEvent, executeJavascript does not expand
-  // frame -1: it calls GetFrame(frameId) directly.  Therefore navigation must
-  // execute in MainFrameID (0), where the official AQLib runtime is installed.
+  navigationScript_ = GameNavigationScript::build(link);
+  navigationViews_.clear();
+  for (QWidget* view : views) navigationViews_.append(view);
+  navigationFailure_.clear();
+  const SubmissionOutcome outcome = submitNextNavigationView();
+  if (outcome == SubmissionOutcome::Submitted)
+    DiagnosticLogger::info(QStringLiteral("navigation"),
+        QStringLiteral("official shop route queued candidates=%1 link=%2").arg(views.size()).arg(link));
+  return outcome;
+}
+
+SubmissionOutcome OriginalBridge::submitNextNavigationView() {
+  // Only this exact export in the compatibility-verified module is used.
+  // Frame 0 is MainFrameID; -1 is not expanded by this execute API.
   using ExecuteJavascriptWithResult = bool(__fastcall*)(
       void*, const qint64*, const QString*, const QString*, const QString*);
   HMODULE qcef = GetModuleHandleW(L"QCefView.dll");
@@ -244,65 +246,73 @@ SubmissionOutcome OriginalBridge::openGameNavigation(const QString& link) {
     lastError_ = QStringLiteral("QCefView 跳转结果接口与已验证客户端不一致。");
     return SubmissionOutcome::DefinitelyNotSubmitted;
   }
-  const QStringList pieces = link.split(QLatin1Char('_'));
-  const QString activityName = pieces.value(1);
-  const QString activityArgument = pieces.mid(2).join(QLatin1Char('_'));
-  const QString route = QString::fromUtf8(
-      QJsonDocument(QJsonArray{link, activityName, activityArgument})
-          .toJson(QJsonDocument::Compact));
-  // ClickEffectHelper.doAuto is the exact official client path used by its own
-  // btnNewAct_* buttons. Passing a JSON array keeps catalog values as data,
-  // never executable source. The string result distinguishes an accepted
-  // official call from a view that does not own AQLib.
-  const QString script = QStringLiteral(
-      "(function(){var v=%1,a=globalThis.AQLib;if(!a)return 'missing-aqlib';"
-      "try{if(!a.ClickEffectHelper||typeof a.ClickEffectHelper.doAuto!=='function')"
-      "return 'missing-click-helper';a.ClickEffectHelper.doAuto(v[0]);return 'opened';}"
-      "catch(e){return 'error:'+(e&&e.message?e.message:String(e));}})();").arg(route);
+  navigationView_.clear();
+  while (!navigationViews_.isEmpty() && !navigationView_)
+    navigationView_ = navigationViews_.takeFirst();
+  if (!navigationView_) {
+    lastError_ = navigationFailure_.isEmpty()
+        ? QStringLiteral("找不到可用的游戏页面，请先进入游戏") : navigationFailure_;
+    return SubmissionOutcome::DefinitelyNotSubmitted;
+  }
+  // Check the signal before calling the host API. UniqueConnection avoids
+  // duplicate callbacks on subsequent clicks (false also means already linked).
+  if (navigationView_->metaObject()->indexOfSignal("reportJavascriptResult(int,qint64,QString,QVariant)") < 0) {
+    lastError_ = QStringLiteral("QCefView 跳转结果信号与已验证客户端不一致。");
+    return SubmissionOutcome::DefinitelyNotSubmitted;
+  }
+  QObject::connect(navigationView_, SIGNAL(reportJavascriptResult(int,qint64,QString,QVariant)),
+      this, SLOT(handleJavascriptResult(int,qint64,QString,QVariant)), Qt::UniqueConnection);
   const QString scriptUrl;
   constexpr qint64 frameId = 0;  // QCefView::MainFrameID.
   navigationContext_ = QStringLiteral("kqpet-shop-%1").arg(++navigationSequence_);
-  navigationFailure_.clear();
-  bool submitted = false;
-  for (QWidget* view : views) {
-    QObject::connect(view, SIGNAL(reportJavascriptResult(int,qint64,QString,QVariant)),
-                     this, SLOT(handleJavascriptResult(int,qint64,QString,QVariant)),
-                     Qt::UniqueConnection);
-    submitted = execute(view, &frameId, &script, &scriptUrl, &navigationContext_) || submitted;
-  }
-  if (!submitted) {
+  if (!execute(navigationView_.data(), &frameId, &navigationScript_, &scriptUrl, &navigationContext_)) {
     navigationContext_.clear();
-    lastError_ = QStringLiteral("游戏商店跳转入口返回未确认结果。");
+    navigationViews_.clear();
+    lastError_ = QStringLiteral("游戏跳转调用结果未确认，请先查看游戏窗口；本次不会重复调用。");
     return SubmissionOutcome::Unknown;
   }
-  DiagnosticLogger::info(QStringLiteral("navigation"),
-                         QStringLiteral("official shop route queued views=%1 link=%2")
-                             .arg(views.size()).arg(link));
   navigationTimer_->start(2500);
   return SubmissionOutcome::Submitted;
+}
+
+void OriginalBridge::finishNavigation(bool submitted, const QString& message) {
+  navigationTimer_->stop();
+  navigationContext_.clear();
+  navigationViews_.clear();
+  navigationView_.clear();
+  navigationScript_.clear();
+  navigationFailure_.clear();
+  lastError_ = submitted ? QString() : message;
+  if (!submitted) DiagnosticLogger::warning(QStringLiteral("navigation"), message);
+  emit gameNavigationFinished(submitted, message);
 }
 
 void OriginalBridge::handleJavascriptResult(int browserId, qint64 frameId,
                                             const QString& context,
                                             const QVariant& result) {
-  if (context.isEmpty() || context != navigationContext_) return;
+  if (context.isEmpty() || context != navigationContext_ || sender() != navigationView_) return;
   const QString value = result.toString();
   DiagnosticLogger::info(QStringLiteral("navigation"),
                          QStringLiteral("shop route result browser=%1 frame=%2 value=%3")
                              .arg(browserId).arg(frameId).arg(value.left(96)));
-  if (value == QStringLiteral("opened")) {
-    navigationTimer_->stop();
-    navigationContext_.clear();
-    navigationFailure_.clear();
-    emit gameNavigationFinished(true, QStringLiteral("游戏已确认接收官方商店入口"));
+  const auto resultKind = GameNavigationScript::classify(value);
+  const QString message = GameNavigationScript::message(value);
+  if (resultKind == GameNavigationScript::Result::Submitted) {
+    finishNavigation(true, message);
     return;
   }
-  if (value.startsWith(QStringLiteral("error:")))
-    navigationFailure_ = QStringLiteral("游戏官方入口执行失败：%1").arg(value.mid(6));
-  else if (value == QStringLiteral("missing-click-helper"))
-    navigationFailure_ = QStringLiteral("已找到游戏页面，但官方活动入口尚未就绪");
-  else if (navigationFailure_.isEmpty())
-    navigationFailure_ = QStringLiteral("没有在游戏主页面找到官方活动入口");
+  if (resultKind == GameNavigationScript::Result::NotReady) {
+    if (navigationFailure_.isEmpty() || value != QStringLiteral("missing-game-runtime"))
+      navigationFailure_ = message;
+    navigationTimer_->stop();
+    navigationContext_.clear();
+    if (submitNextNavigationView() == SubmissionOutcome::Submitted) return;
+    finishNavigation(false, lastError_);
+    return;
+  }
+  // An exception or missing result may follow a partial call. Do not open a
+  // second view or automatically repeat a route with an unknown outcome.
+  finishNavigation(false, message);
 }
 
 void __fastcall OriginalBridge::dispatchDetour(quintptr a1, quintptr a2, quintptr a3,

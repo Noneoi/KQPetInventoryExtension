@@ -36,6 +36,7 @@ class ShopWindow final : public QDialog {
 public:
   explicit ShopWindow(InventoryReadView* repository, QWidget* parent = nullptr,
                       PetImageCache* sharedImages = nullptr);
+  ~ShopWindow() override;
   void setPacket(const QJsonObject& packet, bool hasPacket);
   void setMaterialCounts(const QHash<QString, qint64>& counts, bool valid);
   void setReadOnlyObservations(const QJsonObject& packets);
@@ -43,6 +44,7 @@ public:
   void setQuotaValidity(quint64 revision, const QHash<QString, ShopCondition>& validity);
   void setStatus(const QString& status, const QString& details = {});
   void setRefreshRunning(bool running);
+  void setNavigationRunning(bool running);
   void focusGood(const QString& stableKey);
   quint64 compiledEligibilityRules() const { return compiledEligibilityRules_; }
   bool petRowsPreparing() const { return petRowsPreparing_; }
@@ -61,6 +63,8 @@ signals:
   void catalogRefreshRequested();
   void openShopRequested(const QString& navigationLink);
   void detailRequested(qint64 instanceId);
+  void usableDetailRequested(qint64 instanceId, quint64 visitToken);
+  void usableDetailRequestsCancelled(quint64 visitToken);
   void moveToBackpackRequested(qint64 instanceId);
 
 protected:
@@ -101,7 +105,7 @@ private:
   CachedPetRow& cachedPetRow(qint64 instanceId);
   void continuePetRows(quint64 generation);
   void cancelPetRows();
-  void showPetDetail(qint64 instanceId, bool requestLatest);
+  void showPetDetail(qint64 instanceId, bool userSelection);
   void updateCurrentDetail(qint64 instanceId);
   void updateCurrentImage(const QString& visualKey, const QString& localPath);
   void fillPetRow(int row, const QJsonObject& pet,
@@ -122,6 +126,12 @@ private:
   void updateSelectedGoodEmphasis();
   void updateWorkbenchPanels();
   ShopPetEligibility eligibilityFor(qint64 id);
+  void beginUsableDetailRefresh();
+  void stopUsableDetailRefresh();
+  void considerUsableDetail(qint64 id, const ShopPetEligibility& eligibility);
+  void scheduleUsableDetail();
+  void sendNextUsableDetail(quint64 visitToken);
+  void updateUsableDetailStatus();
 
   InventoryReadView* repository_ = nullptr;
   QPointer<PetImageCache> imageCache_;
@@ -137,6 +147,7 @@ private:
   QPushButton* refresh_ = nullptr;
   QPushButton* refreshCatalog_ = nullptr;
   QPushButton* openShop_ = nullptr;
+  bool navigationRunning_ = false;
   QComboBox* sourceFilter_ = nullptr;
   QLineEdit* goodSearch_ = nullptr;
   QTimer* goodSearchDebounce_ = nullptr;
@@ -145,6 +156,7 @@ private:
   QTabWidget* shopTabs_ = nullptr;
   QTableWidget* petTable_ = nullptr;
   QLabel* petTitle_ = nullptr;
+  QLabel* usableDetailStatus_ = nullptr;
   PetImageBrowser* petDetail_ = nullptr;
   PetRawDataTree* rawDetail_ = nullptr;
   QPushButton* moveToBackpack_ = nullptr;
@@ -197,4 +209,12 @@ private:
   qint64 preservePetId_ = 0;
   quint64 petRowsGeneration_ = 0, petIndexBuilds_ = 0, petMembershipCacheHits_ = 0;
   QString pendingFocusGoodKey_;
+  quint64 usableVisitToken_ = 0;
+  QString usableVisitGoodKey_;
+  QSet<qint64> usableVisitCandidates_, usableVisitAttempted_, usableVisitRejected_;
+  QSet<qint64> usableVisitQueued_;
+  QList<qint64> usableVisitQueue_;
+  qint64 usableVisitInFlight_ = 0;
+  int usableVisitCompleted_ = 0, usableVisitFailed_ = 0;
+  bool usableDispatchScheduled_ = false;
 };

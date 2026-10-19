@@ -1,0 +1,928 @@
+{
+  "date": "2026-10-19",
+  "status": "evidence-complete; no production changes",
+  "scope": "官方SEF siN商店、兑换中心及代表性独立活动的限次周期。仅公开官方资源，无账号回包。",
+  "method": "原始SWF SHA-256校验后独立JPEXS完整导出；官方Flash FUI ZIP/XML绑定到可达组件；H5原始文件作交叉核对。没有使用产品解析输出作语义来源。",
+  "evidence": [
+    {
+      "id": "S01",
+      "path": "validation\\roadmap-4.1.0\\period-shop\\official\\eternalbattlefieldexchangeshop\\scripts\\mmo\\activityext\\newact20260313\\eternalbattlefieldexchangeshop\\controller\\EBESClient.as",
+      "sha256": "e53c0f700d5cb1bca1768799b3b83903273b0e7871e3fc1f2c0232c01db4683b",
+      "matches": [
+        {
+          "line": 11,
+          "match": "ACT_ID:int = 1792"
+        },
+        {
+          "line": 13,
+          "match": "1008_20260313_es_0"
+        },
+        {
+          "line": 15,
+          "match": "1008_20260313_es_1"
+        },
+        {
+          "line": 17,
+          "match": "1008_20260313_es_3"
+        }
+      ],
+      "conclusion": "SEF实际读次数/购买/刷新折扣命令；不能只读SEFConfig名称就推断请求来源。"
+    },
+    {
+      "id": "S02",
+      "path": "validation\\roadmap-4.1.0\\period-shop\\official\\eternalbattlefieldexchangeshop\\scripts\\mmo\\activityext\\newact20260313\\eternalbattlefieldexchangeshop\\model\\EBESActReward.as",
+      "sha256": "3f5fc26c62bf82f6f96f0128aaa18cb1e72a88dba6e1ce6b7e3cacafc0db9e28",
+      "matches": [
+        {
+          "line": 145,
+          "match": "protected function initTabData"
+        },
+        {
+          "line": 168,
+          "match": "this._dayLimit = _loc2_[\"dl\"]"
+        },
+        {
+          "line": 173,
+          "match": "this._seasonLimit = _loc2_[\"ql\"]"
+        },
+        {
+          "line": 185,
+          "match": "private function parseLimitConfig"
+        },
+        {
+          "line": 214,
+          "match": "case 5:"
+        },
+        {
+          "line": 351,
+          "match": "public function afterExchange"
+        },
+        {
+          "line": 381,
+          "match": "[\"sl\"] = this._seasonLimit"
+        },
+        {
+          "line": 594,
+          "match": "public function get leftLimit"
+        },
+        {
+          "line": 640,
+          "match": "public function get IsOnline"
+        }
+      ],
+      "conclusion": "索引0..5分别日/周/月/期/总/季；初读dl/wl/ml/pl/tl/ql，限次为配置减使用数。购买后相应计数增加。季度写回sl与初读ql不一致，不能擅自归一。IsOnline仅商品上下架日期。"
+    },
+    {
+      "id": "S03",
+      "path": "validation\\roadmap-4.1.0\\period-shop\\official\\common\\scripts\\mmo\\common\\aoqi\\reward\\fragment\\ActRewardFragmentFactory.as",
+      "sha256": "c5efd1a7254592c49a39d576829e4b91259db9b929c9a37662e02d68c24833b2",
+      "matches": [
+        {
+          "line": 10,
+          "match": "private static const LIMITED_SET"
+        },
+        {
+          "line": 46,
+          "match": "createLimitedByBundle"
+        }
+      ],
+      "conclusion": "公共活动限次片段0..4映射dl/wl/ml/pl/tl；没有周期重置计算。"
+    },
+    {
+      "id": "S04",
+      "path": "validation\\roadmap-4.1.0\\period-shop\\official\\common\\scripts\\mmo\\common\\aoqi\\reward\\fragment\\varieties\\ActRewardFragmentLimited.as",
+      "sha256": "9cd630f5dd050d04204eee8cd81452f0c60349de3ab8207f69ba656a6e687a19",
+      "matches": [
+        {
+          "line": 22,
+          "match": "ALL_TYPES_DESC"
+        },
+        {
+          "line": 49,
+          "match": "ALL_TYPES_DESC"
+        },
+        {
+          "line": 37,
+          "match": "override public function isBeyondConfig"
+        },
+        {
+          "line": 53,
+          "match": "public function get remainTimes"
+        }
+      ],
+      "conclusion": "标签与最大次数/已用次数比较，未包含时钟和重置边界。"
+    },
+    {
+      "id": "S05",
+      "path": "validation\\roadmap-4.1.0\\period-shop\\official\\storeexchangeframework_res\\xml\\8zirjk.xml",
+      "sha256": "36ef269dc1a9b73bccf9c671fe5c9dae97959768881baf2cb8e436fd0930d878",
+      "matches": [
+        {
+          "line": 4,
+          "match": "期限：每个商城每期更新后重置兑换数量"
+        },
+        {
+          "line": 5,
+          "match": "限量说明"
+        }
+      ],
+      "conclusion": "SEF官方限量说明：期为各商城每期更新；月为每月1日开服；周为周五开服；季为1/4/7/10月1日开服；总不重置。"
+    },
+    {
+      "id": "S06",
+      "path": "validation\\roadmap-4.1.0\\period-shop\\official\\storeexchangeframework_res\\xml\\zgtggy.xml",
+      "sha256": "e51daf2392e918547bdc55b6d8c7611cee6b095fa8b82a46ae8d719fdf64d9d6",
+      "matches": [
+        {
+          "line": 11,
+          "match": "name=\"n11\" src=\"zgtgio\""
+        }
+      ],
+      "conclusion": "当前导出的MainPanel直接引用说明按钮。"
+    },
+    {
+      "id": "S07",
+      "path": "validation\\roadmap-4.1.0\\period-shop\\official\\storeexchangeframework_res\\xml\\zgtgio.xml",
+      "sha256": "f80c093c2b3e9da49e24a8ea4313d12b644a71703482d4bb62fa3da34e73f6b3",
+      "matches": [
+        {
+          "line": 5,
+          "match": "name=\"n2\" src=\"8zirjk\""
+        },
+        {
+          "line": 6,
+          "match": "gearDisplay controller=\"button\" pages=\"1,2\""
+        }
+      ],
+      "conclusion": "MainPanel.n11.n2.n21属于按钮down/over显示的限量说明，不是未使用字符串。"
+    },
+    {
+      "id": "S08",
+      "path": "validation\\roadmap-4.1.0\\period-shop\\official\\storeexchangeframework\\scripts\\mmo\\activityext\\newact20260313\\storeexchangeframework\\view\\SEFMainPanel.as",
+      "sha256": "daa5c87623fd2a8b3450afe4cdcddc9eed33eef66cd7d32a8dc185ed42a1a4a2",
+      "matches": [
+        {
+          "line": 29,
+          "match": "private static const URL"
+        },
+        {
+          "line": 31,
+          "match": "private static const CLS"
+        },
+        {
+          "line": 63,
+          "match": "super(URL,CLS)"
+        }
+      ],
+      "conclusion": "当前运行入口加载storeexchangeframework_res.MainPanel，完成FUI说明到实际界面的绑定。"
+    },
+    {
+      "id": "S09",
+      "path": "validation\\roadmap-4.1.0\\period-shop\\official\\storeexchangeframework\\scripts\\mmo\\activityext\\newact20260313\\storeexchangeframework\\model\\SEFModel.as",
+      "sha256": "163b8879e4e951936ec400f6c3c6d4f579b4dd3ea24ac3ddb0c74d7900c488e1",
+      "matches": [
+        {
+          "line": 100,
+          "match": "private function tabIsOnline"
+        },
+        {
+          "line": 103,
+          "match": "DateUtil.parseDate(param1)"
+        },
+        {
+          "line": 108,
+          "match": "_loc5_.setDate(_loc5_.getDate() + 1)"
+        }
+      ],
+      "conclusion": "商城上架使用startTime；下架为removalTime下一日00:00排他边界；这是可见范围，不能当限次重置时刻。"
+    },
+    {
+      "id": "S10",
+      "path": "validation\\roadmap-4.1.0\\period-shop\\official\\storeexchangeframework\\scripts\\mmo\\activityext\\newact20260313\\storeexchangeframework\\model\\SEFConfig.as",
+      "sha256": "2d65ce81a47142e61c28293b7315eaeda0f8926dcbb6c56f6714b1b03fdfdf78",
+      "matches": [
+        {
+          "line": 16,
+          "match": "\"serverId\":1"
+        },
+        {
+          "line": 76,
+          "match": "\"serverId\":1"
+        },
+        {
+          "line": 172,
+          "match": "\"serverId\":1"
+        },
+        {
+          "line": 307,
+          "match": "\"serverId\":1"
+        },
+        {
+          "line": 322,
+          "match": "\"serverId\":1"
+        },
+        {
+          "line": 337,
+          "match": "\"serverId\":1"
+        },
+        {
+          "line": 352,
+          "match": "\"serverId\":1"
+        },
+        {
+          "line": 367,
+          "match": "\"serverId\":1"
+        },
+        {
+          "line": 382,
+          "match": "\"serverId\":1"
+        },
+        {
+          "line": 397,
+          "match": "\"serverId\":1"
+        },
+        {
+          "line": 412,
+          "match": "\"serverId\":1"
+        },
+        {
+          "line": 427,
+          "match": "\"serverId\":1"
+        },
+        {
+          "line": 442,
+          "match": "\"serverId\":1"
+        },
+        {
+          "line": 714,
+          "match": "\"serverId\":1"
+        },
+        {
+          "line": 849,
+          "match": "\"serverId\":1"
+        },
+        {
+          "line": 864,
+          "match": "\"serverId\":1"
+        },
+        {
+          "line": 879,
+          "match": "\"serverId\":1"
+        },
+        {
+          "line": 894,
+          "match": "\"serverId\":1"
+        },
+        {
+          "line": 909,
+          "match": "\"serverId\":1"
+        },
+        {
+          "line": 924,
+          "match": "\"serverId\":1"
+        },
+        {
+          "line": 939,
+          "match": "\"serverId\":1"
+        },
+        {
+          "line": 954,
+          "match": "\"serverId\":1"
+        },
+        {
+          "line": 969,
+          "match": "\"serverId\":1"
+        },
+        {
+          "line": 984,
+          "match": "\"serverId\":1"
+        },
+        {
+          "line": 1256,
+          "match": "\"serverId\":1"
+        },
+        {
+          "line": 1391,
+          "match": "\"serverId\":1"
+        },
+        {
+          "line": 1406,
+          "match": "\"serverId\":1"
+        },
+        {
+          "line": 1421,
+          "match": "\"serverId\":1"
+        },
+        {
+          "line": 1466,
+          "match": "\"serverId\":1"
+        },
+        {
+          "line": 1481,
+          "match": "\"serverId\":1"
+        },
+        {
+          "line": 1496,
+          "match": "\"serverId\":1"
+        },
+        {
+          "line": 1511,
+          "match": "\"serverId\":1"
+        },
+        {
+          "line": 1526,
+          "match": "\"serverId\":1"
+        },
+        {
+          "line": 1541,
+          "match": "\"serverId\":1"
+        },
+        {
+          "line": 1556,
+          "match": "\"serverId\":1"
+        },
+        {
+          "line": 1768,
+          "match": "\"serverId\":1"
+        },
+        {
+          "line": 1903,
+          "match": "\"serverId\":1"
+        },
+        {
+          "line": 1918,
+          "match": "\"serverId\":1"
+        },
+        {
+          "line": 1933,
+          "match": "\"serverId\":1"
+        },
+        {
+          "line": 1948,
+          "match": "\"serverId\":1"
+        },
+        {
+          "line": 1963,
+          "match": "\"serverId\":1"
+        },
+        {
+          "line": 1978,
+          "match": "\"serverId\":1"
+        },
+        {
+          "line": 1993,
+          "match": "\"serverId\":1"
+        },
+        {
+          "line": 2008,
+          "match": "\"serverId\":1"
+        },
+        {
+          "line": 2023,
+          "match": "\"serverId\":1"
+        },
+        {
+          "line": 2055,
+          "match": "\"serverId\":1"
+        },
+        {
+          "line": 2190,
+          "match": "\"serverId\":1"
+        },
+        {
+          "line": 2205,
+          "match": "\"serverId\":1"
+        },
+        {
+          "line": 2220,
+          "match": "\"serverId\":1"
+        },
+        {
+          "line": 2235,
+          "match": "\"serverId\":1"
+        },
+        {
+          "line": 2250,
+          "match": "\"serverId\":1"
+        },
+        {
+          "line": 2265,
+          "match": "\"serverId\":1"
+        },
+        {
+          "line": 2280,
+          "match": "\"serverId\":1"
+        },
+        {
+          "line": 2295,
+          "match": "\"serverId\":1"
+        },
+        {
+          "line": 2310,
+          "match": "\"serverId\":1"
+        },
+        {
+          "line": 2325,
+          "match": "\"serverId\":1"
+        },
+        {
+          "line": 2372,
+          "match": "\"serverId\":1"
+        },
+        {
+          "line": 2507,
+          "match": "\"serverId\":1"
+        },
+        {
+          "line": 2522,
+          "match": "\"serverId\":1"
+        },
+        {
+          "line": 2537,
+          "match": "\"serverId\":1"
+        },
+        {
+          "line": 2552,
+          "match": "\"serverId\":1"
+        },
+        {
+          "line": 2567,
+          "match": "\"serverId\":1"
+        },
+        {
+          "line": 2582,
+          "match": "\"serverId\":1"
+        },
+        {
+          "line": 2597,
+          "match": "\"serverId\":1"
+        },
+        {
+          "line": 2612,
+          "match": "\"serverId\":1"
+        },
+        {
+          "line": 2627,
+          "match": "\"serverId\":1"
+        },
+        {
+          "line": 2642,
+          "match": "\"serverId\":1"
+        },
+        {
+          "line": 2691,
+          "match": "\"serverId\":1"
+        },
+        {
+          "line": 2844,
+          "match": "\"serverId\":1"
+        },
+        {
+          "line": 2861,
+          "match": "\"serverId\":1"
+        },
+        {
+          "line": 2878,
+          "match": "\"serverId\":1"
+        },
+        {
+          "line": 19,
+          "match": "\"startTime\":\"20260930\""
+        },
+        {
+          "line": 47,
+          "match": "\"startTime\":\"20260930\""
+        },
+        {
+          "line": 1999,
+          "match": "\"limit\":\"5:1\""
+        }
+      ],
+      "conclusion": "当前原始配置有180条限次：pl56、wl46、tl63、ml14、季1；没有dl条目。5:1商品为随机红色星神，普通奖励，不属于定向培养筛选。"
+    },
+    {
+      "id": "S11",
+      "path": "validation\\roadmap-4.1.0\\period-shop\\official\\eternalbattlefieldexchangeshop\\scripts\\mmo\\activityext\\newact20260313\\eternalbattlefieldexchangeshop\\view\\tab\\EBESTab8Panel.as",
+      "sha256": "788522be15c18232ec4f85a88f9986ccb335494de05aba0596ff62e47e116619",
+      "matches": [
+        {
+          "line": 28,
+          "match": "每周五重置商品购买次数和刷新次数"
+        }
+      ],
+      "conclusion": "SEF server8明确周五，仍未说明小时；刷新的是商品折扣列表，不是把购买次数置零。"
+    },
+    {
+      "id": "S12",
+      "path": "validation\\roadmap-4.1.0\\period-shop\\official\\eternalbattlefieldexchangeshop\\scripts\\mmo\\activityext\\newact20260313\\eternalbattlefieldexchangeshop\\model\\EBESModel.as",
+      "sha256": "0d3d4e1d6b1d6d24cb161d7828f06d90b78e97241e5a55000e1a7a737eeeb198",
+      "matches": [
+        {
+          "line": 146,
+          "match": "public function afterRefreshDiscount"
+        },
+        {
+          "line": 155,
+          "match": "[\"wl\"] = param1.weekLimit"
+        },
+        {
+          "line": 130,
+          "match": "public function afterGainPrize"
+        }
+      ],
+      "conclusion": "手动刷新折扣保留当前wl，购买则变更计数；不能把refreshDiscount当新限次周期。"
+    },
+    {
+      "id": "A01",
+      "path": "validation\\roadmap-4.1.0\\period-shop\\official\\exchangecenter\\scripts\\mmo\\activityext\\newact20210820\\exchangecenter\\define\\ECExchangeDefine.as",
+      "sha256": "1e9c0c9d7a4a732d5020bda5794e7f99c6f341ade8f6db826dca3813dae553a4",
+      "matches": [
+        {
+          "line": 18,
+          "match": "LimitType_Weekly_4:int = 4"
+        },
+        {
+          "line": 20,
+          "match": "LimitType_Weekly_12:int = 5"
+        },
+        {
+          "line": 24,
+          "match": "LimitType_Monthly_Nomal:int = 7"
+        },
+        {
+          "line": 26,
+          "match": "LimitType_Quarterly_Nomal:int = 8"
+        },
+        {
+          "line": 124,
+          "match": "每4周限量"
+        },
+        {
+          "line": 128,
+          "match": "每12周限量"
+        }
+      ],
+      "conclusion": "兑换中心独立枚举明确区分4周、12周、自然月和自然季度；绝不能按字面month/season统一周期。"
+    },
+    {
+      "id": "A02",
+      "path": "validation\\roadmap-4.1.0\\period-shop\\official\\exchangecenter\\scripts\\mmo\\activityext\\newact20210820\\exchangecenter\\data\\ECExchangeData.as",
+      "sha256": "3ca749f4fc51220004eb8239198e7222ced40c12acd539172f31404840851abf",
+      "matches": [
+        {
+          "line": 41,
+          "match": "public function parseData"
+        },
+        {
+          "line": 62,
+          "match": "[\"det\" +"
+        },
+        {
+          "line": 63,
+          "match": "[\"wet\" +"
+        },
+        {
+          "line": 65,
+          "match": "[\"met\" +"
+        },
+        {
+          "line": 66,
+          "match": "[\"set\" +"
+        },
+        {
+          "line": 67,
+          "match": "[\"yet\" +"
+        },
+        {
+          "line": 68,
+          "match": "[\"nmet\" +"
+        },
+        {
+          "line": 69,
+          "match": "[\"nset\" +"
+        }
+      ],
+      "conclusion": "这些是服务器使用计数映射，消费端没有提供4周/12周锚点或时间戳。"
+    },
+    {
+      "id": "A03",
+      "path": "validation\\roadmap-4.1.0\\period-shop\\official\\exchangecenter\\scripts\\mmo\\activityext\\newact20210820\\exchangecenter\\page13\\ECPage13.as",
+      "sha256": "f56479b22febfd14b410464db6ea2a72ba7d82279ac119952def86ec147d3cf3",
+      "matches": [
+        {
+          "line": 219,
+          "match": "转化次数每周五开服重置"
+        }
+      ],
+      "conclusion": "当前Page13实际代码明确转化次数周五开服重置，仅此转化计数可继承该语义。"
+    },
+    {
+      "id": "A04",
+      "path": "validation\\roadmap-4.1.0\\period-shop\\official\\exchangecenter\\scripts\\mmo\\activityext\\newact20210820\\exchangecenter\\page13\\ECP13Model.as",
+      "sha256": "48bb7829eadcb0dab08fb9ef5c8c9e4a5814a7af9555cd73855ab60e5816c174",
+      "matches": [
+        {
+          "line": 34,
+          "match": "this._weekExchangedTimes = param1[\"alle_w\"]"
+        },
+        {
+          "line": 35,
+          "match": "this._weekConverTimes = param1[\"allc_w\"]"
+        },
+        {
+          "line": 43,
+          "match": "var _loc3_:Object = param1[\"ro\"]"
+        },
+        {
+          "line": 70,
+          "match": "return Math.max(0,this.getWeekRestConverTotalTimes()"
+        }
+      ],
+      "conclusion": "allc_w为转化周次数；alle_w为兑换周次数；ro/bN为商品次数，不能将转化说明无条件套到其他字段。"
+    },
+    {
+      "id": "A05",
+      "path": "validation\\roadmap-4.1.0\\period-shop\\official\\exchangecenter\\scripts\\mmo\\activityext\\newact20210820\\exchangecenter\\data\\ECConfig.as",
+      "sha256": "0dee2f333721e13b63767221e1cbca364a0bf30807245437ecf71f678430ce63",
+      "matches": [
+        {
+          "line": 28,
+          "match": "public static const TAB_CONFIG"
+        },
+        {
+          "line": 29,
+          "match": "\"id\":2"
+        },
+        {
+          "line": 65,
+          "match": "\"id\":13"
+        }
+      ],
+      "conclusion": "当前页签为2/7/8/9/11/12/13，旧PageView1和PageView4的周四关服资源文本没有当前入口，不可作为当前规则。"
+    },
+    {
+      "id": "A06",
+      "path": "validation\\roadmap-4.1.0\\period-shop\\official\\summerholidayrebateshoptab2\\scripts\\mmo\\activityext\\newact20261016\\summerholidayrebateshoptab2\\data\\SHRST2Config.as",
+      "sha256": "40b454ab69bdde772e995bf52a74b0c36eed6b047b28a2b93e8ef21100abac09",
+      "matches": [
+        {
+          "line": 24,
+          "match": "\"total_limited\":4"
+        },
+        {
+          "line": 25,
+          "match": "\"total_limited_key\":\"b%d\""
+        },
+        {
+          "line": 35,
+          "match": "\"total_limited_key\":\"b%d\""
+        },
+        {
+          "line": 45,
+          "match": "\"total_limited_key\":\"b%d\""
+        },
+        {
+          "line": 55,
+          "match": "\"total_limited_key\":\"b%d\""
+        },
+        {
+          "line": 10,
+          "match": "public static const ACTIVITY_ID"
+        }
+      ],
+      "conclusion": "活动5813使用total_limited且映射bN；没有日期周期边界，不能按SEF规则把所有同名total字段自动认证。"
+    },
+    {
+      "id": "A07",
+      "path": "validation\\roadmap-4.1.0\\period-shop\\official\\summerholidayrebateshoptab2\\scripts\\mmo\\activityext\\newact20261016\\summerholidayrebateshoptab2\\data\\SHRST2Reward.as",
+      "sha256": "dbd30b2d7c82358b79e8cf167145294bf0d7908d34d7ba6dda958a6ece7f751c",
+      "matches": [
+        {
+          "line": 16,
+          "match": "getFrag(\"total_limited\")"
+        },
+        {
+          "line": 39,
+          "match": "public function get buyTimes"
+        }
+      ],
+      "conclusion": "活动实际消费者仅取片段config/data，没有时钟。"
+    },
+    {
+      "id": "A08",
+      "path": "validation\\roadmap-4.1.0\\period-shop\\official\\weeklyredstarandsp\\scripts\\mmo\\activityext\\newact20261016\\weeklyredstarandsp\\model\\WRSASPModel.as",
+      "sha256": "d29ac7bc4e77e90940af39f28bc6441f13f65e1e8eb7d13459ba1ea85471e2a5",
+      "matches": [
+        {
+          "line": 33,
+          "match": "this._weekValue = _loc3_ != null ? int(_loc3_[\"wk\"])"
+        },
+        {
+          "line": 34,
+          "match": "this._dayValue = _loc3_ != null ? int(_loc3_[\"rd\"])"
+        }
+      ],
+      "conclusion": "另一活动的wk/rd是服务器返回的进度计数；字段名不能证明周期小时和周界。"
+    },
+    {
+      "id": "T01",
+      "path": "validation\\price-conditions-audit\\official\\scripts\\mmo\\common\\DateUtil.as",
+      "sha256": "4663b7974a5448a30e6ecd6e2c02f25bebce468e1ca5ccdd0f93465ba46208df",
+      "matches": [
+        {
+          "line": 25,
+          "match": "private static var gameCloseClock"
+        },
+        {
+          "line": 29,
+          "match": "private static var timezoneOffset"
+        },
+        {
+          "line": 46,
+          "match": "public static function init"
+        },
+        {
+          "line": 106,
+          "match": "public static function getServerTimeInMS()"
+        },
+        {
+          "line": 113,
+          "match": "public static function getServerTimeInMS_SRC()"
+        },
+        {
+          "line": 355,
+          "match": "public static function isRegardAsYesterday"
+        }
+      ],
+      "conclusion": "服务器原始毫秒加getTimerO差才是UTC绝对时间；普通getServerTimeInMS还做本地时区到UTC+8的UI移位。02:00是关服辅助语义，未被SEF限次计算调用。"
+    },
+    {
+      "id": "T02",
+      "path": "validation\\roadmap-4.1.0\\period-shop\\official\\common\\scripts\\mmo\\common\\shareobject\\LocalStore.as",
+      "sha256": "8207d85427bacdb2dc78533213b8808b6ce1a5222e6954e20046807bca1cf3d9",
+      "matches": [
+        {
+          "line": 71,
+          "match": "public static function getWeeklyVersion"
+        },
+        {
+          "line": 81,
+          "match": "if(_loc5_.day == 5)"
+        }
+      ],
+      "conclusion": "周五向前查找日期只是本地存储版本辅助函数，不是服务端商店配额重置证据。"
+    }
+  ],
+  "currentSefLimitCountsByIndex": {
+    "3": 56,
+    "1": 46,
+    "4": 63,
+    "2": 14,
+    "5": 1
+  },
+  "periodRules": [
+    {
+      "scope": "SEF siN",
+      "key": "dl",
+      "meaning": "日",
+      "boundary": "未确认",
+      "reason": "消费者支持，当前配置无dl商品；说明未列日限，不能借用日常任务小时。",
+      "nativeStatus": "Unknown"
+    },
+    {
+      "scope": "SEF siN",
+      "key": "wl",
+      "meaning": "周",
+      "boundary": "每周五开服后",
+      "known": [
+        "星期五",
+        "开服事件"
+      ],
+      "unknown": [
+        "具体小时/维护变更"
+      ],
+      "nativeStatus": "Unknown until bounded server clock and exact opening evidence"
+    },
+    {
+      "scope": "SEF siN",
+      "key": "ml",
+      "meaning": "自然月",
+      "boundary": "每月1日开服后",
+      "known": [
+        "每月1日",
+        "开服事件"
+      ],
+      "unknown": [
+        "具体小时/维护变更"
+      ],
+      "nativeStatus": "Unknown until complete clock/boundary evidence"
+    },
+    {
+      "scope": "SEF siN",
+      "key": "pl",
+      "meaning": "商城本期",
+      "boundary": "该商城每期更新后",
+      "known": [
+        "每个商城独立"
+      ],
+      "unknown": [
+        "服务器本期标识",
+        "更新瞬间",
+        "是否与上下架时间严格相同"
+      ],
+      "nativeStatus": "Unknown; do not derive from local calendar"
+    },
+    {
+      "scope": "SEF siN",
+      "key": "tl",
+      "meaning": "总",
+      "boundary": "不自动重置",
+      "known": [
+        "SEF限量说明明确不重置"
+      ],
+      "unknown": [
+        "稳定计数身份跨配置复用的服务端契约"
+      ],
+      "nativeStatus": "Requires a non-expiring semantic capability; do not invent a finite end time for acceptValidityEvidence"
+    },
+    {
+      "scope": "SEF siN",
+      "key": "ql (read) / sl (post-purchase cache write)",
+      "meaning": "自然季度",
+      "boundary": "1/4/7/10月1日开服后",
+      "known": [
+        "季度日历",
+        "开服事件"
+      ],
+      "unknown": [
+        "具体小时",
+        "官方ql/sl不一致"
+      ],
+      "nativeStatus": "Unknown; raw key inconsistency remains pending"
+    },
+    {
+      "scope": "兑换中心当前Page13转化",
+      "key": "allc_w",
+      "meaning": "周转化次数",
+      "boundary": "周五开服",
+      "nativeStatus": "Unknown exact time; do not extend to alle_w or ro/bN"
+    },
+    {
+      "scope": "兑换中心ECExchangeDefine",
+      "key": "metN / setN",
+      "meaning": "4周 / 12周",
+      "boundary": "周期长度已知，锚点未知",
+      "nativeStatus": "Unknown; not natural month/quarter"
+    },
+    {
+      "scope": "独立活动",
+      "key": "bundle dl/wl/ml/pl/tl; total_limited; wk/rd",
+      "meaning": "只证明各自消费的字段和限次类别",
+      "boundary": "需要该活动实际消费者/可达说明单独证明",
+      "nativeStatus": "Unknown unless same source contract proves full boundaries"
+    }
+  ],
+  "trustedClockInput": {
+    "protocolEvidence": "../period-daily/source-manifest.json and official/{socketclient,play,loginservice}; sibling audit traces UserExtension/getCurrentTime params.t into DateUtil.init(t).",
+    "required": [
+      "当前可信账号会话与source generation",
+      "getCurrentTime请求发送与响应接收的单调时间区间；无回显ID时只容许可关联的单个在途请求",
+      "原始params.t毫秒；不用DateUtil时区移位后的UI毫秒",
+      "配额读取自己的请求/响应区间或等价生成时刻证据，不能让旧延迟回包跨边界仍被核验",
+      "服务器时间精度、传输误差和推进误差上界",
+      "在完整误差区间内都属于同一已知周期"
+    ],
+    "notSufficient": [
+      "本机年月日/时区",
+      "仅登录时间锚点但没有传输误差上界",
+      "用日常周五06:00外推SEF开服",
+      "DateUtil.gameCloseClock=02:00",
+      "限次字段名称或UI分类标签"
+    ]
+  },
+  "nativeIntegrationRecommendation": [
+    "将“计数语义已知”“周期规则已知”“本次观察时效已核验”分开；不要把quotaCycleKnown直接提升为TrustedObservationValidity。",
+    "周期规则按协议来源和实际消费规则绑定，至少包含resource/consumer证据、requestKey、quota字段路径、共享计数身份、shop scope，不按活动中文名或某个ID临时补丁。",
+    "只有已证实精确边界且观察的服务器时间误差范围落在同一周期时，填入validFromUtc/validUntilUtc/periodId，并绑定account/epoch/observationSequence。periodId只能来自可信服务器锚点计算或服务器实际标识。",
+    "SEF周/月/季目前缺开服小时，继续Unknown并展示已知重置规则和最近一次读值；若产品选择在可能重置日保守失效，必须说明那是失效策略，不得称为已核验的重置时刻。",
+    "pl不能用TOTAL_CONFIG.startTime或商品shelfTime替代本期ID。商城上下架是独立可见范围：现有消费者以开始日期和结束日期下一日排他区间判断，未证明它等同配额reset。",
+    "tl没有周期性到期，现有有限时段接口不适合用9999或任意TTL模拟；可后续独立设计NonResetting语义，仍在账号/来源/配置计数身份变化、购买等可变事件后失效或更新。",
+    "购买1008_20260313_es_1改变计数；refreshDiscount的es_3保留wl而改变折扣状态。应分别更新相应观察，不能把手动刷新折扣当配额重置。",
+    "所有无法证明的类别保留Unknown，缺字段不从本机时间制造0；4/12周、季度ql/sl和独立活动须保留明确待解项。"
+  ],
+  "excludedEvidence": [
+    "旧exchangecenter资源PageView1/PageView4仍有周四关服文案，但当前TAB_CONFIG没有对应入口；已排除，不能当当前规则。",
+    "LocalStore.getWeeklyVersion的周五日期只用于本地存储版本；与服务端配额无消费链。",
+    "DateUtil的02:00用于关服/业务日助手，不是所有配额reset。",
+    "失败的Flash资源.swf URL探测没有进入证据，真实FGUILoader资源扩展为.fui。"
+  ],
+  "openQuestions": [
+    "SEF及活动开服的具体时刻及可核验变更来源",
+    "SEF各shop的本期标识与reset触发",
+    "季限ql/sl官方不一致的响应权威键",
+    "4/12周配额锚点",
+    "被动客户端能否完整捕获时间请求和配额请求的有界往返区间"
+  ],
+  "productionChanges": [],
+  "buildOrInstall": false
+}

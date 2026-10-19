@@ -318,6 +318,7 @@ QWidget* ExtensionContext::createPage(WorkbenchPage page, QWidget* parent) {
     connect(widget, &PetWindow::warehouseDetailPauseRequested, this, [this] { postCurrent([](const CoreServices& c) { c.refresh->pauseWarehouseDetailRefresh(); }); });
     connect(widget, &PetWindow::warehouseDetailResumeRequested, this, [this] { postCurrent([](const CoreServices& c) { c.refresh->resumeWarehouseDetailRefresh(); }); });
     connect(widget, &PetWindow::warehouseDetailCancelRequested, this, [this] { postCurrent([](const CoreServices& c) { c.refresh->cancelWarehouseDetailRefresh(); }); });
+    connect(widget, &PetWindow::warehouseDetailRetryRequested, this, [this](bool missing) { postCurrent([missing](const CoreServices& c) { c.refresh->retryIncompleteDetails(missing); }); });
     connect(widget, &PetWindow::detailRequested, this, [this](qint64 id) { postCurrent([id](const CoreServices& c) { c.repo->requestCachedDetail(id); c.refresh->requestSingleDetail(id); }); });
     connect(widget, &PetWindow::cultivationMaterialsRefreshRequested, this, [this] {
       postCurrent([](const CoreServices& c) { c.shop->requestCultivationMaterials(); });
@@ -337,26 +338,35 @@ QWidget* ExtensionContext::createPage(WorkbenchPage page, QWidget* parent) {
     connect(widget, &ShopWindow::openShopRequested, this, [this, widget](const QString& link) {
       const SubmissionOutcome outcome = bridge_->openGameNavigation(link);
       if (outcome == SubmissionOutcome::Submitted) {
-        widget->setStatus(QStringLiteral("正在调用游戏官方商店入口……"));
+        widget->setNavigationRunning(true);
+        widget->setStatus(QStringLiteral("正在调用对应游戏入口……"));
       }
       else if (outcome == SubmissionOutcome::Unknown)
-        widget->setStatus(QStringLiteral("游戏已接收跳转请求，但结果未确认"), bridge_->lastError());
+        widget->setStatus(QStringLiteral("商店跳转结果未确认"), bridge_->lastError());
       else
         widget->setStatus(QStringLiteral("无法打开游戏商店"), bridge_->lastError());
     });
     connect(bridge_, &OriginalBridge::gameNavigationFinished, widget,
-            [this, widget](bool opened, const QString& message) {
-      if (!opened) {
-        widget->setStatus(QStringLiteral("游戏商店没有打开"), message);
+            [this, widget](bool submitted, const QString& message) {
+      widget->setNavigationRunning(false);
+      if (!submitted) {
+        widget->setStatus(QStringLiteral("商店跳转未完成"), message);
         return;
       }
-      widget->setStatus(QStringLiteral("已打开游戏商店；工作台仍在后台运行"));
+      widget->setStatus(message);
       if (originalWindow_) {
+        if (originalWindow_->isMinimized()) originalWindow_->showNormal();
+        else originalWindow_->show();
         originalWindow_->raise();
         originalWindow_->activateWindow();
       }
     });
-    connect(widget, &ShopWindow::detailRequested, this, [this](qint64 id) { postCurrent([id](const CoreServices& c) { c.repo->requestCachedDetail(id); c.refresh->requestSingleDetail(id); }); });
+    connect(widget, &ShopWindow::usableDetailRequested, this, [this](qint64 id, quint64 token) {
+      postCurrent([id, token](const CoreServices& c) { c.refresh->requestShopDetailOnce(id, token); });
+    });
+    connect(widget, &ShopWindow::usableDetailRequestsCancelled, this, [this](quint64 token) {
+      postCurrent([token](const CoreServices& c) { c.refresh->cancelShopDetailRequests(token); });
+    });
     connect(widget, &ShopWindow::moveToBackpackRequested, this, [this](qint64 id) { requestMove(id, true); });
     refreshPageStates(); return widget;
   }
@@ -366,6 +376,9 @@ QWidget* ExtensionContext::createPage(WorkbenchPage page, QWidget* parent) {
     refreshPageStates(); return widget;
   }
   auto* widget = new AssetAnalysisWindow(analysis_, parent); assetPage_ = widget;
+  connect(widget,&AssetAnalysisWindow::cultivationMaterialsRefreshRequested,this,[this] {
+    postCurrent([](const CoreServices& c) { c.shop->requestCultivationMaterials(); });
+  });
   connect(widget,&AssetAnalysisWindow::localStargodStatisticsRequested,runtime_,&ApplicationRuntime::requestLocalStargodStatistics);
   connect(widget,&AssetAnalysisWindow::localStargodStatisticsCancelled,runtime_,&ApplicationRuntime::cancelLocalStargodStatistics);
   const auto navigate = [this](WorkbenchPage destination, qint64 id, const QString& good) {
@@ -376,6 +389,7 @@ QWidget* ExtensionContext::createPage(WorkbenchPage page, QWidget* parent) {
   connect(widget, &AssetAnalysisWindow::shopRequested, this, [this] { openPage(WorkbenchPage::Shop); });
   connect(widget, &AssetAnalysisWindow::shopGoodRequested, this, [navigate](const QString& key) { navigate(WorkbenchPage::Shop, 0, key); });
   connect(widget, &AssetAnalysisWindow::routineRequested, this, [this] { openPage(WorkbenchPage::Routine); });
+  refreshPageStates();
   return widget;
 }
 void ExtensionContext::refreshSessionDisplay() {
@@ -393,12 +407,13 @@ void ExtensionContext::refreshSessionDisplay() {
       QString::fromStdWString(TargetCompatibilityGuard::lastReport().kqProVersion), state->sourceVerified});
 }
 void ExtensionContext::refreshPageStates() {
+  if (assetPage_) assetPage_->setCultivationMaterials(matches(shopState_.account,shopState_.epoch) ? shopState_.cultivationMaterials : MaterialInventorySnapshot{});
   if (petPage_) {
     petPage_->setCultivationMaterials(matches(shopState_.account,shopState_.epoch) ? shopState_.cultivationMaterials : MaterialInventorySnapshot{});
     petPage_->setListRefreshRunning(matches(listAccount_, listEpoch_) && listRunning_);
     if (matches(detailState_.account, detailState_.epoch))
       petPage_->setDetailProgress(detailState_.running, detailState_.paused, detailState_.completed,
-          detailState_.total, detailState_.succeeded, detailState_.failed, detailState_.instanceId, detailState_.estimatedSeconds);
+          detailState_.total, detailState_.succeeded, detailState_.failed, detailState_.instanceId, detailState_.estimatedSeconds, detailState_.resumableCount);
     petPage_->setMoveRunning(matches(moveState_.account, moveState_.epoch) && moveState_.running);
   }
   if (shopPage_ && matches(shopState_.account, shopState_.epoch)) {
@@ -516,10 +531,14 @@ void ExtensionContext::showSettings() {
       dialog->setCacheRoot(inventory_->dataRoot());
       connect(dialog, &PetSettingsDialog::cacheActionRequested, runtime_, &ApplicationRuntime::requestCacheAction);
       connect(dialog, &PetSettingsDialog::dataUpdateRequested, runtime_, &ApplicationRuntime::requestDataUpdate);
+      connect(dialog, &PetSettingsDialog::dataUpdateActionRequested, runtime_, &ApplicationRuntime::requestDataUpdateAction);
+      connect(runtime_, &ApplicationRuntime::dataUpdateReportChanged, dialog, &PetSettingsDialog::setDataUpdateReport);
+      runtime_->requestDataUpdateAction(QStringLiteral("status"));
       connect(dialog, &PetSettingsDialog::shopSelectionRequested, runtime_, &ApplicationRuntime::requestShopSelection);
       connect(dialog, &PetSettingsDialog::shopSelectionSaveRequested, runtime_, &ApplicationRuntime::saveShopSelection);
       connect(runtime_, &ApplicationRuntime::shopSelectionChanged, dialog, &PetSettingsDialog::setShopSelection);
       connect(dialog, &PetSettingsDialog::missingImagesRequested, runtime_, &ApplicationRuntime::requestMissingImages);
+      connect(dialog, &PetSettingsDialog::failedImagesRequested, runtime_, &ApplicationRuntime::requestFailedImages);
       connect(dialog, &PetSettingsDialog::imageBatchPauseRequested, runtime_, &ApplicationRuntime::pauseImageBatch);
       connect(dialog, &PetSettingsDialog::imageBatchCancelRequested, runtime_, &ApplicationRuntime::cancelImageBatch);
       connect(runtime_, &ApplicationRuntime::cacheActionFinished, dialog, &PetSettingsDialog::applyCacheResult);

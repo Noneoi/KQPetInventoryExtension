@@ -6,6 +6,7 @@
 
 #include <QObject>
 #include <QList>
+#include <QPointer>
 #include <QString>
 #include <QVariant>
 
@@ -35,7 +36,7 @@ public:
 signals:
   void packetCaptured(const InboundEnvelope& envelope);
   void captureUncertain(const QString& reason);
-  void gameNavigationFinished(bool opened, const QString& message);
+  void gameNavigationFinished(bool submitted, const QString& message);
 
 private slots:
   void handleJavascriptResult(int browserId, qint64 frameId,
@@ -60,6 +61,8 @@ private:
                const QList<QVariant>& arguments);
   void scheduleDrain();
   void drainInbound();
+  SubmissionOutcome submitNextNavigationView();
+  void finishNavigation(bool submitted, const QString& message);
 
   InlineHook hook_;
   ServiceGetter serviceGetter_ = nullptr;
@@ -67,6 +70,9 @@ private:
   QString lastError_;
   QString navigationContext_;
   QString navigationFailure_;
+  QString navigationScript_;
+  QList<QPointer<QObject>> navigationViews_;
+  QPointer<QObject> navigationView_;
   class QTimer* navigationTimer_ = nullptr;
   quint64 navigationSequence_ = 0;
   InboundQueue inbound_;

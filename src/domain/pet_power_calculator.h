@@ -19,5 +19,12 @@ struct PetPowerMetadata {
   QJsonObject stargod(int id) const { return stargods.value(QString::number(id)).toObject(); }
 };
 PetBattlePowerState calculatePetBattlePower(const QJsonObject& pet, const PetPowerMetadata& metadata);
+struct SpecifiedStargodAcquisition {
+  QList<int> useful;
+  QList<int> satisfied;
+  QList<int> unavailable;
+};
+SpecifiedStargodAcquisition specifiedStargodAcquisition(const QJsonObject& pet,
+    const PetPowerMetadata& metadata, const PetBattlePowerState& power);
 PetPowerMetadata petPowerMetadataFromCatalog(const QJsonObject& pet, int slotMax,
     const QJsonObject& stargods, const QJsonObject& astrolabe, const QJsonObject& pets);

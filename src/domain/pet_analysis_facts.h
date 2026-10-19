@@ -29,4 +29,9 @@ quint64 petAnalysisFactsRetainedBytes(const PetAnalysisFacts& facts);
 QJsonObject petAnalysisFactsToJson(const PetAnalysisFacts& facts);
 std::optional<PetAnalysisFacts> petAnalysisFactsFromJson(const QJsonObject& object, QString* error = nullptr);
 
+// Frozen, compact frames release LRU fact leases between preparation slices.
+// The decoder bounds the advertised expansion before allocating any JSON.
+QByteArray packPetAnalysisFacts(const PetAnalysisFacts& facts);
+std::optional<PetAnalysisFacts> unpackPetAnalysisFacts(const QByteArray& frame);
+
 Q_DECLARE_METATYPE(PetAnalysisFacts)

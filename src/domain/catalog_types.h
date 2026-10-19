@@ -36,6 +36,7 @@ struct ShopExchangeGood {
   // Ordinary exchange rewards are scanned, but require an explicit local
   // selection. They must never imply a designated-pet cultivation rule.
   bool manualSelectionRequired = false;
+  bool selectionIdentityIncludesReward = true;
   QString rewardRaw;
   // Empty/exchange retains ordinary store behavior. Reward entries have no
   // inferred price, quota or automatic claim command.
@@ -65,6 +66,7 @@ struct ShopExchangeGood {
   QJsonObject observationWhen;
   QJsonArray activityCosts;
   QJsonArray priceOptions;
+  QJsonObject priceRule;
   // Classification is evidence based: diamond activities require an
   // explicitly parsed diamond price/currency in the official activity code.
   ShopExchangeSection section = ShopExchangeSection::Permanent;
@@ -86,7 +88,7 @@ struct ShopExchangeShop {
   QList<ShopExchangeGood> goods;
   QString sourceKey;
   QJsonObject observation;
-  // A bounded official in-game click key (for example btnNewAct_...); never
+  // A bounded official activity/service-panel click key; never
   // arbitrary JavaScript or an inferred server command.
   QString navigationLink;
   // Why the updater inspected this activity: hud, recent release, linked, or
@@ -127,6 +129,9 @@ struct ActivityOverviewDefinition {
   QDate startDate;
   int redPointId = 0;
   QVector<int> redPointIds;
+  QString appearCondition;
+  QString appearanceDescription;
+  QJsonObject appearanceRule;
 };
 
 struct RoutineCatalogSnapshot {

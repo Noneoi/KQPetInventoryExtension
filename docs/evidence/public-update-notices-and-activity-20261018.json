@@ -1,0 +1,128 @@
+{
+  "date": "2026-10-18",
+  "scope": "Separate data update outcome from recognition and analysis notices; generic activity reward extraction; existing cultivation judgments preserved.",
+  "nativeReceipt": {
+    "state": "completed",
+    "complete": true,
+    "diskCommitted": true,
+    "sessionApplied": true,
+    "revision": "3adbfa2af826d64a86370bb59660cbbdf23f73e88de0371f26c42375856c0c29"
+  },
+  "components": {
+    "icons": {
+      "status": "unchanged",
+      "error": null
+    },
+    "images": {
+      "status": "unchanged",
+      "error": null
+    },
+    "pets": {
+      "status": "unchanged",
+      "error": null
+    },
+    "routines": {
+      "status": "updated",
+      "error": null
+    },
+    "shop": {
+      "status": "updated",
+      "error": null
+    },
+    "skills": {
+      "status": "unchanged",
+      "error": null
+    }
+  },
+  "noticeGroups": [
+    {
+      "kind": "analysis",
+      "message": "51 个商品含需在游戏内确认的养成项",
+      "itemCount": 51
+    },
+    {
+      "kind": "extraction",
+      "message": "2 条活动配置尚未完整识别",
+      "itemCount": 2
+    }
+  ],
+  "scanCounts": {
+    "automaticGoods": 123,
+    "manualGoods": 141,
+    "shops": 46
+  },
+  "added": [
+    {
+      "shop": "活动·中秋返钻商城",
+      "description": "指定精灵：满级 / 完美天赋 / 满金星+万变金星 / 满级元魂 / 元魂觉醒 / 满星迹 / 源兽神觉升至满星 / 源兽神觉升至满阶",
+      "enhanceType": "11-62-31-41-42-86-91-94"
+    },
+    {
+      "shop": "活动·中秋返钻商城",
+      "description": "指定精灵神运极品养成（满级 / 完美天赋 / 满金星+万变金星 / 源兽神觉升至满星 / 满级元魂）",
+      "enhanceType": "11-62-31-91-41"
+    },
+    {
+      "shop": "活动·中秋返钻商城",
+      "description": "指定精灵金钻极品养成（满级 / 源兽神觉升至满星 / 满金星+万变金星 / 超凡入圣）",
+      "enhanceType": "11-91-31-61"
+    },
+    {
+      "shop": "活动·中秋返钻商城",
+      "description": "指定精灵升满单条普通星迹",
+      "enhanceType": "84"
+    },
+    {
+      "shop": "活动·中秋返钻商城",
+      "description": "指定精灵装备1个红色星神",
+      "enhanceType": "34$1"
+    }
+  ],
+  "removed": [],
+  "cultivationSourcesUnchangedFromTag": {
+    "src/domain/shop_pet_eligibility.cpp": true,
+    "src/domain/shop_pet_eligibility.h": true,
+    "src/domain/pet_power_calculator.cpp": true,
+    "src/domain/pet_analysis_facts.cpp": true
+  },
+  "targetedTests": {
+    "activityParser": 65,
+    "updater": 23,
+    "versionStore": 10,
+    "tradeFacts": 12,
+    "nativeUpdate": true,
+    "settingsUI": true
+  },
+  "remainingActivityNotices": [
+    {
+      "activityName": "首充首兑送SSS神宠及专属养成",
+      "description": "神·时空龙源兽*3+万变红星*1",
+      "itemId": 4,
+      "module": "newactivityext/newact20260618/newfirstcharge2026/newfirstcharge2026",
+      "reason": "公共商城购买入口尚未与奖励、费用和次数完整关联",
+      "table": "NFC26Config.DICEC_ID"
+    },
+    {
+      "activityName": "星迹幻诺挑战",
+      "module": "newactivityext/newact20220930/xingjifantasynuoya/xingjifantasynuoya",
+      "reason": "公共养成面板尚无该入口精灵的可验证独立配置",
+      "table": "XJFNY_MainPanel.sharedCultivation"
+    }
+  ],
+  "acceptanceLimit": "Isolated public-data update and native UI tests. Not installed in the running user client; no account transactions.",
+  "uiRegressionFix": {
+    "failure": "The 1600-row switch did not complete within the original 10-second phase wait.",
+    "measurement": "One failing isolated profile accumulated 6608 ms in row UI writes, 13 ms in row-value preparation and 2 ms in eligibility lookup.",
+    "change": "Freeze header resize modes while populating; restore ResizeToContents and the name Stretch column on completion or cancellation.",
+    "assertionsPreserved": [
+      "original 10-second phase wait",
+      "original zero-interval heartbeat",
+      "cancellation and latest project selection",
+      "sorting",
+      "metadata and account replacement",
+      "zero game requests"
+    ],
+    "addedCheck": "column sizing is frozen during preparation and restored on completion",
+    "isolatedRetest": "passed; first synchronous switch call 0 ms, membership-cache hits 5, game requests 0"
+  }
+}

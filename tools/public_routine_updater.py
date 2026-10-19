@@ -15,7 +15,7 @@ from pathlib import Path
 import re
 import tempfile
 
-PARSER_VERSION = 1
+PARSER_VERSION = 2
 FILENAME = "routine-overview.json"
 RESOURCES = (
     ("tasks", "dailytask/dailytaskservice", "mmo.h5version.DiamondTaskConfig"),
@@ -175,6 +175,53 @@ def _date(text) -> bool:
         return False
 
 
+def parse_appearance(raw: str) -> dict:
+    """CommonHud ConditionChecker: OR branches, each optionally negated.
+
+    These control entry visibility, not purchasing permission. Preserve
+    unknown branches so a future official condition cannot silently vanish.
+    """
+    result = {"schema": 1, "operator": "any", "conditions": [], "supported": True}
+    if not raw:
+        return {**result, "description": ""}
+    for branch in raw.split("|"):
+        negate, token = branch.startswith("~"), branch.removeprefix("~")
+        condition = {"raw": branch, "negate": negate}
+        label = ""
+        if token in ("hasExchangeDiamond", "hasVip"):
+            condition["kind"] = token
+            label = "有钻石兑换记录" if token == "hasExchangeDiamond" else "有 VIP 到期记录"
+        elif match := re.fullmatch(r"(battlePower|registerDays)=(\d+)([+-])", token):
+            kind, number, sign = match.groups()
+            operator = ("ge" if sign == "+" else "lt") if kind == "battlePower" else ("gt" if sign == "+" else "le")
+            condition.update(kind=kind, value=int(number), comparison=operator)
+            title = "历史最高战力" if kind == "battlePower" else "注册天数（向上取整）"
+            label = title + {"ge": " ≥ ", "lt": " < ", "gt": " > ", "le": " ≤ "}[operator] + number
+        elif match := re.fullmatch(r"(date|registerDate)=(\d{4}):(\d{1,2}):(\d{1,2})([+-])", token):
+            kind, year, month, day, sign = match.groups()
+            try:
+                value = datetime(int(year), int(month), int(day)).strftime("%Y-%m-%d")
+                condition.update(kind=kind, value=value, comparison="ge" if sign == "+" else "lt")
+                if kind == "registerDate":
+                    condition["basis"] = "server-time-minus-max-register-days-minus-one-zero"
+                label = ("服务器时间" if kind == "date" else "注册日期（官方天数估算）") + (" ≥ " if sign == "+" else " < ") + value
+            except ValueError:
+                pass
+        elif match := re.fullmatch(r"task=([1-9]\d*)", token):
+            condition.update(kind="task", id=int(match[1]))
+            label = "已完成任务 " + match[1]
+        if not label:
+            condition["kind"] = "unknown"
+            result["supported"] = False
+            label = "未解析条件：" + branch
+        elif negate:
+            label = "不满足（" + label + "）"
+        condition["description"] = label
+        result["conditions"].append(condition)
+    result["description"] = " 或 ".join(row["description"] for row in result["conditions"])
+    return result
+
+
 def parse_hud(text: str) -> tuple[list[dict], list[dict]]:
     root = json.loads(_declaration(text, "DATA", "{"))
     if not isinstance(root, dict) or not isinstance(root.get("hud"), (dict, list)):
@@ -192,13 +239,22 @@ def parse_hud(text: str) -> tuple[list[dict], list[dict]]:
             continue
         key, name, service = value.get("key"), value.get("name"), value.get("tryGetService", "")
         candidate = isinstance(key, str) and key.strip() and isinstance(name, str) and name.strip() and (
-            "startTime" in value or "redPointId" in value or isinstance(service, str) and "NewActivityService" in service)
+            "startTime" in value or "redPointId" in value or isinstance(service, str) and bool(service.strip()))
         if candidate:
             date, red_id = value.get("startTime", ""), value.get("redPointId", 0)
             if not _date(date) or not _integer(red_id):
                 unsupported.append({"kind": "activity", "key": key, "reason": "日期或红点不是可识别的静态值"})
             else:
                 row = {"key": key, "name": name, "startTime": date, "redPointId": red_id}
+                raw = value.get("appearCondition", "")
+                if not isinstance(raw, str):
+                    raw = json.dumps(raw, ensure_ascii=False, sort_keys=True)
+                appearance = parse_appearance(raw)
+                row.update(appearCondition=raw, appearanceRule=appearance,
+                           appearanceDescription=appearance["description"], serviceEntry=service)
+                if not appearance["supported"]:
+                    unsupported.append({"kind": "appearance", "key": key, "raw": raw,
+                                        "reason": "活动入口显示条件包含尚未识别的分支，已保留原始规则"})
                 previous = entries.get(key)
                 if previous and previous != row:
                     unsupported.append({"kind": "activity-variant", "key": key, "reason": "同名活动存在多份入口，采用最新日期的定义"})
@@ -301,7 +357,10 @@ def update_routines(updater, versions: dict) -> bool:
         version = versions.get(resource, "")
         if not re.fullmatch(r"[0-9]{8,20}", version):
             raise ValueError("官方版本清单缺少日常/活动资源：" + resource)
-        changed[label] = not current or previous.get(label, {}).get("version") != version
+        observed = getattr(versions, 'hashes', {}).get(resource)
+        changed[label] = (not current or previous.get(label, {}).get("version") != version or
+                          (observed and previous.get(label, {}).get('sha256') != observed) or
+                          'routines' in getattr(updater, 'force_components', ()))
     if not any(changed.values()):
         if _read(path) != current:
             _atomic_json(path, current)
@@ -321,7 +380,7 @@ def update_routines(updater, versions: dict) -> bool:
     if changed["hud"]:
         entries, unsupported = parse_hud(scripts["hud"])
     else:
-        entries = [{key: row[key] for key in ("key", "name", "startTime", "redPointId")} for row in current["activities"]]
+        entries = [{key: value for key, value in row.items() if key != 'redPointIds'} for row in current["activities"]]
         unsupported = current.get("unsupportedRules", [])
     graph = parse_red_points(scripts["redPoints"]) if changed["redPoints"] else current["parserCache"]["redPointGraph"]
     result = {"schema": 1, "generatedAt": datetime.now(timezone.utc).isoformat(), **tasks,

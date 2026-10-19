@@ -6,6 +6,9 @@
 /dist*/
 /release/
 /validation-logs/
+/validation/
+/*-preview.png
+/*-official.png
 /.vs/
 CMakeUserPresets.json
 

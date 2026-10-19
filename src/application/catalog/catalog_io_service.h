@@ -36,6 +36,7 @@ public:
   ~CatalogIoService() override;
   quint64 requestReload(CatalogKind kind);
   quint64 requestOfficialUpdate(CatalogKind kind);
+  bool applyPublicVersion(const QJsonObject& report);
   void loadShopSelection();
   void saveShopSelection(const QStringList& selected, const QStringList& excludedAutomatic = {});
   bool shopSelectionEditable() const;
@@ -48,6 +49,7 @@ signals:
   void finished(quint64 jobId, CatalogKind kind, StorageStatus status, const QString& error);
   void stateChanged();
   void shopSelectionChanged();
+  void publicVersionApplied(const QJsonObject& report);
 
 private:
   friend struct CatalogIoInternal::State;

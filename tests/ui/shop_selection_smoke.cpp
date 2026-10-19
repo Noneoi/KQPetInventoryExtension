@@ -5,12 +5,15 @@
 #include "ui/workbench/pet_settings_dialog.h"
 
 #include <QApplication>
+#include <QComboBox>
+#include <QTableWidget>
 #include <QElapsedTimer>
 #include <QFile>
 #include <QFontDatabase>
 #include <QJsonArray>
 #include <QJsonDocument>
 #include <QLineEdit>
+#include <QTextBrowser>
 #include <QPushButton>
 #include <QTemporaryDir>
 #include <QTabWidget>
@@ -64,6 +67,19 @@ int main(int argc, char** argv) {
   // Windows' offscreen platform does not enumerate installed fonts.
   QFontDatabase::addApplicationFont(QStringLiteral("C:/Windows/Fonts/msyh.ttc"));
   QFontDatabase::addApplicationFont(QStringLiteral("C:/Windows/Fonts/segoeui.ttf"));
+  if (argc == 3 && QString::fromLocal8Bit(argv[1]) == "--update-report") {
+    QFile file(QString::fromLocal8Bit(argv[2]));
+    if (!file.open(QIODevice::ReadOnly)) return 1;
+    PetSettingsDialog settings(RefreshTimings{});
+    settings.findChild<QTabWidget*>(QStringLiteral("KQSettingsTabs"))->setCurrentIndex(1);
+    settings.setDataUpdateReport(QJsonDocument::fromJson(file.readAll()).object());
+    settings.show(); application.processEvents();
+    if (!settings.grab().save(QStringLiteral("update-results-official.png"))) return 1;
+    settings.findChild<QPushButton*>(QStringLiteral("KQDataAction-details"))->click();
+    application.processEvents();
+    auto* text = settings.findChild<QTextBrowser*>(QStringLiteral("KQDataUpdateDetails"));
+    return text && text->parentWidget()->grab().save(QStringLiteral("update-details-official.png")) ? 0 : 1;
+  }
   if (argc == 2) {
     QFile file(QString::fromLocal8Bit(argv[1]));
     require(file.open(QIODevice::ReadOnly), "official replay catalog could not be opened");
@@ -325,6 +341,27 @@ int main(int argc, char** argv) {
   PetSettingsDialog settings(RefreshTimings{});
   settings.findChild<QTabWidget*>(QStringLiteral("KQSettingsTabs"))->setCurrentIndex(1);
   settings.setShopSelection(base, true, QStringLiteral("测试"));
+  const QJsonObject updateRows{{"shop", QJsonObject{{"status", "partial"}, {"retryable", true}, {"error", "部分活动网络读取未完成"}, {"checkedUtc", "2026-10-18T05:00:00Z"}}}};
+  settings.setDataUpdateReport({{"state", "partial"}, {"sessionApplied", true}, {"components", updateRows}});
+  require(settings.findChild<QTableWidget*>(QStringLiteral("KQDataUpdateResults"))->rowCount() == 6, "six public data categories are visible");
+  require(settings.findChild<QPushButton*>(QStringLiteral("KQDataAction-retry"))->isEnabled(), "incomplete work can be retried");
+  const QJsonArray notices{QJsonObject{{"kind","extraction"},{"message",QStringLiteral("1 条活动配置尚未完整识别")},
+      {"items",QJsonArray{QJsonObject{{"activityName",QStringLiteral("下期新活动")},{"description",QStringLiteral("养成礼包")},{"reason",QStringLiteral("购买条件尚未完整识别")}}}}}};
+  settings.setDataUpdateReport({{"state","complete"},{"complete",true},{"sessionApplied",true},
+      {"components",QJsonObject{{"shop",QJsonObject{{"status","updated"},{"notices",notices}}}}}});
+  auto* results = settings.findChild<QTableWidget*>(QStringLiteral("KQDataUpdateResults"));
+  require(results->columnCount() == 6 && results->item(2,1)->text() == QStringLiteral("已更新") &&
+      results->item(2,5)->text().contains(QStringLiteral("活动配置")), "successful update was conflated with an extraction notice");
+  require(!settings.findChild<QPushButton*>(QStringLiteral("KQDataAction-retry"))->isEnabled(), "coverage notice advertised a network retry");
+  settings.findChild<QPushButton*>(QStringLiteral("KQDataAction-details"))->click();
+  auto* details = settings.findChild<QTextBrowser*>(QStringLiteral("KQDataUpdateDetails"));
+  require(details && details->toPlainText().contains(QStringLiteral("下期新活动 / 养成礼包")) &&
+      details->toPlainText().contains(QStringLiteral("购买条件尚未完整识别")), "notice details did not identify the affected offer");
+  if (details) details->parentWidget()->close();
+  settings.setDataUpdateStatus(QStringLiteral("检查中"), true);
+  require(!settings.findChild<QPushButton*>(QStringLiteral("KQCheckDataUpdate"))->isEnabled(), "accepted update cannot be repeatedly started");
+  require(settings.findChild<QPushButton*>(QStringLiteral("KQDataAction-cancel"))->isEnabled(), "running check exposes cancellation");
+  settings.setDataUpdateStatus(QStringLiteral("检查完成"), false);
   settings.show(); application.processEvents();
   settings.grab().save(QStringLiteral("shop-settings-preview.png"));
   require(settings.findChild<QPushButton*>(QStringLiteral("KQShopSelection"))->isVisible(), "settings lost the manual-selection entry");

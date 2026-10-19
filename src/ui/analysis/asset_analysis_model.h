@@ -1,6 +1,7 @@
 #pragma once
 
 #include "domain/asset_analysis_types.h"
+#include "cultivation_material_display.h"
 
 #include <QAbstractTableModel>
 
@@ -8,7 +9,7 @@ class AssetAnalysisModel final : public QAbstractTableModel {
   Q_OBJECT
 
 public:
-  enum Role { SortRole = Qt::UserRole, InstanceIdRole };
+  enum Role { SortRole = Qt::UserRole, InstanceIdRole, MaterialsHtmlRole };
   enum Column { Pet = 0, Location, CurrentPower, MaximumPower, Completion,
                 Gaps, Shop, Era, Rating, Materials, ColumnCount };
 
@@ -31,4 +32,5 @@ private:
   QList<PetAssetRecord> pets_;
   bool shopDataKnown_ = false;
   QString category_;
+  mutable QHash<int,CultivationMaterialCell> materialCells_;
 };

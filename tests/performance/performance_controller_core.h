@@ -158,7 +158,13 @@ private:
     connect(repository_,&PetRepository::packetObserved,shop_,[this](const QJsonObject& packet,const InboundEnvelope& envelope) {
       shop_->handleDecodedEnvelope(envelope,packet);
     });
-    shop_->setSender([this](const QString&,const QString&,const QString&) { ++fixtureSends_; return true; });
+    shop_->setSender([this](const QString&,const QString& command,const QString&) {
+      // Only the frozen observation fixtures below are supported. Unrelated
+      // bundled activities must finish as rejected during setup, not leave
+      // a timeout that starts another query in a long measurement.
+      if (command != ShopExchangeCatalog::instance().getInfoCommand() && command != "3_11" && command != "1015_2A") return false;
+      ++fixtureSends_; return true;
+    });
     // The isolated sender has no Bridge or network capability. Only setup
     // creates the two request expectations required by the production parser.
     if (!shop_->requestInfo()) { data_->error = QStringLiteral("fixture shop request setup rejected"); publishReady(); return; }
@@ -179,7 +185,7 @@ private:
       materials.insert(fields.front(),array);
     }
     deliverShop(materials);
-    if (data_->balances.contains(QStringLiteral("134:1"))) {
+    {
       const QJsonObject member{{QStringLiteral("lCToken"),data_->balances.value(QStringLiteral("134:1"))}};
       deliverShop({{QStringLiteral("_cmd"),QStringLiteral("1015_2A")},
           {QStringLiteral("infos"),QJsonObject{{QStringLiteral("UnionMemberInfo"),member}}}});
@@ -227,7 +233,7 @@ private:
   }
   void waitForFixtureIdle() {
     if (repository_->pendingReadCount() || repository_->pendingPersistenceCount() || repository_->cacheLoading() ||
-        storage_->state().outstandingTasks || shop_->pendingStorageCount() || controller_->persistencePendingTaskCount()) {
+        storage_->state().outstandingTasks || shop_->isRunning() || shop_->pendingStorageCount() || controller_->persistencePendingTaskCount()) {
       QTimer::singleShot(5,this,[this] { waitForFixtureIdle(); }); return;
     }
     publishReady();

@@ -5,6 +5,7 @@
 #include "application/catalog/pet_skill_catalog.h"
 #include "application/pet/pet_detail_preparation_service.h"
 #include "application/pet/pet_derivation_cache.h"
+#include "domain/pet_identity.h"
 #include <QFileInfo>
 #include <QTimer>
 #include <QThread>
@@ -26,6 +27,7 @@ InventoryPublisher::InventoryPublisher(PetRepository* repository, InventoryProje
   connect(repository_, &PetRepository::accountSessionChanged, this, [this] {
     facts_.clear(); factFailures_.clear(); detailInterests_.clear(); detailSelections_.clear(); detailRecordVersions_.clear(); detailRequests_.clear(); waitingDetails_.clear();
     requestedDetailReads_.clear(); preparedDetails_.clear(); detailErrors_.clear(); summaryStamps_.clear();
+    relationRoster_.reset(); relationInventoryRevision_ = 0;
     if (detailService_) detailService_->bindSession(repository_->accountKey(), repository_->sessionGeneration());
     requestPublication();
   });
@@ -98,7 +100,48 @@ void InventoryPublisher::skillMetadataUpdated(std::shared_ptr<const PetSkillCata
   Q_ASSERT(thread() == QThread::currentThread());
   if (!skills || (skills_ && skills->revision < skills_->revision) || skills == skills_) return;
   skills_ = std::move(skills);
+  invalidateRelationDetails();
   requestPublication(false);
+}
+
+void InventoryPublisher::invalidateRelationDetails() {
+  preparedDetails_.clear();
+  QSet<qint64> selected;
+  for (const auto& selection : detailSelections_) selected.insert(selection.instanceId);
+  if (detailService_ && !selected.isEmpty()) detailService_->summariesChanged(selected);
+}
+
+bool InventoryPublisher::refreshRelationRoster() {
+  const auto account = repository_->accountKey();
+  const auto epoch = repository_->sessionGeneration();
+  const auto inventoryRevision = repository_->inventoryRevision();
+  if (relationRoster_ && relationRoster_->account == account && relationRoster_->epoch == epoch &&
+      relationInventoryRevision_ == inventoryRevision) return false;
+  auto roster = std::make_shared<DetailRelationRoster>();
+  roster->account = account; roster->epoch = epoch;
+  for (qint64 id : repository_->currentInstanceIds()) {
+    const auto brief = repository_->briefFor(id);
+    const int race = petRaceId(brief);
+    if (id <= 0 || petInstanceId(brief) != id || race <= 0) continue;
+    DetailOwnership ownership = DetailOwnership::OwnedLocationUnknown;
+    const auto location = brief.value(QStringLiteral("_location")).toString();
+    const auto group = brief.value(QStringLiteral("_warehouseGroup")).toString();
+    if (location == QStringLiteral("backpack")) ownership = DetailOwnership::Backpack;
+    else if (location == QStringLiteral("warehouse")) {
+      ownership = group == QStringLiteral("normal") ? DetailOwnership::WarehouseNormal :
+          group == QStringLiteral("elite") ? DetailOwnership::WarehouseElite :
+          group == QStringLiteral("goodbye") ? DetailOwnership::WarehouseGoodbye : DetailOwnership::WarehouseUnknown;
+    }
+    roster->byRace[race].append({id,race,ownership});
+  }
+  for (auto& values : roster->byRace)
+    std::sort(values.begin(),values.end(),[](const auto& left, const auto& right) { return left.instanceId < right.instanceId; });
+  relationInventoryRevision_ = inventoryRevision;
+  if (relationRoster_ && relationRoster_->account == account && relationRoster_->epoch == epoch &&
+      relationRoster_->byRace == roster->byRace) return false;
+  roster->revision = ++nextRelationRosterRevision_;
+  relationRoster_ = std::move(roster);
+  return true;
 }
 
 void InventoryPublisher::factsUpdated(qint64 id, const PetDerivedFactsHandle& facts) {
@@ -154,7 +197,10 @@ void InventoryPublisher::setDetailService(PetDetailPreparationService* service, 
       [this](int consumer, quint64 request, const PreparedPetDetailHandle& value) {
     if (!value || detailRequests_.value(consumer) != request || !metadata_ || detailSelections_.value(consumer).instanceId != value->identity.instanceId ||
         !(value->version.facts.record == repository_->recordVersion(value->identity.instanceId).key) ||
-        value->version.facts.metadataRevision != metadata_->revision || value->version.facts.metadataDigest != metadata_->contentDigest) return;
+        value->version.facts.metadataRevision != metadata_->revision || value->version.facts.metadataDigest != metadata_->contentDigest ||
+        value->version.skillRevision != (skills_ ? skills_->revision : 0) ||
+        value->version.skillDigest != (skills_ ? skills_->contentDigest : QByteArray{}) ||
+        value->version.relationRosterRevision != (relationRoster_ ? relationRoster_->revision : 0)) return;
     preparedDetails_[consumer] = value; detailErrors_.remove(consumer);
     requestPublication(false, value->identity.instanceId);
   });
@@ -204,6 +250,16 @@ void InventoryPublisher::detailInputsNeeded(quint64 request, int consumer, const
 }
 void InventoryPublisher::provideWaitingDetails() {
   if (!detailService_ || !metadata_) return;
+  if (refreshRelationRoster()) {
+    // Facts/raw callbacks may arrive before dataChanged. Whichever callback
+    // first advances this snapshot must invalidate existing selections too;
+    // otherwise dataChanged observes an already-current roster and misses it.
+    invalidateRelationDetails();
+    requestPublication(false);
+    // summariesChanged replaces the waiting request IDs. Let the service ask
+    // for fresh inputs instead of handing inputs to a superseded request.
+    return;
+  }
   const auto waiting = waitingDetails_;
   for (auto it = waiting.cbegin(); it != waiting.cend(); ++it) {
     const auto selection = detailSelections_.value(it.value());
@@ -232,6 +288,7 @@ void InventoryPublisher::provideWaitingDetails() {
     }
     FrozenDetailInputs inputs;
     inputs.raw = raw; inputs.facts = facts; inputs.metadata = metadata_;
+    inputs.skills = skills_; inputs.relationRoster = relationRoster_;
     inputs.brief = repository_->briefFor(selection.instanceId);
     inputs.summaryRevision = summaryRevision(selection.instanceId, inputs.brief);
     inputs.sourceVerified = repository_->sessionContext().canPersist();
@@ -253,6 +310,10 @@ QSet<qint64> InventoryPublisher::changedSelectedRecords() {
 void InventoryPublisher::detailDependenciesChanged(const QSet<qint64>& ids) {
   if (!detailService_) return;
   QSet<qint64> changed = ids | changedSelectedRecords();
+  if (refreshRelationRoster()) {
+    preparedDetails_.clear();
+    for (const auto& selection : detailSelections_) changed.insert(selection.instanceId);
+  }
   if (ids.isEmpty()) {
     for (auto it = summaryStamps_.cbegin(); it != summaryStamps_.cend(); ++it)
       if (repository_->briefFor(it.key()) != it->value) changed.insert(it.key());

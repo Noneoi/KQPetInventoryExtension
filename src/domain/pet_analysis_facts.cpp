@@ -1,4 +1,23 @@
 #include "pet_analysis_facts.h"
+#include <QJsonDocument>
+#include <QtEndian>
+
+QByteArray packPetAnalysisFacts(const PetAnalysisFacts& facts) {
+  const auto json = QJsonDocument(petAnalysisFactsToJson(facts)).toJson(QJsonDocument::Compact);
+  if (json.size() > 1024 * 1024) return {};
+  return qCompress(json, 1);
+}
+std::optional<PetAnalysisFacts> unpackPetAnalysisFacts(const QByteArray& frame) {
+  if (frame.size() < 5 || frame.size() > 1024 * 1024) return {};
+  const quint32 expanded = qFromBigEndian<quint32>(frame.constData());
+  if (!expanded || expanded > 1024 * 1024) return {};
+  const auto json = qUncompress(frame);
+  if (json.size() != expanded) return {};
+  QJsonParseError error;
+  const auto document = QJsonDocument::fromJson(json, &error);
+  if (error.error != QJsonParseError::NoError || !document.isObject()) return {};
+  return petAnalysisFactsFromJson(document.object());
+}
 #include "asset_derivation.h"
 #include "checked_json_numbers.h"
 #include "compiled_shop_catalog.h"
@@ -183,6 +202,28 @@ bool validatePetAnalysisFacts(const PetAnalysisFacts& facts, QString* error) {
   for (const auto state : eligibility.components)
     if (state != ShopCultivationState::Unknown && state != ShopCultivationState::Useful && state != ShopCultivationState::Full)
       return fail(error,QStringLiteral("invalid cultivation component state"));
+  const auto validStarIds=[](const QList<int>& ids) {
+    if(ids.size()>256) return false;
+    int previous=0; for(int id:ids) { if(id<=previous) return false; previous=id; } return true;
+  };
+  if (eligibility.astrolabeBlockedMask<0 || eligibility.astrolabeBlockedMask>7 ||
+      !validStarIds(eligibility.usefulSpecifiedStars) || !validStarIds(eligibility.satisfiedSpecifiedStars) ||
+      !validStarIds(eligibility.unavailableSpecifiedStars))
+    return fail(error,QStringLiteral("invalid parameterized cultivation facts"));
+  for(int id:eligibility.usefulSpecifiedStars) if(eligibility.satisfiedSpecifiedStars.contains(id) || eligibility.unavailableSpecifiedStars.contains(id))
+    return fail(error,QStringLiteral("contradictory specified-star facts"));
+  for(int id:eligibility.satisfiedSpecifiedStars) if(eligibility.unavailableSpecifiedStars.contains(id))
+    return fail(error,QStringLiteral("contradictory specified-star availability"));
+  for(int i=0;i<3;++i) if((eligibility.astrolabeBlockedMask & (1<<i)) && eligibility.components[14+i]!=ShopCultivationState::Full)
+    return fail(error,QStringLiteral("contradictory trace prerequisite facts"));
+  if (eligibility.minimumEquipmentLevel < 0 || eligibility.minimumLegendStoneLevel < 0 ||
+      (!eligibility.equipmentLevelsKnown && eligibility.minimumEquipmentLevel != 0) ||
+      (!eligibility.legendStoneLevelsKnown && eligibility.minimumLegendStoneLevel != 0) ||
+      (eligibility.equipmentLevelsKnown && eligibility.components[19] !=
+          (eligibility.minimumEquipmentLevel < 6 ? ShopCultivationState::Useful : ShopCultivationState::Full)) ||
+      (eligibility.legendStoneLevelsKnown && eligibility.components[21] !=
+          (eligibility.minimumLegendStoneLevel < 5 ? ShopCultivationState::Useful : ShopCultivationState::Full)))
+    return fail(error,QStringLiteral("invalid equipment or legend-stone level facts"));
   if (eligibility.changeableLevel < 0 ||
       (eligibility.changeableLevelKnown && (!eligibility.changeableSlotKnown || !eligibility.hasChangeableSlot || eligibility.changeableLevel <= 0)) ||
       (eligibility.hasChangeableSlot && !eligibility.changeableSlotKnown))
@@ -218,6 +259,11 @@ bool validatePetAnalysisFacts(const PetAnalysisFacts& facts, QString* error) {
     for (const auto& field : slotIntegers) if (slot.*(field.member) < 0)
       return fail(error,QStringLiteral("negative star-slot fact"));
   if (!asset.detailAvailable) {
+    if (eligibility.equipmentLevelsKnown || eligibility.legendStoneLevelsKnown ||
+        eligibility.minimumEquipmentLevel || eligibility.minimumLegendStoneLevel)
+      return fail(error,QStringLiteral("missing detail contains equipment or stone levels"));
+    if (eligibility.astrolabeBlockedMask || !eligibility.usefulSpecifiedStars.isEmpty() || !eligibility.satisfiedSpecifiedStars.isEmpty() || !eligibility.unavailableSpecifiedStars.isEmpty())
+      return fail(error,QStringLiteral("missing detail contains parameterized cultivation facts"));
     if (eligibility.sacredStateRequired) return fail(error,QStringLiteral("unknown detail contains sacred state"));
     if (eligibility.badgeStateRequired || eligibility.astrolabeStateRequired)
       return fail(error,QStringLiteral("unknown detail contains badge or astrolabe state"));
@@ -251,6 +297,7 @@ bool validatePetAnalysisFacts(const PetAnalysisFacts& facts, QString* error) {
 quint64 petAnalysisFactsRetainedBytes(const PetAnalysisFacts& facts) {
   const auto& asset = facts.asset;
   quint64 bytes = sizeof(PetAnalysisFacts) + textBytes(asset.name) + textBytes(asset.location) +
+      quint64(facts.eligibility.usefulSpecifiedStars.capacity()+facts.eligibility.satisfiedSpecifiedStars.capacity()+facts.eligibility.unavailableSpecifiedStars.capacity()) * sizeof(int) +
       cultivationRequirementsRetainedBytes(asset.cultivationRequirements) +
       listBytes(asset.gapKeys) + listBytes(asset.gaps) +
       quint64(facts.battlePower.componentGaps.capacity()) * sizeof(PetBattlePowerGap);
@@ -311,6 +358,10 @@ QJsonObject petAnalysisFactsToJson(const PetAnalysisFacts& facts) {
   asset.insert(QStringLiteral("identity"),identity);
   asset.insert(QStringLiteral("requirements"),cultivationRequirementsToJson(facts.asset.cultivationRequirements));
   QJsonArray components;
+  QJsonArray usefulStars,satisfiedStars,unavailableStars;
+  for(int id:facts.eligibility.usefulSpecifiedStars) usefulStars.append(id);
+  for(int id:facts.eligibility.satisfiedSpecifiedStars) satisfiedStars.append(id);
+  for(int id:facts.eligibility.unavailableSpecifiedStars) unavailableStars.append(id);
   for (const auto value : facts.eligibility.components) components.append(int(value));
   const QJsonObject eligibility{{QStringLiteral("raceId"),facts.eligibility.raceId},
       {QStringLiteral("metadataRaceId"),facts.eligibility.metadataRaceId},
@@ -322,7 +373,14 @@ QJsonObject petAnalysisFactsToJson(const PetAnalysisFacts& facts) {
       {QStringLiteral("changeableSlotKnown"),facts.eligibility.changeableSlotKnown},
       {QStringLiteral("hasChangeableSlot"),facts.eligibility.hasChangeableSlot},
       {QStringLiteral("changeableLevelKnown"),facts.eligibility.changeableLevelKnown},
-      {QStringLiteral("changeableLevel"),facts.eligibility.changeableLevel},{QStringLiteral("components"),components}};
+      {QStringLiteral("changeableLevel"),facts.eligibility.changeableLevel},{QStringLiteral("components"),components},
+      {QStringLiteral("astrolabeBlockedMask"),facts.eligibility.astrolabeBlockedMask},
+      {QStringLiteral("equipmentLevelsKnown"),facts.eligibility.equipmentLevelsKnown},
+      {QStringLiteral("minimumEquipmentLevel"),facts.eligibility.minimumEquipmentLevel},
+      {QStringLiteral("legendStoneLevelsKnown"),facts.eligibility.legendStoneLevelsKnown},
+      {QStringLiteral("minimumLegendStoneLevel"),facts.eligibility.minimumLegendStoneLevel},
+      {QStringLiteral("usefulSpecifiedStars"),usefulStars},{QStringLiteral("satisfiedSpecifiedStars"),satisfiedStars},
+      {QStringLiteral("unavailableSpecifiedStars"),unavailableStars}};
   auto power = scalarObject(facts.battlePower,powerIntegers,powerBooleans);
   QJsonArray gaps;
   for (const auto& gap : facts.battlePower.componentGaps)
@@ -376,8 +434,8 @@ std::optional<PetAnalysisFacts> petAnalysisFactsFromJson(const QJsonObject& obje
   if (!requirements) return invalid();
   facts.asset.cultivationRequirements = *requirements;
   const auto eligibility = object.value(QStringLiteral("eligibility")).toObject();
-  qint64 race = 0, metadataRace = 0, changeableLevel = 0;
-  if (eligibility.size() != 12 || !DomainNumeric::checkedInteger(eligibility.value(QStringLiteral("raceId")),&race,0,std::numeric_limits<int>::max()) ||
+  qint64 race = 0, metadataRace = 0, changeableLevel = 0, blockedMask=0, equipmentLevel=0, stoneLevel=0;
+  if (eligibility.size() != 20 || !DomainNumeric::checkedInteger(eligibility.value(QStringLiteral("raceId")),&race,0,std::numeric_limits<int>::max()) ||
       !DomainNumeric::checkedInteger(eligibility.value(QStringLiteral("metadataRaceId")),&metadataRace,0,std::numeric_limits<int>::max()) ||
       !eligibility.value(QStringLiteral("hasFullDetail")).isBool() || !eligibility.value(QStringLiteral("hasData")).isBool() ||
       !eligibility.value(QStringLiteral("sacredStateRequired")).isBool() ||
@@ -385,6 +443,11 @@ std::optional<PetAnalysisFacts> petAnalysisFactsFromJson(const QJsonObject& obje
       !eligibility.value(QStringLiteral("changeableSlotKnown")).isBool() || !eligibility.value(QStringLiteral("hasChangeableSlot")).isBool() ||
       !eligibility.value(QStringLiteral("changeableLevelKnown")).isBool() ||
       !DomainNumeric::checkedInteger(eligibility.value(QStringLiteral("changeableLevel")),&changeableLevel,0,std::numeric_limits<int>::max()) ||
+      !DomainNumeric::checkedInteger(eligibility.value(QStringLiteral("astrolabeBlockedMask")),&blockedMask,0,7) ||
+      !eligibility.value(QStringLiteral("equipmentLevelsKnown")).isBool() ||
+      !eligibility.value(QStringLiteral("legendStoneLevelsKnown")).isBool() ||
+      !DomainNumeric::checkedInteger(eligibility.value(QStringLiteral("minimumEquipmentLevel")),&equipmentLevel,0,std::numeric_limits<int>::max()) ||
+      !DomainNumeric::checkedInteger(eligibility.value(QStringLiteral("minimumLegendStoneLevel")),&stoneLevel,0,std::numeric_limits<int>::max()) ||
       !eligibility.value(QStringLiteral("components")).isArray() || eligibility.value(QStringLiteral("components")).toArray().size() != kShopCultivationComponentCount) return invalid();
   facts.eligibility.raceId = int(race); facts.eligibility.metadataRaceId = int(metadataRace);
   facts.eligibility.hasFullDetail = eligibility.value(QStringLiteral("hasFullDetail")).toBool();
@@ -396,6 +459,22 @@ std::optional<PetAnalysisFacts> petAnalysisFactsFromJson(const QJsonObject& obje
   facts.eligibility.hasChangeableSlot = eligibility.value(QStringLiteral("hasChangeableSlot")).toBool();
   facts.eligibility.changeableLevelKnown = eligibility.value(QStringLiteral("changeableLevelKnown")).toBool();
   facts.eligibility.changeableLevel = int(changeableLevel);
+  facts.eligibility.astrolabeBlockedMask=int(blockedMask);
+  facts.eligibility.equipmentLevelsKnown=eligibility.value(QStringLiteral("equipmentLevelsKnown")).toBool();
+  facts.eligibility.minimumEquipmentLevel=int(equipmentLevel);
+  facts.eligibility.legendStoneLevelsKnown=eligibility.value(QStringLiteral("legendStoneLevelsKnown")).toBool();
+  facts.eligibility.minimumLegendStoneLevel=int(stoneLevel);
+  const auto readIds=[](const QJsonValue& raw,QList<int>* ids) {
+    if(!raw.isArray() || raw.toArray().size()>256) return false;
+    int previous=0;
+    for(const auto& value:raw.toArray()) { qint64 id=0;
+      if(!DomainNumeric::checkedInteger(value,&id,1,std::numeric_limits<int>::max()) || id<=previous) return false;
+      ids->append(int(id)); previous=int(id);
+    } return true;
+  };
+  if(!readIds(eligibility.value("usefulSpecifiedStars"),&facts.eligibility.usefulSpecifiedStars) ||
+      !readIds(eligibility.value("satisfiedSpecifiedStars"),&facts.eligibility.satisfiedSpecifiedStars) ||
+      !readIds(eligibility.value("unavailableSpecifiedStars"),&facts.eligibility.unavailableSpecifiedStars)) return invalid();
   const auto components = eligibility.value(QStringLiteral("components")).toArray();
   for (std::size_t index = 0; index < kShopCultivationComponentCount; ++index) {
     qint64 state = 0;

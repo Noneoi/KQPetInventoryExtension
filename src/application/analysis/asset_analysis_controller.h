@@ -42,6 +42,7 @@ public:
   bool shopAnalysisStale() const;
   quint64 analysisRunCount() const { return analysisRunCount_; }
   quint64 preparationReadAdmissionRetries() const { return preparationReadAdmissionRetries_; }
+  quint64 preparedFrameBytes() const { return preparedFrameBytes_; }
   bool analysisRunning() const override { return analysisQueued_; }
   AnalysisMemoryUsage analysisMemoryUsage() const { return worker_.memoryUsage(); }
   AnalysisJobKey currentAnalysisJob() const { return currentJob_; }
@@ -142,9 +143,14 @@ private:
   QSet<qint64> preparationIds_;
   QSet<qint64> awaitingFacts_;
   QSet<qint64> localReadChecked_;
+  QSet<qint64> localReadUnavailable_;
   QHash<qint64, PetRecordKey> localReadPending_;
   QHash<qint64, PetRecordKey> derivationVersions_;
-  QHash<qint64, PetDerivedFactsHandle> preparedHandles_;
+  struct FactFrame { PetDerivationKey key; QByteArray bytes; quint64 chargedBytes = 0; };
+  QHash<qint64, FactFrame> preparedFrames_;
+  quint64 preparedFrameBytes_ = 0;
+  void removePreparedFrame(qint64 id);
+  void clearPreparedFrames();
   bool preparingFacts_ = false;
   bool preparationStarted_ = false;
   qint64 preparationStartedAt_ = 0;

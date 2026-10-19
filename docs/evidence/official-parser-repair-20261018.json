@@ -1,0 +1,2123 @@
+{
+  "schema": 1,
+  "date": "2026-10-18",
+  "method": "Independent official bytes and consumers first; product output then compared. No account purchases, claims or messages.",
+  "inputs": {
+    "initialOfficialFindings": {
+      "path": "validation/official-coverage-audit/findings.json",
+      "sha256": "e1055373fea5459ad1b0ba2c02721a2e9c42e43104707e7b9a2eb1474818b05a"
+    },
+    "serviceFindings": {
+      "path": "validation/service-discovery-audit/findings.json",
+      "sha256": "15f57bea64c3ba67ac2a26d573c5fcc31316210c7255378e3adcf5bda6620834"
+    },
+    "serviceSources": {
+      "path": "validation/service-discovery-audit/source-manifest.json",
+      "sha256": "c3c4ef23d1fcc053334688c335ee8cf19211da3cf2854f0fbfa3a849efb21321"
+    },
+    "priceFindings": {
+      "path": "validation/price-conditions-audit/findings.json",
+      "sha256": "129c303199ecf468b373cb2fc184dab8b73495e8f832174c8ab3e345656f6aec"
+    },
+    "metadataFindings": {
+      "path": "validation/metadata-coverage-audit/findings.json",
+      "sha256": "62f9de93d04a090ebae0de44bff3a29a121963c7bd9d09b156b93b9548496d2f"
+    },
+    "metadataVerification": {
+      "path": "validation/metadata-coverage-audit/verification.json",
+      "sha256": "348d9c5c33ecebe10bb59657ea4a325ef93b81310c7f853128574bc10c31207e"
+    },
+    "newcomerRuleEvidence": {
+      "path": "validation/metadata-coverage-audit/newcomer-rules-findings.json",
+      "sha256": "28e9dc08dac9f1cbcbd8102c52b8b55e549deff55f2c2376a6a20ab898f936f4"
+    },
+    "directCallFindings": {
+      "path": "validation/direct-call-audit/findings.json",
+      "sha256": "744d630f1752d982a11e33a7e63158660ce584bdc5a1faa28f8b2fcc8a43086b"
+    },
+    "directCallVerification": {
+      "path": "validation/direct-call-audit/implementation-result.json",
+      "sha256": "5259d7034ec7f6fa5f19046d1169c1aa784bb0575f1aed9bde2c7789d209d452"
+    },
+    "catalogComparison": {
+      "path": "validation/parser-repair/catalog-comparison.json",
+      "sha256": "a499370a7acce91c93d1a4806c267296a35c6589465748f8ece762d411693732"
+    }
+  },
+  "evidence": {
+    "initialOfficialFindings": {
+      "checkedAt": "2026-10-18T20:16:13.196734+08:00",
+      "status": "audit-only; not fixed in installed build",
+      "method": "Fresh official HTTPS bytes; standalone Java/JPEXS full-script exports; no product parser imports.",
+      "officialSwfs": 8,
+      "localRevision": "c1738f66c9e793bd6d111e3eff52441c1d27d7ba21012398b2738393517b278d",
+      "localPending": 0,
+      "findings": [
+        {
+          "id": "discovery-service-root",
+          "severity": "high",
+          "title": "独立服务入口造成整页养成漏扫",
+          "official": "官方首页 YearPay → 2026 年费页 → 年费专属养成，界面显示 9 个项目；另 1 条配置是升阶商品的条件替代分支。",
+          "local": "当前扫描模块表及商品目录均无 yearpay26tab3；待识别仍为 0。现有活动排除清单不包含此模块。",
+          "cause": "发现入口只收 NewActivityService；独立服务中的活动页签没有接入发现图。",
+          "missingGoods": [
+            {
+              "id": 0,
+              "name": "神运极品",
+              "price": 788,
+              "enhanceType": "11-62-31-91-41"
+            },
+            {
+              "id": 1,
+              "name": "装备一颗万变红星",
+              "price": 149,
+              "enhanceType": "33"
+            },
+            {
+              "id": 2,
+              "name": "觉醒一个元魂",
+              "price": 89,
+              "enhanceType": "44"
+            },
+            {
+              "id": 3,
+              "name": "装备一个红色星神",
+              "price": 99,
+              "enhanceType": "39"
+            },
+            {
+              "id": 4,
+              "name": "源兽神觉升至满阶满星",
+              "price": 549,
+              "enhanceType": "91-94"
+            },
+            {
+              "id": 5,
+              "name": "源兽神觉升1阶",
+              "price": 109,
+              "enhanceType": "92"
+            },
+            {
+              "id": 6,
+              "name": "激活一个专属星迹",
+              "price": 139,
+              "enhanceType": "83"
+            },
+            {
+              "id": 7,
+              "name": "满普通星迹",
+              "price": 299,
+              "enhanceType": "85"
+            },
+            {
+              "id": 9,
+              "name": "星轮突破",
+              "price": 70,
+              "enhanceType": "89"
+            }
+          ],
+          "conditionalBranch": {
+            "displayId": 5,
+            "normalPrice": 109,
+            "alternativeId": 8,
+            "alternativePrice": 79,
+            "condition": "getStageUpgradeMaterial(...).some(material.type == EQUIPMENT4PET_ITEM)；不需要该类材料时改用替代定义。"
+          },
+          "evidence": [
+            {
+              "file": "official\\config\\scripts\\mmo\\config\\CommonHudConfig.as",
+              "line": 416,
+              "sha256": "94dc0b207f378eb9a8decab3c9914b5ade38008197ecd40c2f5a76765fd292ef"
+            },
+            {
+              "file": "official\\yearpay\\scripts\\mmo\\yearpayx\\the2026\\other\\Yp26Config.as",
+              "line": 56,
+              "sha256": "a9d6339d1ff8a42a7c2cf85cc7b645073e3ecb23ff65cca7e25b936cda49aef3"
+            },
+            {
+              "file": "official\\yearpay\\scripts\\mmo\\yearpayx\\the2026\\view\\Yp26MainPanel.as",
+              "line": 39,
+              "sha256": "19255d3a3fe1670fa29edadc3c2528368c57974ba7f2d80ced1e5083476b3cdd"
+            },
+            {
+              "file": "official\\yearpay26tab3\\scripts\\mmo\\activityext\\newact20251231\\yearpay26tab3\\panel\\YP26T3MainPanel.as",
+              "line": 20,
+              "sha256": "bdf3a21f540f854b99b22834e6d210bc53ebad6c79a677e412709fbec271c9bc"
+            },
+            {
+              "file": "official\\yearpay26tab3\\scripts\\mmo\\activityext\\newact20251231\\yearpay26tab3\\data\\YP26T3Config.as",
+              "line": 18,
+              "sha256": "b0e207f4f4ea4f5fa83d123eaf5e655f2fbbf29fe994cfc88e281accb12a532c"
+            },
+            {
+              "file": "official\\yearpay26tab3\\scripts\\mmo\\activityext\\newact20251231\\yearpay26tab3\\manager\\YP26T3Manager.as",
+              "line": 104,
+              "sha256": "ee858f91fc463871d4d5eb279472b3fc89c637a229dca96c7b7691a24f7b5924"
+            }
+          ]
+        },
+        {
+          "id": "cumulative-claim",
+          "severity": "medium",
+          "title": "累计领取门槛未按官方消费逻辑解析",
+          "official": "首充首兑的神运极品档位前面有 50、10、100 三档；官方累加 cost，并比较累计首兑进度，门槛为 160。",
+          "local": "该商品仍被归为 exchange，costRaw 只保留单档 100，costDescription 为空，未表达累计 160 与未领取条件。",
+          "cause": "读到了字段，未完整表达顺序累加及领取状态判断。这里不是 160 钻的直接扣费商品。",
+          "officialCumulativeThreshold": 160,
+          "localRecord": {
+            "id": 2,
+            "itemServerId": 2,
+            "description": "100钻+[灵初]时溯王者·时空神运极品（含满级、完美天赋、满金星+万变金星、源兽神觉满星级、满级元魂）",
+            "manualSelectionRequired": false,
+            "acquisitionKind": "exchange",
+            "displayIdentityOnly": true,
+            "tab": 0,
+            "cost": "",
+            "costKnown": false,
+            "costRaw": {
+              "cost": 100
+            },
+            "costDescription": "",
+            "enhanceType": "11-62-31-91-41",
+            "raceIds": [
+              6840
+            ],
+            "shelfTime": "20260618",
+            "removalTime": "",
+            "availableKnown": true,
+            "officialShelfTime": "20260618",
+            "officialRemovalTime": "",
+            "limit": "",
+            "limitIndex": -1,
+            "limitCount": -1,
+            "limitKey": "",
+            "limitLabel": "",
+            "quotaKnown": false,
+            "quotaRaw": {},
+            "unlock": "",
+            "conditionsRaw": {
+              "index": 2,
+              "filter": [
+                6840
+              ]
+            },
+            "rewardRaw": "CommonEnhancePrize,,,11-62-31-91-41,6840",
+            "selectablePackageIds": [],
+            "source": {
+              "configClass": "NFC26Config.REWARD",
+              "configFile": "scripts/mmo/activityext/newact20260618/newfirstcharge2026/config/NFC26Config.as",
+              "commands": {},
+              "shelfTimeSource": "activity",
+              "removalTimeSource": "activity",
+              "periodBounds": {
+                "rowStart": "",
+                "rowEnd": "",
+                "moduleStart": "",
+                "moduleEnd": "",
+                "tableEnd": ""
+              },
+              "selection": "tagged-strengthen",
+              "activityPeriodEvidence": [
+                {
+                  "startTime": "20260618",
+                  "kind": "hud",
+                  "alias": "newfirstcharge2026"
+                }
+              ]
+            },
+            "startsAt": "2026-06-18T00:00:00+08:00",
+            "endsAt": "",
+            "availabilityClosed": false,
+            "rewardStructure": "tagged-strengthen",
+            "rewardOptions": [],
+            "targetingRaw": [
+              6840
+            ],
+            "officialRewardRaw": "{\"filter\": [6840], \"rewardParams\": \"11-62-31-91-41?4:1336:10\", \"rewardType\": \"Strengthen\"}",
+            "exchangeKind": "activity"
+          },
+          "evidence": [
+            {
+              "file": "official\\newfirstcharge2026\\scripts\\mmo\\activityext\\newact20260618\\newfirstcharge2026\\config\\NFC26Config.as",
+              "line": 26,
+              "sha256": "402f7a017129fbeafb0ad8b683bf791dd73b81366e88494d82d18d25acadec6d"
+            },
+            {
+              "file": "official\\newfirstcharge2026\\scripts\\mmo\\activityext\\newact20260618\\newfirstcharge2026\\view\\NFC26MainPanel.as",
+              "line": 177,
+              "sha256": "984f6cd109e9b3565388415518a907e5eaf11e142483cdfbf9ade83dab5fd3b1"
+            },
+            {
+              "file": "official\\newfirstcharge2026\\scripts\\mmo\\activityext\\newact20260618\\newfirstcharge2026\\view\\NFC26MainPanel.as",
+              "line": 184,
+              "sha256": "984f6cd109e9b3565388415518a907e5eaf11e142483cdfbf9ade83dab5fd3b1"
+            }
+          ]
+        },
+        {
+          "id": "shared-price-conditions",
+          "severity": "medium",
+          "title": "公共养成只保留报价，优惠规则未完整建模",
+          "official": "官方公共养成有全局折扣、日期/VIP/道具条件、覆盖价格及支付策略，最终价格由消费者计算。",
+          "local": "58 项公共养成目前均 costKnown=false，展示基础价及通用说明，未把这些公开规则转为可计算条件。",
+          "limit": "这不证明当前基础报价错误。当前 SWF 的全局九折窗口为 2026-06-18 至 2026-06-26，本次核查日已结束；账号条件和公共条件也应分开。",
+          "rawGlobalDiscount": {
+            "value": 0.9,
+            "checker": "date$20260618-20260626",
+            "getWay": ""
+          },
+          "count": 58,
+          "evidence": [
+            {
+              "file": "official\\strengthencomboservice\\scripts\\mmo\\strengthencombo\\update\\StrengthenComboContents.as",
+              "line": 15,
+              "sha256": "87aeccffb4f4eddd3a2e27ccd6b6dbd56b536f966414ad28d247b260e91bcebc"
+            },
+            {
+              "file": "official\\strengthencomboservice\\scripts\\mmo\\strengthencombo\\define\\StrengthenComboPriceDefine.as",
+              "line": 120,
+              "sha256": "f93cee5f9922af0ff9a3b7f6f1d76f05683bd173934805c7ab5da54406a3e3e9"
+            },
+            {
+              "file": "official\\strengthencomboservice\\scripts\\mmo\\strengthencombo\\define\\StrengthenComboPriceDefine.as",
+              "line": 144,
+              "sha256": "f93cee5f9922af0ff9a3b7f6f1d76f05683bd173934805c7ab5da54406a3e3e9"
+            },
+            {
+              "file": "official\\strengthencomboservice\\scripts\\mmo\\strengthencombo\\util\\StrengthenComboConditionUtil.as",
+              "line": 75,
+              "sha256": "3b5fedcfd193edc48f0442c86346c14ce323d3e0d1555e9934518846bedb2535"
+            }
+          ]
+        },
+        {
+          "id": "hud-conditions",
+          "severity": "medium",
+          "title": "日常目录没有保留官方入口显示条件",
+          "official": "在当前日常目录对应的官方 HUD 中，28 条入口配置（28 个不同活动）含 appearCondition；官方 HUD 消费该字段控制出现/锁定。",
+          "local": "日常活动记录只保留 key、名称、日期和红点，显示条件没有进入数据模型。",
+          "limit": "HUD 显示条件不等于服务器兑换权限；应明确显示门槛，不能用它代替商品或账号的可兑换判断。",
+          "rows": [
+            {
+              "key": "limitededitionskinreturnspecial",
+              "name": "绝版皮肤回归专场",
+              "appearCondition": "battlePower=320000+",
+              "localFields": [
+                "key",
+                "name",
+                "startTime",
+                "redPointId",
+                "redPointIds"
+              ]
+            },
+            {
+              "key": "wishpellasale",
+              "name": "薇斯佩拉特惠专场",
+              "appearCondition": "battlePower=310000+",
+              "localFields": [
+                "key",
+                "name",
+                "startTime",
+                "redPointId",
+                "redPointIds"
+              ]
+            },
+            {
+              "key": "kuanghuanshangcheng",
+              "name": "中秋&amp;华诞狂欢商城",
+              "appearCondition": "battlePower=270000+",
+              "localFields": [
+                "key",
+                "name",
+                "startTime",
+                "redPointId",
+                "redPointIds"
+              ]
+            },
+            {
+              "key": "funengshinafeimall",
+              "name": "灵初路因加德特惠专场",
+              "appearCondition": "battlePower=310000+",
+              "localFields": [
+                "key",
+                "name",
+                "startTime",
+                "redPointId",
+                "redPointIds"
+              ]
+            },
+            {
+              "key": "lunarnewyearseriesskintab3",
+              "name": "极皮肤登场！",
+              "appearCondition": "battlePower=320000+",
+              "localFields": [
+                "key",
+                "name",
+                "startTime",
+                "redPointId",
+                "redPointIds"
+              ]
+            },
+            {
+              "key": "ruingardskinlottery",
+              "name": "路因加德圣品皮肤抽奖",
+              "appearCondition": "battlePower=320000+",
+              "localFields": [
+                "key",
+                "name",
+                "startTime",
+                "redPointId",
+                "redPointIds"
+              ]
+            },
+            {
+              "key": "summerholidayrebateshop",
+              "name": "中秋返钻商城",
+              "appearCondition": "battlePower=310000+",
+              "localFields": [
+                "key",
+                "name",
+                "startTime",
+                "redPointId",
+                "redPointIds"
+              ]
+            },
+            {
+              "key": "buxiuchampionskinlottery",
+              "name": "不休女神大赛典藏皮肤抽奖！",
+              "appearCondition": "battlePower=320000+",
+              "localFields": [
+                "key",
+                "name",
+                "startTime",
+                "redPointId",
+                "redPointIds"
+              ]
+            },
+            {
+              "key": "drawnimoniskin",
+              "name": "尼莫妮典藏皮肤抽奖",
+              "appearCondition": "battlePower=320000+",
+              "localFields": [
+                "key",
+                "name",
+                "startTime",
+                "redPointId",
+                "redPointIds"
+              ]
+            },
+            {
+              "key": "skinbountylottery",
+              "name": "精美皮肤赏金特典",
+              "appearCondition": "battlePower=320000+",
+              "localFields": [
+                "key",
+                "name",
+                "startTime",
+                "redPointId",
+                "redPointIds"
+              ]
+            },
+            {
+              "key": "yearpaytranssexualskin",
+              "name": "锻造宝石得性转皮肤",
+              "appearCondition": "battlePower=320000+",
+              "localFields": [
+                "key",
+                "name",
+                "startTime",
+                "redPointId",
+                "redPointIds"
+              ]
+            },
+            {
+              "key": "beautifulpetlottery",
+              "name": "超级神宠赏金特典",
+              "appearCondition": "battlePower=270000+",
+              "localFields": [
+                "key",
+                "name",
+                "startTime",
+                "redPointId",
+                "redPointIds"
+              ]
+            },
+            {
+              "key": "perfectluoshiqigainfree",
+              "name": "完美洛世琦全民送！",
+              "appearCondition": "battlePower=270000+",
+              "localFields": [
+                "key",
+                "name",
+                "startTime",
+                "redPointId",
+                "redPointIds"
+              ]
+            },
+            {
+              "key": "baixinggift25",
+              "name": "14周年限量纪念周边，先到先得！",
+              "appearCondition": "battlePower=320000+",
+              "localFields": [
+                "key",
+                "name",
+                "startTime",
+                "redPointId",
+                "redPointIds"
+              ]
+            },
+            {
+              "key": "midautumnnationaldaywelfare",
+              "name": "中秋华诞福利特惠！花钻积分抽路因卡面、半价绝品皮！",
+              "appearCondition": "battlePower=310000+",
+              "localFields": [
+                "key",
+                "name",
+                "startTime",
+                "redPointId",
+                "redPointIds"
+              ]
+            },
+            {
+              "key": "creatorhub",
+              "name": "大神攻略",
+              "appearCondition": "battlePower=260000+",
+              "localFields": [
+                "key",
+                "name",
+                "startTime",
+                "redPointId",
+                "redPointIds"
+              ]
+            },
+            {
+              "key": "xingyuewubianguideboard",
+              "name": "星月无边",
+              "appearCondition": "battlePower=260000+",
+              "localFields": [
+                "key",
+                "name",
+                "startTime",
+                "redPointId",
+                "redPointIds"
+              ]
+            },
+            {
+              "key": "holycrownsecretpavilion",
+              "name": "圣冕秘阁",
+              "appearCondition": "battlePower=260000+",
+              "localFields": [
+                "key",
+                "name",
+                "startTime",
+                "redPointId",
+                "redPointIds"
+              ]
+            },
+            {
+              "key": "aoduoduo",
+              "name": "双节奥多多，是兄弟就来砍一刀",
+              "appearCondition": "battlePower=260000+",
+              "localFields": [
+                "key",
+                "name",
+                "startTime",
+                "redPointId",
+                "redPointIds"
+              ]
+            },
+            {
+              "key": "midautumnbirthwelfarecenter",
+              "name": "中秋&华诞福利中心",
+              "appearCondition": "battlePower=260000+",
+              "localFields": [
+                "key",
+                "name",
+                "startTime",
+                "redPointId",
+                "redPointIds"
+              ]
+            },
+            {
+              "key": "midautumnfestivalmarket",
+              "name": "中秋月饼集市",
+              "appearCondition": "battlePower=260000+",
+              "localFields": [
+                "key",
+                "name",
+                "startTime",
+                "redPointId",
+                "redPointIds"
+              ]
+            },
+            {
+              "key": "newact2021",
+              "name": "每月活动",
+              "appearCondition": "battlePower=260000+",
+              "localFields": [
+                "key",
+                "name",
+                "startTime",
+                "redPointId",
+                "redPointIds"
+              ]
+            },
+            {
+              "key": "newpethud2026",
+              "name": "最新精灵",
+              "appearCondition": "battlePower=260000+",
+              "localFields": [
+                "key",
+                "name",
+                "startTime",
+                "redPointId",
+                "redPointIds"
+              ]
+            },
+            {
+              "key": "jingyingtrainingcamp",
+              "name": "精英猎手训练营",
+              "appearCondition": "battlePower=320000+",
+              "localFields": [
+                "key",
+                "name",
+                "startTime",
+                "redPointId",
+                "redPointIds"
+              ]
+            },
+            {
+              "key": "nationalcompetition",
+              "name": "全民斗技大赛，击败敌人获得积分，领取专属精华等奖励！",
+              "appearCondition": "battlePower=310000+",
+              "localFields": [
+                "key",
+                "name",
+                "startTime",
+                "redPointId",
+                "redPointIds"
+              ]
+            },
+            {
+              "key": "eternalbattlefield",
+              "name": "永恒战场——全民可挑战领豪礼",
+              "appearCondition": "battlePower=300000+",
+              "localFields": [
+                "key",
+                "name",
+                "startTime",
+                "redPointId",
+                "redPointIds"
+              ]
+            },
+            {
+              "key": "novemberpass",
+              "name": "10月通行证",
+              "appearCondition": "battlePower=250000+",
+              "localFields": [
+                "key",
+                "name",
+                "startTime",
+                "redPointId",
+                "redPointIds"
+              ]
+            },
+            {
+              "key": "aoqistarrank",
+              "name": "奥奇之星",
+              "appearCondition": "battlePower=280000+",
+              "localFields": [
+                "key",
+                "name",
+                "startTime",
+                "redPointId",
+                "redPointIds"
+              ]
+            }
+          ],
+          "distinctActivities": 28,
+          "evidence": [
+            {
+              "file": "official\\config\\scripts\\mmo\\config\\CommonHudConfig.as",
+              "line": 66,
+              "sha256": "94dc0b207f378eb9a8decab3c9914b5ade38008197ecd40c2f5a76765fd292ef"
+            },
+            {
+              "file": "official\\commonhud\\scripts\\mmo\\commonhudv2\\config\\CommonHudData.as",
+              "line": 169,
+              "sha256": "574435c999435d1f75d830df96dc856170cbe1d1aab6d3bcf95b87283267b1b0"
+            },
+            {
+              "file": "official\\commonhud\\scripts\\mmo\\commonhudv2\\manager\\HudAppearManager.as",
+              "line": 164,
+              "sha256": "1f130ff453e89de8c0052b5b212321b236c44f13347a2778c23e5dea54ceb5f6"
+            }
+          ]
+        }
+      ],
+      "sources": {
+        "fetchedUtc": "2026-10-18T12:07:32.635805+00:00",
+        "method": "Fresh official HTTPS bytes; standalone Java/JPEXS full-script exports; no product parser imports.",
+        "javaSha256": "82051fdab26319d77d20cc0065045d05ec00b3e3d05f44935d7c06b96b621d55",
+        "ffdecSha256": "090ab695053ad94cba6408574c7d7eea20ec60b6ae789ee6056a23f45106762f",
+        "sources": {
+          "https://aoqi.100bt.com/play/start.xml": {
+            "path": "raw\\start.xml",
+            "bytes": 771,
+            "sha256": "523a8af9d45a56f3a0bfee20c0d3fd0d3be1345b44be68674384c10468160536"
+          },
+          "https://aoqi.100bt.com/play/versiondata~20261015046931890.swf": {
+            "path": "raw\\versiondata.swf",
+            "bytes": 204909,
+            "sha256": "1d255cc952f4297f883e20beadbb9bbb7f782b347548fa36ffc52b0c4e8d79fd"
+          },
+          "https://aoqi.100bt.com/play/newactivityext/newact20260618/newfirstcharge2026/newfirstcharge2026~2026072319495749.swf": {
+            "path": "raw\\newfirstcharge2026.swf",
+            "bytes": 9721,
+            "sha256": "efe215400a459d6eeb2f7a494797ef73262be9e2c956cdac7719782320428ca7"
+          },
+          "https://aoqi.100bt.com/play/strengthencombo/strengthencomboservice~2026101571078066.swf": {
+            "path": "raw\\strengthencomboservice.swf",
+            "bytes": 104744,
+            "sha256": "90963b24d18cf137575590822637dcf4899785b32bc038f097b8ac19c6749aa9"
+          },
+          "https://aoqi.100bt.com/play/config/config~2026101571078066.swf": {
+            "path": "raw\\config.swf",
+            "bytes": 227881,
+            "sha256": "2c80f2ada424fa2b70b2d254fda15c2361c360617530ea15657e694762b67d10"
+          },
+          "https://aoqi.100bt.com/play/dailytask/dailytaskservice~2026093021560874.swf": {
+            "path": "raw\\dailytaskservice.swf",
+            "bytes": 16369,
+            "sha256": "1fb5befb544ac301b8009a02d10518213f033ff1772158ac790f5af137537b7b"
+          },
+          "https://aoqi.100bt.com/play/yearpayx/yearpay~2026051525375592.swf": {
+            "path": "raw\\yearpay.swf",
+            "bytes": 73640,
+            "sha256": "0e799be000f1f4f7eea564fbdc492d141d0835cad975d197c4605cd516f5e75e"
+          },
+          "https://aoqi.100bt.com/play/arenav3/arenav3service~2026101571078066.swf": {
+            "path": "raw\\arenav3service.swf",
+            "bytes": 65135,
+            "sha256": "4bb2ca7df39cde3c90c86c9a157038a37bece1d883c1af2d70f7fbf561d69e7e"
+          },
+          "https://aoqi.100bt.com/play/newactivityext/newact20251231/yearpay26tab3/yearpay26tab3~2026052226897060.swf": {
+            "path": "raw/yearpay26tab3.swf",
+            "bytes": 6739,
+            "sha256": "895e1103b591a19dfc155eee29af37e8eadf980b9516d3c19208579f0afa9c30"
+          },
+          "https://aoqi.100bt.com/play/commonhud/commonhud~2026090362810261.swf": {
+            "path": "raw\\commonhud.swf",
+            "bytes": 104424,
+            "sha256": "eef259fa9ef14a8cf07f9884abeb3e7ddbd401b0bc41c56670e98780eaa11945"
+          }
+        }
+      },
+      "scopeLimit": "Targeted audit of official navigation, first-charge, shared cultivation, yearly subscription and HUD consumers. Not a complete per-field audit of every official pet/skill/star/material/history resource. No account requests, payments or claims; no product or installed-file changes."
+    },
+    "serviceFindings": {
+      "method": "Read independently fetched official SWFs and complete standalone JPEXS exports; do not use the product extraction result as the coverage oracle.",
+      "scope": "Current CommonHudConfig service entries, official ServiceConfig registrations, reachable classes in each registered service, current date-selected adapters and their tab consumers.",
+      "findings": [
+        {
+          "id": "A01-service-entry-gap",
+          "status": "implemented; targeted tests and independent official-source replay passed; final release integration owned by root task",
+          "observed": "CommonHudConfig has four independent service entry names: YearPay, ArenaService, QualifyingCompetitionService and TaskPanelService. Existing build_discovery only retained NewActivityService calls.",
+          "sources": [
+            "../official-coverage-audit/official/config/scripts/mmo/config/CommonHudConfig.as",
+            "official/interfaces/scripts/mmo/interfaces/ServiceConfig.as"
+          ],
+          "additionalGap": "The current YearPay adapter has four external tab entries, yearpay26tab2/3/4/5. tab5 was not included in the earlier audit inventory. The same SWF retains the historical 2025 adapter; importing every string would introduce historical tabs incorrectly.",
+          "selectionEvidence": [
+            "../official-coverage-audit/official/yearpay/scripts/mmo/yearpayx/YearPay.as",
+            "official/interfaces/scripts/mmo/interfaces/yearpayx/enumerations/YearPayRange.as",
+            "../official-coverage-audit/official/yearpay/scripts/mmo/yearpayx/the2026/view/Yp26MainPanel.as",
+            "../official-coverage-audit/official/yearpay/scripts/mmo/yearpayx/the2026/other/Yp26Config.as"
+          ],
+          "requiredFix": "Resolve official service registration, evaluate supported date-enum adapter selection, then follow reachable current class references and explicit tab consumers. Unknown selector shape must produce a pending coverage record, never a whole-history fallback. Cache must include selector date/epoch."
+        },
+        {
+          "id": "A06-zero-pending-not-complete",
+          "status": "implemented; targeted tests and independent official-source replay passed; final release integration owned by root task",
+          "observed": "No service-root discovery accounting exists, so zero pending can coexist with an unvisited current service and all its tabs. Current ArenaService and QualifyingCompetitionService also call storeexchangeframework explicitly; these are references to an already separately parsed shop and must not double count goods.",
+          "sources": [
+            "../official-coverage-audit/official/arenav3service/scripts/mmo/arenav3/panel/ArenaV3MainPanel.as",
+            "official/qualifyingcompetitionservice/scripts/mmo/qualifyingcompetition/view/panel/QCMainPanel.as"
+          ],
+          "additionalEvidence": "TaskPanelService -> Tpv2Controller -> Tpv2Util.callNewAct(maintaskguider) uses a verified wrapper forwarding its first parameter into loadAndInitNormalActivity. ArenaV3Controller also binds a literal alias into a local variable before invoking the same loader. Both patterns require explicit call binding rather than a service-name allowlist.",
+          "requiredFix": "Persist service-entry/registered/scanned/reachable/inactive/unresolved counts and per-entry source evidence; add unresolved real entry links to pending; preserve deliberate exclusion of already handled common shop."
+        },
+        {
+          "id": "A09-service-native-claim",
+          "status": "implemented; service body replay has exactly one current preorder reward and no historical inventory products",
+          "observed": "Current YearPay Tab1 has a preorder reward implemented inside the service rather than an external activity tab. It uses effect 35$71:1 and race constant 6984 in a real showStrengthenPanel call.",
+          "gate": "hasPreOrdered && coreData.isYearPayUser && !lotteryData.hasGotPreOrderPrize",
+          "payment": "StrengthenComboPaymentFactory.getSimple(doPay) invokes the supplied callback; doPay calls takePreOrderPrize -> CMD_GAIN_RED (88_2026_7) with AQSOutDetails.params. It is a gated reward claim, not a diamond purchase.",
+          "sources": [
+            "../official-coverage-audit/official/yearpay/scripts/mmo/yearpayx/the2026/controller/Yp26Controller.as:491",
+            "../official-coverage-audit/official/yearpay/scripts/mmo/yearpayx/the2026/view/tabs/Yp26Tab1.as:205",
+            "../official-coverage-audit/official/yearpay/scripts/mmo/yearpayx/the2026/controller/Yp26Client.as:87",
+            "official/interfaces/scripts/mmo/interfaces/strengthencombo/StrengthenComboItem.as:47",
+            "official/interfaces/scripts/mmo/interfaces/strengthencombo/StrengthenComboPaymentFactory.as:19"
+          ],
+          "requiredFix": "Pass only the current service class graph into the existing generic reward parser; resolve bound local variables and exact claim prerequisites using the real consumer."
+        },
+        {
+          "id": "A10-permanent-registry",
+          "status": "implemented; all three persistent registry containers are candidates, current routes only become roots",
+          "observed": "The official activity XML has an activity branch of permanent registrations as well as release-week branches. Existing discovery only registered week/a entries. Current HUD aoqihoservey and livestreampromotion and service-linked maintaskguider are registered in activity/a, so they appeared falsely missing.",
+          "sources": [
+            "../official-coverage-audit/official/config-binary/4_mmo.config.DocClass_newactivityconfigClass.bin:4506",
+            "../official-coverage-audit/official/config-binary/4_mmo.config.DocClass_newactivityconfigClass.bin:4513",
+            "../official-coverage-audit/official/config-binary/4_mmo.config.DocClass_newactivityconfigClass.bin:5262"
+          ],
+          "requiredFix": "Load permanent registrations as candidate mappings and follow only current HUD/real call links; do not indiscriminately root all permanent/history rows."
+        }
+      ],
+      "limitations": [
+        "Static class reachability is an over-approximation within the selected current adapter; it is not a live account run.",
+        "This scope does not claim every reward field inside every service is understood.",
+        "Official service registrations are in library/interfaces ServiceConfig.as; config XML lists initialization names but does not map the YearPay service to its resource."
+      ],
+      "implementation": {
+        "module": "tools/activity_service_discovery.py",
+        "integration": "tools/public_activity_exchange_updater.py build_discovery/update_activity_exchanges",
+        "tests": {
+          "serviceDiscovery": "13/13",
+          "existingActivitySuite": "70/70"
+        },
+        "behaviors": [
+          "Uses actual ServiceConfig helper-to-ServiceInfo argument mappings, no service-name/resource mapping allowlist.",
+          "Traces only local classes referenced by the selected current date adapter; historical/future adapters stay outside the graph.",
+          "Verifies YearPayRange-like newest-begun enum selection and DateUtil server closing time, caches only until the next known selection/tab boundary.",
+          "Finds consumed static tab arrays/IIFE arrays, literal activity calls, verified parameter-forwarding wrappers and stable local literal bindings.",
+          "Persists every entry resolution and all service scans; active root/tab linkage errors are pending, missing optional references remain explicitly recorded in coverage.",
+          "Handles registered but unversioned resources with the official loader default and dependency-bound invalidation.",
+          "On service discovery failure preserves only the previous confirmed roots and marks exclusively dependent goods stale/price unknown, then reparses after recovery."
+        ]
+      },
+      "officialReplay": {
+        "services": 4,
+        "reachableClasses": 174,
+        "uniqueActivityReferences": 13,
+        "unparsedServiceStructures": 0,
+        "currentAdapter": [
+          {
+            "map": "ADAPTER_MAPPING",
+            "selector": "mmo.interfaces.yearpayx.enumerations.YearPayRange.valueNow",
+            "value": "THE_2026",
+            "adapter": "Yp26Adapter"
+          }
+        ],
+        "historicalAdapterIncluded": false,
+        "optionalUnregisteredReference": {
+          "alias": "yisasupport",
+          "source": "ArenaV3Service.showArenaPanel",
+          "contract": "Official call guarded by hasActivityConfig; missing current registry row is a recorded optional link, not evidence of a missing product."
+        }
+      },
+      "independentDefaultVersionAudit": {
+        "defaultVersion": "2000",
+        "source": "official/loader/scripts/mmo/loader/scheduler/VersManager.as",
+        "verifiedBranches": "DEFAULT_VERSION constant and fallback return _loc3_ + DEFAULT_VERSION",
+        "unlistedResourcesFetched": [
+          {
+            "url": "https://aoqi.100bt.com/play/newactivityext/newact20251231/yearpay26tab4/yearpay26tab4~2000.swf",
+            "resource": "newactivityext/newact20251231/yearpay26tab4/yearpay26tab4",
+            "path": "raw\\yearpay26tab4.swf",
+            "bytes": 5525,
+            "sha256": "611ea121cb381440d640c2c45c19dd9cf077000634f40398870eee2c7324cb50",
+            "scripts": 10
+          },
+          {
+            "url": "https://aoqi.100bt.com/play/newactivityext/newact20251231/yearpay26tab5/yearpay26tab5~2000.swf",
+            "resource": "newactivityext/newact20251231/yearpay26tab5/yearpay26tab5",
+            "path": "raw\\yearpay26tab5.swf",
+            "bytes": 7117,
+            "sha256": "011723f445dff142f5b32294bcd31fd50bfa759f7e589d67cec111a8894b0f05",
+            "scripts": 12
+          }
+        ]
+      },
+      "additionalCurrentPages": [
+        {
+          "alias": "yearpay26tab4",
+          "observed": "The official manager purchases the year card through WealthManager.showExchageDiamondByNumPanel(ACCESS_CHARGE_COST=300,...). No designated-pet enhancement table is present in its 10 exported scripts.",
+          "scopeDecision": "Keep discovered and scanned; do not invent a 300-diamond deduction cultivation product."
+        },
+        {
+          "alias": "yearpay26tab5",
+          "observed": "The 12 exported scripts contain suit/clothes definitions and ordinary/VIP/year-VIP prices. These are clothing items, not designated-pet cultivation rewards.",
+          "scopeDecision": "Keep discovered and scanned; do not inject clothes into designated-pet cultivation goods."
+        }
+      ],
+      "serviceBodies": {
+        "replay": "service-body-replay.json",
+        "goods": {
+          "ArenaService": 0,
+          "QualifyingCompetitionService": 0,
+          "TaskPanelService": 0,
+          "YearPay": 1
+        },
+        "pending": 0,
+        "scope": "Main pipeline sets serviceBody=True; only consumer-linked normalized reward tables enter the catalog. Unbound legacy tables are retained in module.activity.serviceUnboundTables diagnostics."
+      },
+      "permanentRegistry": {
+        "activityRows": 206,
+        "sceneActivityRows": 6,
+        "worldActivityRows": 34,
+        "uniqueAliases": 244,
+        "officialConsumer": "official/newactivityservice/scripts/mmo/newactivity/xml/NewActivityConfigReader.as:250",
+        "currentHudExamples": [
+          "aoqihoservey",
+          "livestreampromotion"
+        ],
+        "serviceCallExample": "maintaskguider",
+        "allAutomaticallyRooted": false
+      }
+    },
+    "serviceSources": {
+      "method": "Fresh official HTTPS resources; independent full JPEXS script export; no product parser imports",
+      "sources": {
+        "https://aoqi.100bt.com/play/library/interfaces~2026101571078066.swf": {
+          "resource": "library/interfaces",
+          "path": "raw\\interfaces.swf",
+          "bytes": 621816,
+          "sha256": "fd992b24beb3a855d7728dd4495a76ae66377b3388dced250c7138265ea9cac8",
+          "scripts": 1554
+        },
+        "https://aoqi.100bt.com/play/qualifyingcompetition/qualifyingcompetitionservice~2026091776736973.swf": {
+          "resource": "qualifyingcompetition/qualifyingcompetitionservice",
+          "path": "raw\\qualifyingcompetitionservice.swf",
+          "bytes": 46861,
+          "sha256": "fa9c6703c649eaf12123d7e9015aba75c5a59cc2433ae13da2aab0b466098006",
+          "scripts": 50
+        },
+        "https://aoqi.100bt.com/play/taskpanelv2/taskpanel~2026081364897007.swf": {
+          "resource": "taskpanelv2/taskpanel",
+          "path": "raw\\taskpanel.swf",
+          "bytes": 20052,
+          "sha256": "096921c3c630c56cd6077304d02ed90a2fed71802ff3919fad705383a0d8c455",
+          "scripts": 22
+        },
+        "https://aoqi.100bt.com/play/library/util~261016739421061.swf": {
+          "resource": "library/util",
+          "path": "raw\\util.swf",
+          "bytes": 450244,
+          "sha256": "40abedc82059350b634f8a101a91c4c3c617be426d5e66b208cfaf7f42ed325d",
+          "scripts": 488
+        },
+        "https://aoqi.100bt.com/play/newactivityext/newact20180413/gainlegendstone/gainlegendstone~2025073125074328.swf": {
+          "resource": "newactivityext/newact20180413/gainlegendstone/gainlegendstone",
+          "path": "raw\\gainlegendstone.swf",
+          "bytes": 49815,
+          "sha256": "8add8442bfbb2d944609ee63db32aa4eb32af672944170f087cc8450044914d6",
+          "scripts": 49
+        },
+        "https://aoqi.100bt.com/play/newactivityext/newact20240308/growthofking11/growthofking11~2026012972224063.swf": {
+          "resource": "newactivityext/newact20240308/growthofking11/growthofking11",
+          "path": "raw\\growthofking11.swf",
+          "bytes": 78882,
+          "sha256": "ab96a38b1a9669f467c5d230a6e480274b6320fadb3316b34589eef51282a69b",
+          "scripts": 59
+        },
+        "https://aoqi.100bt.com/play/newactivityext/newact20150828/maintaskguider/maintaskguider~2022070865556312.swf": {
+          "resource": "newactivityext/newact20150828/maintaskguider/maintaskguider",
+          "path": "raw\\maintaskguider.swf",
+          "bytes": 3596,
+          "sha256": "20086445c3d2ba091e1ad5616d7277d2c9d293cec5445fedbc8d73b58a39debf",
+          "scripts": 2
+        },
+        "https://aoqi.100bt.com/play/newactivityext/newact20170120/vegetablegoldbean/vegetablegoldbean~2026062584607373.swf": {
+          "resource": "newactivityext/newact20170120/vegetablegoldbean/vegetablegoldbean",
+          "path": "raw\\vegetablegoldbean.swf",
+          "bytes": 22687,
+          "sha256": "86a512316db7e4673901adfec2eea5d4004ae76db1f7509d3d0b48a44b7ed6b2",
+          "scripts": 18
+        },
+        "https://aoqi.100bt.com/play/newactivityext/newact20251231/yearpay26tab2/yearpay26tab2~2026020553801158.swf": {
+          "resource": "newactivityext/newact20251231/yearpay26tab2/yearpay26tab2",
+          "path": "raw\\yearpay26tab2.swf",
+          "bytes": 9532,
+          "sha256": "afb870b3f257dcfcb35af80a2fa5fd2f30b84d9bac2ed63d74d2bf2910433c49",
+          "scripts": 10
+        },
+        "https://aoqi.100bt.com/play/loader~2026101571078066.swf": {
+          "resource": "loader",
+          "path": "raw\\loader.swf",
+          "bytes": 541102,
+          "sha256": "3f31a7b8c3ef90f9621eaab61916ba3484ef78e12851101266851fabcd92f4fc",
+          "scripts": 2789
+        },
+        "https://aoqi.100bt.com/play/newactivityext/newact20251231/yearpay26tab4/yearpay26tab4~2000.swf": {
+          "resource": "newactivityext/newact20251231/yearpay26tab4/yearpay26tab4",
+          "path": "raw\\yearpay26tab4.swf",
+          "bytes": 5525,
+          "sha256": "611ea121cb381440d640c2c45c19dd9cf077000634f40398870eee2c7324cb50",
+          "scripts": 10
+        },
+        "https://aoqi.100bt.com/play/newactivityext/newact20251231/yearpay26tab5/yearpay26tab5~2000.swf": {
+          "resource": "newactivityext/newact20251231/yearpay26tab5/yearpay26tab5",
+          "path": "raw\\yearpay26tab5.swf",
+          "bytes": 7117,
+          "sha256": "011723f445dff142f5b32294bcd31fd50bfa759f7e589d67cec111a8894b0f05",
+          "scripts": 12
+        },
+        "https://aoqi.100bt.com/play/newactivity/newactivityservice~2026032661248390.swf": {
+          "resource": "newactivity/newactivityservice",
+          "path": "raw\\newactivityservice.swf",
+          "bytes": 86228,
+          "sha256": "995b7833520d2307650e417714912fc27e8779e738ba4b4d071d34e201a5b943",
+          "scripts": 96
+        },
+        "https://aoqi.100bt.com/play/newactivityext/newact20151016/aoqihoservey/aoqihoservey~2024110743219588.swf": {
+          "resource": "newactivityext/newact20151016/aoqihoservey/aoqihoservey",
+          "path": "raw\\aoqihoservey.swf",
+          "bytes": 2605,
+          "sha256": "740a4e9058d14e3789bd2cbd27248919cb9f8a9e3893721c6f91974486fe00e0",
+          "scripts": 5
+        },
+        "https://aoqi.100bt.com/play/newactivityext/newact20200717/livestreampromotion/livestreampromotion~2026012972224063.swf": {
+          "resource": "newactivityext/newact20200717/livestreampromotion/livestreampromotion",
+          "path": "raw\\livestreampromotion.swf",
+          "bytes": 4461,
+          "sha256": "fc1fe58ca8fcd2ab32513d75d119a626f9dd09e42c917be2ed87f2b94ba31773",
+          "scripts": 7
+        }
+      },
+      "javaSha256": "82051fdab26319d77d20cc0065045d05ec00b3e3d05f44935d7c06b96b621d55",
+      "ffdecSha256": "090ab695053ad94cba6408574c7d7eea20ec60b6ae789ee6056a23f45106762f",
+      "fetchedUtc": "2026-10-18T12:53:26.798549+00:00"
+    },
+    "priceFindings": {
+      "method": "Independent official full-script export evidence; normalized product data not used as truth",
+      "findings": [
+        {
+          "id": "A03",
+          "title": "累计充值领取门槛被错读为单档扣费",
+          "detail": "Model.REWARD 按顺序装入 rewards；界面循环累加 cost，并与 exchange 比较。第3档=50+10+100=160；末档单独走 hasBuyDirect，不能归入累计领取。",
+          "evidence": {
+            "path": "validation/official-coverage-audit/official/newfirstcharge2026/scripts/mmo/activityext/newact20260618/newfirstcharge2026/view/NFC26MainPanel.as",
+            "line": 177,
+            "sha256": "984f6cd109e9b3565388415518a907e5eaf11e142483cdfbf9ade83dab5fd3b1"
+          },
+          "scope": "official static consumer; no account requests, purchase, claim or gameplay execution",
+          "status": "implemented; unit and official static-data replay passed"
+        },
+        {
+          "id": "A04.1",
+          "title": "公共价格分支优先级遗漏",
+          "detail": "首个满足覆盖条件的价格优先，其次无条件覆盖或首个匹配预设；最终乘全局折扣并向上取整。isOnline 另依赖预设条件或无条件覆盖。",
+          "evidence": {
+            "path": "validation/official-coverage-audit/official/strengthencomboservice/scripts/mmo/strengthencombo/define/StrengthenComboPriceDefine.as",
+            "line": 120,
+            "sha256": "f93cee5f9922af0ff9a3b7f6f1d76f05683bd173934805c7ab5da54406a3e3e9"
+          },
+          "scope": "official static consumer; no account requests, purchase, claim or gameplay execution",
+          "status": "implemented; unit and official static-data replay passed"
+        },
+        {
+          "id": "A04.2",
+          "title": "全局优惠日期被忽略",
+          "detail": "当前官方全局0.9优惠期为20260618-20260626；不应在10月继续给优惠。必须保留条件，使用时重新求值。",
+          "evidence": {
+            "path": "validation/official-coverage-audit/official/strengthencomboservice/scripts/mmo/strengthencombo/update/StrengthenComboContents.as",
+            "line": 15,
+            "sha256": "87aeccffb4f4eddd3a2e27ccd6b6dbd56b536f966414ad28d247b260e91bcebc"
+          },
+          "scope": "official static consumer; no account requests, purchase, claim or gameplay execution",
+          "status": "implemented; unit and official static-data replay passed"
+        },
+        {
+          "id": "A04.3",
+          "title": "VIP/道具条件不是无条件低价",
+          "detail": "& 为并且；VIP由isRmbVip决定，道具由真实持有数量比较。账号证据缺失时三值未知。未识别文字条件官方默认 true，只有 false 为 false，需保留原始说明。",
+          "evidence": {
+            "path": "validation/official-coverage-audit/official/strengthencomboservice/scripts/mmo/strengthencombo/util/StrengthenComboConditionUtil.as",
+            "line": 24,
+            "sha256": "3b5fedcfd193edc48f0442c86346c14ce323d3e0d1555e9934518846bedb2535"
+          },
+          "scope": "official static consumer; no account requests, purchase, claim or gameplay execution",
+          "status": "implemented; unit and official static-data replay passed"
+        },
+        {
+          "id": "A04.4",
+          "title": "券减价宣传与真实付款策略不同",
+          "detail": "只有多项套餐且 isOnDiscountTicket 返回真才进入券面板；当前返回false。ticketDeclineMax=200是展示上限，不是自动扣减。券面板允许钻石优惠券和券，最终选择由账号状态及用户确认。",
+          "evidence": {
+            "path": "validation/official-coverage-audit/official/strengthencomboservice/scripts/mmo/strengthencombo/model/StrengthenComboModel.as",
+            "line": 171,
+            "sha256": "3cc50012d3addab34604c47f1e237f5ccf3c0469308bd78e952d7082e059c90d"
+          },
+          "scope": "official static consumer; no account requests, purchase, claim or gameplay execution",
+          "status": "implemented; unit and official static-data replay passed"
+        },
+        {
+          "id": "A04.5",
+          "title": "优惠结束边界为服务端02时而非午夜",
+          "detail": "DateUtil使用服务端时间；纯日期补02:00:00，start inclusive / end exclusive。独立提取的官方类确认，不能复用更新当天已算死的价格。",
+          "evidence": {
+            "path": "validation/price-conditions-audit/official/scripts/mmo/common/DateUtil.as",
+            "line": 361,
+            "sha256": "4663b7974a5448a30e6ecd6e2c02f25bebce468e1ca5ccdd0f93465ba46208df"
+          },
+          "scope": "official static consumer; no account requests, purchase, claim or gameplay execution",
+          "status": "implemented; unit and official static-data replay passed"
+        }
+      ]
+    },
+    "metadataFindings": {
+      "scope": "Fresh official H5 battle and pet sheets, full Flash battleconfig and equipment service exports, matching official interfaces full export. Does not claim all metadata fields or all services audited.",
+      "sources": {
+        "https://aoqi.100bt.com/h5/start~1792326629990.json": {
+          "path": "raw\\h5-start.json",
+          "sha256": "98d0ce9e3d5f9b1dde398ca7726b3873df9f3192280bdf4c61d8f12b2004a45f",
+          "bytes": 489
+        },
+        "https://aoqi.100bt.com/h5/version~202610151792075047.json": {
+          "path": "raw\\h5-version.json",
+          "sha256": "2d3b51055f326bf0f256fdcbb38b69bed5b358d4baef11334de18644ad89caa5",
+          "bytes": 380430
+        },
+        "https://aoqi.100bt.com/h5/config/formation~2026101525310563.aqz": {
+          "path": "raw\\formation.aqz",
+          "sha256": "c2e28364fdb155721ffa4df230a861a972b765267cd2eb9b37b174dfda28d493",
+          "bytes": 84258
+        },
+        "https://aoqi.100bt.com/h5/config/petdata.json~2026101525310563.aqz": {
+          "path": "raw\\petdata.json.aqz",
+          "sha256": "c0f2fe034e5583d4d12b8720921d9863424bcc224fd072e38314830d634a5fba",
+          "bytes": 114677
+        },
+        "https://aoqi.100bt.com/h5/config/relation~2026101525310563.aqz": {
+          "path": "raw\\relation.aqz",
+          "sha256": "144a04641c6018dc7091d3dec27afb9a3df52084f229a8514cb39b9132f0bc31",
+          "bytes": 17389
+        },
+        "https://aoqi.100bt.com/h5/config/changepetskin~2026101525310563.aqz": {
+          "path": "raw\\changepetskin.aqz",
+          "sha256": "3a95f0648eee1c681e0072185585a844958077fab67c37bb96425aa4eb81a701",
+          "bytes": 358458
+        },
+        "https://aoqi.100bt.com/h5/config/battleconfig~2026101525310563.aqz": {
+          "path": "raw\\battleconfig.aqz",
+          "sha256": "1da16c5aca3f95285955124a0ee26497c9d671b2eace6a51ad23d8e030bb3652",
+          "bytes": 906924
+        },
+        "https://aoqi.100bt.com/h5/config/equipment4pet~2026082769761852.aqz": {
+          "path": "raw\\equipment4pet.aqz",
+          "sha256": "9656ccf3652fc346d9f477f813c642ddac86b9ab2973426192fd7f5ae2eb3fd1",
+          "bytes": 21646
+        },
+        "https://aoqi.100bt.com/h5/config/pet/petinfoconfig~2026101525310563.json": {
+          "path": "raw\\petinfoconfig.json",
+          "sha256": "1a3eb12bfbecbc22665ee0132947317adaaf994fc6e2ed0c713f3bd9964bd195",
+          "bytes": 206863
+        },
+        "https://aoqi.100bt.com/h5/config/pet/petevoconfig~2026101525310563.json": {
+          "path": "raw\\petevoconfig.json",
+          "sha256": "7989cee416306aa194a83699b96f78c5b351af8840b14274dca6c5e25abaada9",
+          "bytes": 73584
+        },
+        "https://aoqi.100bt.com/h5/config/pet/tiebaconfig~2026101525310563.json": {
+          "path": "raw\\tiebaconfig.json",
+          "sha256": "70d1ccd6ae2e51749a2beb6073a7a692171f5117ecb8cb91c424585244a2e8f3",
+          "bytes": 148106
+        },
+        "https://aoqi.100bt.com/h5/config/petdictionarydata.json~2026101525310563.aqz": {
+          "path": "raw\\petdictionarydata.json.aqz",
+          "sha256": "244921e3f196fcbe8f966fec33d2716e921ea2fb15911505c2cb3705d93ef001",
+          "bytes": 1212736
+        },
+        "https://aoqi.100bt.com/play/pet/petdictionarydataservice~2026082767617311.swf": {
+          "path": "raw\\petdictionarydataservice.swf",
+          "sha256": "724db82a4466ae7ed12de8c1783c393cd79811ffb49c11e41036ace6e4a0dc85",
+          "bytes": 4899
+        },
+        "https://aoqi.100bt.com/play/battleconfig/battleconfig~2026101571078066.swf": {
+          "path": "raw\\battleconfig.swf",
+          "sha256": "52017cb727af58a7fea7de8f7f5d971da1c85d15b60791bb03ded2f29c850932",
+          "bytes": 735105
+        },
+        "https://aoqi.100bt.com/play/equipment4petver2/equipment4petver2service~2026082767617311.swf": {
+          "path": "raw\\equipment4petver2service.swf",
+          "sha256": "3f06bbe72d8310e133612e184b54c3b1e8306c0357a09f31eb6de4609e32b3e9",
+          "bytes": 78177
+        },
+        "https://aoqi.100bt.com/h5/js/aqlib~20261016151527.js": {
+          "path": "raw\\aqlib.js",
+          "sha256": "cdcdf487c9cf7bd1ea7110f373e8afbf933e5595fc9e3e6bfd66620ab058094a",
+          "bytes": 2014640
+        },
+        "https://aoqi.100bt.com/h5/js/services/petcollection~2026101525310563.js": {
+          "path": "raw\\petcollection.js",
+          "sha256": "6f90c31eefa1f5c7f4031ccb51d3ee21bb082763c2333b8fe784c2724bb104ae",
+          "bytes": 69926
+        },
+        "https://aoqi.100bt.com/h5/js/services/petdataservice~2026070999690739.js": {
+          "path": "raw\\petdataservice.js",
+          "sha256": "a1f443ef1817c1619567a389d3f48e3d52111f281860f1494a4b2c6ef33e64b2",
+          "bytes": 73093
+        },
+        "https://aoqi.100bt.com/play/library/materialdataupdate~2026101571078066.swf": {
+          "bytes": 275416,
+          "sha256": "a4163eabd7ff5c4f490ebe1695977a69bb7c60afb2843a1cafaf8f6a253710fc",
+          "path": "raw/materialdataupdate.swf",
+          "acquisition": "Reused exact official version, verified original raw SHA-256; independently exported here."
+        },
+        "https://aoqi.100bt.com/play/library/materialdata~2026101571078066.swf": {
+          "bytes": 325045,
+          "sha256": "eada602528048e6dd5b5519acc77d8e51402b309b2eb883d7391a6a262458dd7",
+          "path": "raw/materialdata.swf",
+          "acquisition": "Reused exact official version, verified original raw SHA-256; independently exported here."
+        },
+        "https://aoqi.100bt.com/play/stargodv3/stargodservice~2026071654057650.swf": {
+          "bytes": 244197,
+          "sha256": "e0831d3b8a1e72adcaf1f7e0c3ec646c2c7f5c83409e5399d7e7c86dd1b3d941",
+          "path": "raw/stargodservice.swf",
+          "acquisition": "Reused exact official version, verified original raw SHA-256; independently exported here."
+        },
+        "https://aoqi.100bt.com/play/pet/petdictionarydata~2026073181080477.swf": {
+          "bytes": 626943,
+          "sha256": "fc86e5396a3269ffccd93721ba770fb4d3a1e4c51803d7388da3114d3e56f666",
+          "path": "raw/petdictionarydata.swf",
+          "acquisition": "Reused exact official version, verified original raw SHA-256; independently exported here."
+        },
+        "https://aoqi.100bt.com/play/pet/petdictionarydataupdate~261016621390751.swf": {
+          "bytes": 47994,
+          "sha256": "9e706bffb925117178b1f332c602fa1e6ab06a67b6b61129a4f32164385383d3",
+          "path": "raw/petdictionarydataupdate.swf",
+          "acquisition": "Reused exact official version, verified original raw SHA-256; independently exported here."
+        },
+        "https://aoqi.100bt.com/play/library/common~2026101571078066.swf": {
+          "bytes": 778366,
+          "sha256": "ab97b9d84ee716f763493c8ec21fbcce07eb0af4acaa3f24ef2106453bdfb575",
+          "path": "raw/common.swf",
+          "acquisition": "Reused same-version official raw hash; fresh selected-class JPEXS export."
+        }
+      },
+      "reusedOfficialConsumer": {
+        "url": "https://aoqi.100bt.com/play/library/interfaces~2026101571078066.swf",
+        "sha256": "fd992b24beb3a855d7728dd4495a76ae66377b3388dced250c7138265ea9cac8",
+        "script": "validation\\service-discovery-audit\\official\\interfaces\\scripts\\mmo\\interfaces\\pet\\data\\PetDictionaryDataItem.as",
+        "scriptSha256": "35d3be30c73a3f24639835dfadd02d1e7e3fb7a67a77f6543c261300ff26ce8c"
+      },
+      "findings": [
+        {
+          "id": "metadata-huan-skill-reference",
+          "status": "fixed-and-verified",
+          "impact": "技能详情把寰技 ID 与种族编号做后缀匹配，漏掉引用相同寰技的皮肤和形态，并错误赋给尾号碰巧相同的无关精灵；寰技正文还直接显示编码列。",
+          "expectedPetCount": 28,
+          "missingOrWrongPetCount": 17,
+          "unrelatedPetCount": 31,
+          "missingOrWrongPets": [
+            {
+              "raceId": "3876",
+              "name": "乐园绮梦·梅丽",
+              "officialSkillId": "703873",
+              "previousSkillId": null
+            },
+            {
+              "raceId": "3908",
+              "name": "不灭者·巴兰",
+              "officialSkillId": "703907",
+              "previousSkillId": null
+            },
+            {
+              "raceId": "3909",
+              "name": "咏叹教父·巴兰",
+              "officialSkillId": "703907",
+              "previousSkillId": null
+            },
+            {
+              "raceId": "3910",
+              "name": "咏叹教父·巴兰",
+              "officialSkillId": "703907",
+              "previousSkillId": null
+            },
+            {
+              "raceId": "4611",
+              "name": "心愿等待·玻丽娅",
+              "officialSkillId": "704610",
+              "previousSkillId": null
+            },
+            {
+              "raceId": "4612",
+              "name": "冬夜如歌·图鲁斯",
+              "officialSkillId": "704567",
+              "previousSkillId": null
+            },
+            {
+              "raceId": "4815",
+              "name": "反转巴黎·坎德尔",
+              "officialSkillId": "704767",
+              "previousSkillId": null
+            },
+            {
+              "raceId": "5634",
+              "name": "反转巴黎·坎德尔",
+              "officialSkillId": "705633",
+              "previousSkillId": null
+            },
+            {
+              "raceId": "5635",
+              "name": "蓝调时刻·坎德尔",
+              "officialSkillId": "705633",
+              "previousSkillId": null
+            },
+            {
+              "raceId": "6237",
+              "name": "冬夜如歌·图鲁斯",
+              "officialSkillId": "706236",
+              "previousSkillId": null
+            },
+            {
+              "raceId": "6800",
+              "name": "反转巴黎·坎德尔",
+              "officialSkillId": "706799",
+              "previousSkillId": null
+            },
+            {
+              "raceId": "6801",
+              "name": "蓝调时刻·坎德尔",
+              "officialSkillId": "706799",
+              "previousSkillId": null
+            },
+            {
+              "raceId": "6963",
+              "name": "[灵初]成仁烛烬·坎德尔",
+              "officialSkillId": "706799",
+              "previousSkillId": null
+            },
+            {
+              "raceId": "7151",
+              "name": "心愿等待·玻丽娅",
+              "officialSkillId": "707150",
+              "previousSkillId": null
+            },
+            {
+              "raceId": "103873",
+              "name": "食梦者·梅丽",
+              "officialSkillId": "703873",
+              "previousSkillId": null
+            },
+            {
+              "raceId": "103907",
+              "name": "不灭者·巴兰",
+              "officialSkillId": "703907",
+              "previousSkillId": null
+            },
+            {
+              "raceId": "103908",
+              "name": "不灭者·巴兰",
+              "officialSkillId": "703907",
+              "previousSkillId": null
+            }
+          ],
+          "unrelatedPets": [
+            {
+              "raceId": "1",
+              "name": "小爆",
+              "previousSkillId": "706001"
+            },
+            {
+              "raceId": "2",
+              "name": "爆爆",
+              "previousSkillId": "706002"
+            },
+            {
+              "raceId": "3",
+              "name": "爆爆龙",
+              "previousSkillId": "703873"
+            },
+            {
+              "raceId": "5",
+              "name": "酷拉",
+              "previousSkillId": "704715"
+            },
+            {
+              "raceId": "6",
+              "name": "酷拉兽",
+              "previousSkillId": "706236"
+            },
+            {
+              "raceId": "7",
+              "name": "小蓝",
+              "previousSkillId": "703907"
+            },
+            {
+              "raceId": "8",
+              "name": "蓝蓝",
+              "previousSkillId": "705108"
+            },
+            {
+              "raceId": "9",
+              "name": "蓝蓝露",
+              "previousSkillId": "706799"
+            },
+            {
+              "raceId": "10",
+              "name": "一叶兽",
+              "previousSkillId": "704610"
+            },
+            {
+              "raceId": "15",
+              "name": "巨星蟹",
+              "previousSkillId": "704715"
+            },
+            {
+              "raceId": "33",
+              "name": "呆头鸭",
+              "previousSkillId": "705633"
+            },
+            {
+              "raceId": "36",
+              "name": "伊雷克斯",
+              "previousSkillId": "706236"
+            },
+            {
+              "raceId": "50",
+              "name": "刺客亚特",
+              "previousSkillId": "707150"
+            },
+            {
+              "raceId": "67",
+              "name": "蓝波蒂",
+              "previousSkillId": "704567"
+            },
+            {
+              "raceId": "73",
+              "name": "卡雅公主",
+              "previousSkillId": "703873"
+            },
+            {
+              "raceId": "99",
+              "name": "寒冰鸟",
+              "previousSkillId": "706799"
+            },
+            {
+              "raceId": "108",
+              "name": "犀利仔",
+              "previousSkillId": "705108"
+            },
+            {
+              "raceId": "150",
+              "name": "小九",
+              "previousSkillId": "707150"
+            },
+            {
+              "raceId": "236",
+              "name": "话话",
+              "previousSkillId": "706236"
+            },
+            {
+              "raceId": "567",
+              "name": "维纳斯",
+              "previousSkillId": "704567"
+            },
+            {
+              "raceId": "610",
+              "name": "满满",
+              "previousSkillId": "704610"
+            },
+            {
+              "raceId": "633",
+              "name": "治疗小飞兽",
+              "previousSkillId": "705633"
+            },
+            {
+              "raceId": "715",
+              "name": "冰鱼",
+              "previousSkillId": "704715"
+            },
+            {
+              "raceId": "767",
+              "name": "江南花花葵",
+              "previousSkillId": "704767"
+            },
+            {
+              "raceId": "799",
+              "name": "顺风小哥",
+              "previousSkillId": "706799"
+            },
+            {
+              "raceId": "873",
+              "name": "S极战士",
+              "previousSkillId": "703873"
+            },
+            {
+              "raceId": "907",
+              "name": "甜甜布丁",
+              "previousSkillId": "703907"
+            },
+            {
+              "raceId": "6000",
+              "name": "咕噜菇菇·黛安娜",
+              "previousSkillId": "706000"
+            },
+            {
+              "raceId": "6001",
+              "name": "[神运]封魔禁邪·黛安娜",
+              "previousSkillId": "706001"
+            },
+            {
+              "raceId": "6002",
+              "name": "封印神魂",
+              "previousSkillId": "706002"
+            },
+            {
+              "raceId": "6003",
+              "name": "即刻永恒·黛安娜",
+              "previousSkillId": "706003"
+            }
+          ],
+          "officialRule": "PetDictionaryDataItem.huanSkillNo uses the explicit yuanLiSkill field for 寰力量/异形族; HuanConfigXML exact-key lookup. Packed H5 row fields are name,type,value,icon,tip.",
+          "exampleRawRow": "寰力量|1|16000|1|②战斗力≥16000时，自身命中率永久提升20%"
+        },
+        {
+          "id": "metadata-almighty-exact-race",
+          "status": "fixed-and-verified",
+          "impact": "天觉者全能技将官方种族 ID 取模后混入同族皮肤的其他定义，造成重复/不属于本形态的描述和通灵目标，并漏掉完整长编号形态。",
+          "officialRule": "Official H5 aqlib getAlmightyDefine(a.raceId); official AlmightyConfigXML exact key lookup. Neither takes modulo nor merges same-group members.",
+          "expectedPetCount": 28,
+          "missingPetCount": 3,
+          "wrongMultiplePetCount": 14,
+          "missingPets": [
+            {
+              "raceId": "124006",
+              "name": "终湮神·路因加德"
+            },
+            {
+              "raceId": "124009",
+              "name": "逆时空·终湮神女"
+            },
+            {
+              "raceId": "124212",
+              "name": "月蚀神·路因加德"
+            }
+          ],
+          "wrongMultiplePets": [
+            {
+              "raceId": "4006",
+              "name": "终湮神·路因加德",
+              "previousIds": [
+                4006,
+                124006,
+                4009,
+                124009,
+                4212,
+                124212,
+                5001
+              ]
+            },
+            {
+              "raceId": "4009",
+              "name": "逆时空·终湮神女",
+              "previousIds": [
+                4009,
+                124009,
+                4006,
+                124006,
+                4212,
+                124212,
+                5001
+              ]
+            },
+            {
+              "raceId": "4212",
+              "name": "月蚀神·路因加德",
+              "previousIds": [
+                4212,
+                124212,
+                4006,
+                124006,
+                4009,
+                124009,
+                5001
+              ]
+            },
+            {
+              "raceId": "4995",
+              "name": "[星迹]绝命终湮·路因加德",
+              "previousIds": [
+                4995,
+                4997,
+                4999,
+                5003,
+                6303
+              ]
+            },
+            {
+              "raceId": "4997",
+              "name": "逆时空·终湮神女",
+              "previousIds": [
+                4997,
+                4995,
+                4999,
+                5003,
+                6303
+              ]
+            },
+            {
+              "raceId": "4999",
+              "name": "月蚀神·路因加德",
+              "previousIds": [
+                4999,
+                4995,
+                4997,
+                5003,
+                6303
+              ]
+            },
+            {
+              "raceId": "5001",
+              "name": "灼浪金沙·路因加德",
+              "previousIds": [
+                5001,
+                4006,
+                124006,
+                4009,
+                124009,
+                4212,
+                124212
+              ]
+            },
+            {
+              "raceId": "5003",
+              "name": "灼浪金沙·路因加德",
+              "previousIds": [
+                5003,
+                4995,
+                4997,
+                4999,
+                6303
+              ]
+            },
+            {
+              "raceId": "6295",
+              "name": "[神运]永沦终湮·路因加德",
+              "previousIds": [
+                6295,
+                6297,
+                6299,
+                6301,
+                6305
+              ]
+            },
+            {
+              "raceId": "6297",
+              "name": "逆时空·终湮神女",
+              "previousIds": [
+                6297,
+                6295,
+                6299,
+                6301,
+                6305
+              ]
+            },
+            {
+              "raceId": "6299",
+              "name": "月蚀神·路因加德",
+              "previousIds": [
+                6299,
+                6295,
+                6297,
+                6301,
+                6305
+              ]
+            },
+            {
+              "raceId": "6301",
+              "name": "灼浪金沙·路因加德",
+              "previousIds": [
+                6301,
+                6295,
+                6297,
+                6299,
+                6305
+              ]
+            },
+            {
+              "raceId": "6303",
+              "name": "星光入怀·路因加德",
+              "previousIds": [
+                6303,
+                4995,
+                4997,
+                4999,
+                5003
+              ]
+            },
+            {
+              "raceId": "6305",
+              "name": "星光入怀·路因加德",
+              "previousIds": [
+                6305,
+                6295,
+                6297,
+                6299,
+                6301
+              ]
+            }
+          ]
+        }
+      ],
+      "verification": {
+        "status": "passed",
+        "officialPetRows": 9737,
+        "officialSkillRows": 20821,
+        "allPetSlotValuesCompared": 97370,
+        "huanExactReferences": 28,
+        "almightyExactReferences": 28,
+        "changedPets": 77,
+        "unchangedOutsideHuanAndAlmighty": true,
+        "nameTables": {
+          "ItemData.as": 1207,
+          "ItemData_Update.as": 1858,
+          "MoneyData.as": 63
+        },
+        "sourceBeastNames": 114,
+        "sourceBeastNamesMatchEmbeddedCatalog": true,
+        "activeStarDefinitions": 89,
+        "activeStarLevelValues": 632,
+        "flashH5HuanDefinitionsAgree": true,
+        "flashH5AlmightyDefinitionsAgree": true,
+        "flashBasePetDefinitions": 9459,
+        "flashPatchPetDefinitions": 412,
+        "mergedFlashPetDefinitions": 9737,
+        "flashPetDetailFieldsCompared": 87633,
+        "limitations": [
+          "Source-beast names only; not a full combat formula audit.",
+          "Unreferenced/absent official descriptions are not invented.",
+          "Finite version snapshot; does not prove every official metadata field or future schema covered."
+        ]
+      },
+      "targetedTests": {
+        "tests/python/test_pet_skill_data.py": {
+          "passed": 11,
+          "failed": 0
+        },
+        "tests/python/test_public_skill_update.py": {
+          "passed": 1,
+          "failed": 0
+        }
+      },
+      "changedProductFiles": [
+        "tools/generate_pet_skill_data.py",
+        "tests/python/test_pet_skill_data.py"
+      ]
+    },
+    "metadataVerification": {
+      "status": "passed",
+      "officialPetRows": 9737,
+      "officialSkillRows": 20821,
+      "allPetSlotValuesCompared": 97370,
+      "huanExactReferences": 28,
+      "almightyExactReferences": 28,
+      "changedPets": 77,
+      "unchangedOutsideHuanAndAlmighty": true,
+      "nameTables": {
+        "ItemData.as": 1207,
+        "ItemData_Update.as": 1858,
+        "MoneyData.as": 63
+      },
+      "sourceBeastNames": 114,
+      "sourceBeastNamesMatchEmbeddedCatalog": true,
+      "activeStarDefinitions": 89,
+      "activeStarLevelValues": 632,
+      "flashH5HuanDefinitionsAgree": true,
+      "flashH5AlmightyDefinitionsAgree": true,
+      "flashBasePetDefinitions": 9459,
+      "flashPatchPetDefinitions": 412,
+      "mergedFlashPetDefinitions": 9737,
+      "flashPetDetailFieldsCompared": 87633,
+      "limitations": [
+        "Source-beast names only; not a full combat formula audit.",
+        "Unreferenced/absent official descriptions are not invented.",
+        "Finite version snapshot; does not prove every official metadata field or future schema covered."
+      ]
+    },
+    "newcomerRuleEvidence": {
+      "id": "newcomer-generic-cultivation-rules",
+      "status": "fixed-and-verified",
+      "source": "Independent official newuserboon3 and strengthencomboservice exports, official common strategy classes, and interfaces server sequence decoders",
+      "impact": "Discovered beginner rewards expose 25$6, 37$6 and 53$5. The existing native rule compiler has no components for these actual reward types and returns Unknown despite available complete pet details.",
+      "rules": {
+        "25": {
+          "meaning": "one common equipment/source beast",
+          "parameter0": "target level, default 6",
+          "consumer": "StrengthenComboFlowEquipmentSingle; EquipmentNewStrategy_Params.defaultFilter requires GodJob and not ShenYun; Equipment4Pet.createFromString uses eps slot id|exp|level|...",
+          "preservation": "Retain an equipped exclusive source beast; the official common selection includes the current exclusive and only allows that selection. A higher target level can still upgrade it."
+        },
+        "37": {
+          "meaning": "one selectable gold star",
+          "parameters": "Current FlowStargodSingle does not read them; strategy offers gold, default level 6, ordinary slots only",
+          "consumer": "AQSType.STARGOD_ONE_GOLD; StargodNewStrategy_Params and StargodNew_PutPetStrategy",
+          "preservation": "Use existing owned/backpack and job-compatible star facts. Do not suggest replacing already sufficient red stars with gold."
+        },
+        "53": {
+          "meaning": "one legend stone",
+          "parameter0": "target level, default 5",
+          "consumer": "StrengthenComboFlowStoneSingle; LegendStoneStrategy_Params.defaultFilter requires Legend and not ShenYun; PetLegendStoneSlot parses lss id:state:level:exp and defaults an omitted level to 5"
+        },
+        "35": {
+          "meaning": "specified red star",
+          "parameters": "The complete first parameter is the star ID; numeric trailing parameters are preserved but not interpreted as another star, a quantity or a level",
+          "consumer": "FlowStargodSingle, OuterStargodSingle and WindowSItem all read parameter index 0 only"
+        }
+      },
+      "limitations": [
+        "No purchase, payment or reward claim is executed.",
+        "Missing or malformed local slot data must remain Unknown.",
+        "Compensation rewards do not contribute to the main cultivation usefulness."
+      ],
+      "evidenceHashes": {
+        "src/domain/shop_pet_eligibility.h": "44bae96bc020c03c7eaa279a162734636ec25b2ac871ef504c020f9c0bd6b10f",
+        "src/domain/shop_pet_eligibility.cpp": "d2c8e7f7c1bdb785f981c650cc7c65d75c545ec6c9fdff987407874a6bd44f37",
+        "src/domain/pet_analysis_facts.cpp": "062e7fbe7d882718431046f4930e9afe4cba0677c90165f539c7603074429bde",
+        "tests/domain/shop_pet_parameterized_smoke.cpp": "a0aaa2e93b973d6e5317c100b635ec1082f36c229ce61f139c491cb0011a0389",
+        "validation/official-coverage-audit/official/strengthencomboservice/scripts/mmo/strengthencombo/flow/separation/StrengthenComboFlowEquipmentSingle.as": "fae83ab093a716bcd8a14d6482925d1512bd70b9bea8672e85eab010568ab6c6",
+        "validation/official-coverage-audit/official/strengthencomboservice/scripts/mmo/strengthencombo/flow/separation/StrengthenComboFlowStoneSingle.as": "d7f40d12b9e039158e31a5dae49bbdb078ee5c2e5c3fc8d3ad6bbefe5f7bb0e5",
+        "validation/official-coverage-audit/official/strengthencomboservice/scripts/mmo/strengthencombo/flow/separation/StrengthenComboFlowStargodSingle.as": "ccf163a12b20f9f65e65180abfe8d1065be277a25c58b3cdbde3cd525c7e882b",
+        "validation/cultivation-52/official-common/scripts/mmo/common/dialog/common/strategy/StargodNew_PutPetStrategy.as": "66f58808ab036133f609ab1991287e01f701cc293d4ba92a80c4c3e39efed34b",
+        "validation/metadata-coverage-audit/official/common/scripts/mmo/common/dialog/common/strategy/info/EquipmentNewStrategy_Params.as": "dcb79d1b656bfaec206ac2908bfa2becd69a0eda804c400d6ab511c4c5925fda",
+        "validation/metadata-coverage-audit/official/common/scripts/mmo/common/dialog/common/strategy/info/LegendStoneStrategy_Params.as": "b5514bbc8aac74d34de7120f6b60aadac420bab81dc0c4c04fcedcb4e34eb2a7",
+        "validation/metadata-coverage-audit/official/common/scripts/mmo/common/dialog/common/strategy/panel/SelectEquipmentPanel.as": "77145346844ab942a58a8ff27313c7f56479064dc02f8867992e403ac10b7982",
+        "validation/service-discovery-audit/official/interfaces/scripts/mmo/interfaces/equipment4pet/Equipment4Pet.as": "3388b5f68603f34db59a7317e81ebb679aca0493471de41ab311878f1023ad7a",
+        "validation/service-discovery-audit/official/interfaces/scripts/mmo/interfaces/pet/data/PetLegendStoneSlot.as": "696ea6b4c6eca43c497eb7f07b2916fa585de8ad98259b288bbe7eb12e3c4c0f"
+      },
+      "verification": {
+        "nativeParameterizedSmoke": "passed",
+        "oldOfferCasesUnchanged": 52,
+        "oldRuleFamiliesUnchanged": 24,
+        "oldRuleComparisons": 35472,
+        "factRoundTrips": 1478,
+        "factFailures": 0,
+        "newcomerOfferCases": 5,
+        "localMatchingPetDetails": 4,
+        "offerPetMatches": 20,
+        "useful": 2,
+        "notNeeded": 18,
+        "unknown": 0
+      }
+    },
+    "directCallFindings": [
+      {
+        "id": "A09",
+        "title": "局部常量/变量绑定的领取奖励漏解析",
+        "detail": "局部params与raceIds均来自配置常量，item由createByString构建再传showStrengthenPanel；getSimple(doPay)调用本客户端已知领取方法，不是价格。",
+        "path": "validation/official-coverage-audit/official/yearpay/scripts/mmo/yearpayx/the2026/controller/Yp26Controller.as",
+        "line": 491,
+        "sha256": "09cf59bcf1fc20ed3a6c1ff8c89df1fe0fb30f300d7424f3e1d00cacb1911bc9",
+        "status": "implemented; official-module replay and unit regression passed",
+        "kind": "independent official static consumer"
+      },
+      {
+        "id": "A09.gates",
+        "title": "领取入口的条件需保留",
+        "detail": "父节点显示要求预订；已领隐藏领取按钮；会员条件控制enabled。当前是否满足需要账号观察，本次不猜测。",
+        "path": "validation/official-coverage-audit/official/yearpay/scripts/mmo/yearpayx/the2026/view/tabs/Yp26Tab1.as",
+        "line": 205,
+        "sha256": "e491186462d7b2da3e6e85ccf8ad90d23cb83f59c19878eb8431fd834a46351f",
+        "status": "implemented; official-module replay and unit regression passed",
+        "kind": "independent official static consumer"
+      },
+      {
+        "id": "A11",
+        "title": "枚举对象getters关联的5项新手兑换漏解析",
+        "detail": "官方枚举由配置数组经initField装配；getter分别提供养成参数和目标精灵，控制器实际消费这些getter。",
+        "path": "validation/direct-call-audit/official/newuserboon3/scripts/mmo/activityext/newact20221104/newuserboon3/other/Nub3Exchanging.as",
+        "line": 122,
+        "sha256": "d2d3d074ddce9f1a7393e70364ca656976d8aaea10156e4323556458fc4d0a2f",
+        "status": "implemented; official-module replay and unit regression passed",
+        "kind": "independent official static consumer"
+      },
+      {
+        "id": "A11.trade",
+        "title": "新手兑换消耗的是活动币",
+        "detail": "仅成功回包后扣除coins并增加exchangedTimes；界面也比较同一cost和limit。不能将cost误读为钻石。",
+        "path": "validation/direct-call-audit/official/newuserboon3/scripts/mmo/activityext/newact20221104/newuserboon3/controller/Nub3Controller.as",
+        "line": 804,
+        "sha256": "eae99c60a7a9a4e68b929d9561d2ff25bfc042d43a5e50ec70e16a5193b65de4",
+        "status": "implemented; official-module replay and unit regression passed",
+        "kind": "independent official static consumer"
+      },
+      {
+        "id": "A12",
+        "title": "独立复核新增灵初阿瑞斯养成领取入口：真实，但购买资格/领取限次关联仍缺失",
+        "method": "Fresh official HTTPS SWF bytes, standalone JPEXS full export; reference findings read directly from AS consumers before any product replay",
+        "source": {
+          "https://aoqi.100bt.com/play/newactivityext/newact20251010/lingchuaruisi/lingchuaruisi~2025101751776558.swf": {
+            "path": "raw\\lingchuaruisi.swf",
+            "bytes": 14762,
+            "sha256": "90abe04d7355374baa863df1c07aee9603de868eb3372407f0fed98a788f4721"
+          }
+        },
+        "confirmed": {
+          "isRealOffer": true,
+          "type": "claim of previously purchased cultivation entitlement",
+          "entry": "LCARS_MainPanel.btnGainStrengthen -> LCARS_Controller.handleGainStrengthen",
+          "effect": "11-62-31-41-42-86-91-94",
+          "targets": [
+            6790
+          ],
+          "purchaseConfig": "LCARS_Config.PACKAGE_INFO[1]",
+          "purchaseDiamondAmount": 288,
+          "purchaseAndPetBundleDiamondAmount": 388,
+          "claimSelector": 10,
+          "claimRequest": "LCARS_Client.buyPackage -> ClientSA.CMD_GAIN_BONUS",
+          "claimRequires": [
+            "hasBuyPerfect",
+            "!hasGainPerfect"
+          ],
+          "purchaseStatePath": [
+            "b10",
+            "oo0"
+          ],
+          "claimedStatePath": [
+            "b10",
+            "b10"
+          ],
+          "claimedEncoding": "count > 0",
+          "successfulClaimSets": "_hasGainPerfect = true",
+          "claimLimit": 1,
+          "purchaseClosesAt": "2025-10-24T02:00:00+08:00",
+          "claimRemainsAfterPurchaseCloses": true,
+          "compensation": "4:731:1#8:1:100000#4:3091:1000#4:1384:200#138:90:10000#8:33:20000",
+          "compensationSelection": "aqsOutDetails.isCompensationBeenChosen -> ch=1 (otherwise 0)"
+        },
+        "missingInCurrentGenericExtraction": [
+          "inline getSimple callback -> controller wrapper -> client write request association",
+          "controller field inherited from panel base and callback with arguments",
+          "frame state 1/2/3 maps purchase/claim/already-claimed and a negated property getter disables claim",
+          "purchase entitlement and once-only claim need preserving; purchase price must not become claim debit"
+        ],
+        "conclusion": "New row is not an accidental inferred effect, but a separate claim phase of the same paid cultivation entitlement. Do not present it as unconditional free acquisition or as another independent purchase. No code edits made during this audit.",
+        "evidence": [
+          {
+            "path": "validation/direct-call-audit/official/lingchuaruisi/scripts/mmo/activityext/newact20251010/lingchuaruisi/config/LCARS_Config.as",
+            "line": 25,
+            "sha256": "5d0b6ad4078b86045b82064ba819f38a4c7fed73e1e8545afe9938ecc00a3c39"
+          },
+          {
+            "path": "validation/direct-call-audit/official/lingchuaruisi/scripts/mmo/activityext/newact20251010/lingchuaruisi/config/LCARS_Config.as",
+            "line": 53,
+            "sha256": "5d0b6ad4078b86045b82064ba819f38a4c7fed73e1e8545afe9938ecc00a3c39"
+          },
+          {
+            "path": "validation/direct-call-audit/official/lingchuaruisi/scripts/mmo/activityext/newact20251010/lingchuaruisi/control/LCARS_Controller.as",
+            "line": 175,
+            "sha256": "f944350a70aceb9689e4176cdc666aebebbcfffd74da17e90c8dd74698448552"
+          },
+          {
+            "path": "validation/direct-call-audit/official/lingchuaruisi/scripts/mmo/activityext/newact20251010/lingchuaruisi/control/LCARS_Controller.as",
+            "line": 242,
+            "sha256": "f944350a70aceb9689e4176cdc666aebebbcfffd74da17e90c8dd74698448552"
+          },
+          {
+            "path": "validation/direct-call-audit/official/lingchuaruisi/scripts/mmo/activityext/newact20251010/lingchuaruisi/model/LCARS_Client.as",
+            "line": 28,
+            "sha256": "1b0cfdc79bfd073237d62b5497b14d63021fee341f18d0534dded6fe73f113ef"
+          },
+          {
+            "path": "validation/direct-call-audit/official/lingchuaruisi/scripts/mmo/activityext/newact20251010/lingchuaruisi/view/LCARS_MainPanel.as",
+            "line": 149,
+            "sha256": "643c15c78940a3376f42db07ffa61f4715ff91feac96690509ce08540cd58f72"
+          },
+          {
+            "path": "validation/direct-call-audit/official/lingchuaruisi/scripts/mmo/activityext/newact20251010/lingchuaruisi/view/LCARS_MainPanel.as",
+            "line": 199,
+            "sha256": "643c15c78940a3376f42db07ffa61f4715ff91feac96690509ce08540cd58f72"
+          },
+          {
+            "path": "validation/direct-call-audit/official/lingchuaruisi/scripts/mmo/activityext/newact20251010/lingchuaruisi/model/LCARS_Model.as",
+            "line": 60,
+            "sha256": "3273500be4445447b89e4301ecb7f7c414c5c31c56454a51c93f2a75e86c56d5"
+          },
+          {
+            "path": "validation/direct-call-audit/official/lingchuaruisi/scripts/mmo/activityext/newact20251010/lingchuaruisi/model/LCARS_Model.as",
+            "line": 141,
+            "sha256": "3273500be4445447b89e4301ecb7f7c414c5c31c56454a51c93f2a75e86c56d5"
+          }
+        ],
+        "status": "verified; remaining association gap reported to parent before further changes"
+      }
+    ],
+    "directCallVerification": {
+      "status": "implemented and real official module replay passed",
+      "yearpay": {
+        "rows": 1,
+        "effect": "35$71:1",
+        "targets": [
+          6984
+        ],
+        "facts": {
+          "claim": {
+            "once": true,
+            "getter": "hasGotPreOrderPrize",
+            "setter": "markGotPreOrderPrize",
+            "stateMember": "_gotPreOrderPrize",
+            "model": "Yp26LotteryDataImpl",
+            "requestCommand": "88_2026_7"
+          },
+          "entryConditions": [
+            {
+              "button": "btnTakePreOrderPrize",
+              "consumer": "Yp26Tab1",
+              "controls": [
+                {
+                  "kind": "setVisible",
+                  "path": [
+                    "spPreOrderPrize"
+                  ],
+                  "expression": "true",
+                  "when": [
+                    {
+                      "expression": "this._model.hasPreOrdered()",
+                      "value": true
+                    }
+                  ]
+                },
+                {
+                  "kind": "setVisible",
+                  "path": [
+                    "spPreOrderPrize",
+                    "btnTakePreOrderPrize"
+                  ],
+                  "expression": "false",
+                  "when": [
+                    {
+                      "expression": "this._model.hasPreOrdered()",
+                      "value": true
+                    },
+                    {
+                      "expression": "this._model.lotteryData.hasGotPreOrderPrize()",
+                      "value": true
+                    }
+                  ]
+                },
+                {
+                  "kind": "setVisible",
+                  "path": [
+                    "spPreOrderPrize",
+                    "btnTakePreOrderPrize"
+                  ],
+                  "expression": "true",
+                  "when": [
+                    {
+                      "expression": "this._model.hasPreOrdered()",
+                      "value": true
+                    },
+                    {
+                      "expression": "this._model.lotteryData.hasGotPreOrderPrize()",
+                      "value": false
+                    }
+                  ]
+                },
+                {
+                  "kind": "setEnabled",
+                  "path": [
+                    "spPreOrderPrize",
+                    "btnTakePreOrderPrize"
+                  ],
+                  "expression": "{\n                  \"enabled\":this._model.coreData.isYearPayUser(),\n                  \"disabledTips\":\"成为\" + Yp26Config.RANGE.year + \"年费即可领取\"\n               }",
+                  "when": [
+                    {
+                      "expression": "this._model.hasPreOrdered()",
+                      "value": true
+                    },
+                    {
+                      "expression": "this._model.lotteryData.hasGotPreOrderPrize()",
+                      "value": false
+                    }
+                  ],
+                  "enabledExpression": "this._model.coreData.isYearPayUser()",
+                  "disabledTipsExpression": "\"成为\" + Yp26Config.RANGE.year + \"年费即可领取\"",
+                  "description": "成为年费即可领取"
+                },
+                {
+                  "kind": "setVisible",
+                  "path": [
+                    "spPreOrderPrize"
+                  ],
+                  "expression": "false",
+                  "when": [
+                    {
+                      "expression": "this._model.hasPreOrdered()",
+                      "value": false
+                    }
+                  ]
+                }
+              ]
+            }
+          ],
+          "payment": {
+            "factory": "StrengthenComboPaymentFactory.getSimple",
+            "callback": "doPay",
+            "clientClass": "Yp26Client",
+            "clientMethod": "takePreOrderPrize",
+            "command": "88_2026_7"
+          }
+        }
+      },
+      "newuser": {
+        "rows": 5,
+        "effects": [
+          "11",
+          "61",
+          "25$6",
+          "37$6",
+          "53$5"
+        ],
+        "activityCurrency": "能量",
+        "costs": [
+          20,
+          40,
+          25,
+          25,
+          25
+        ],
+        "limits": [
+          6,
+          6,
+          18,
+          24,
+          30
+        ]
+      },
+      "tests": {
+        "test_activity_call_rewards": 8,
+        "test_activity_trade_facts": 15,
+        "public_activity_exchange_updater_test": 70,
+        "allPassed": true
+      },
+      "boundaries": [
+        "Static consumer evidence only; no account request, claim, payment, or client mutation.",
+        "Claim availability, activity balances and used quotas remain unknown without account observations.",
+        "Runtime forwarding with no verified static data producer stays unresolved; unconsumed getters do not create offers."
+      ],
+      "files": {
+        "tools/activity_call_rewards.py": "4dd22cc3ba2063a84bc064e44cb0de71f6cac6fe2362821247c5799b154dd3ce",
+        "tools/activity_trade_facts.py": "e68f38bdd5272ffc99c80af638beed5b71a7754e1dc62191f397fc7818adf1ad",
+        "tests/python/test_activity_call_rewards.py": "af1ac144003943a846aa6211da35b9fcd8a8687eb2c565766049eb60d1c63301"
+      }
+    },
+    "catalogComparison": {
+      "before": 280,
+      "after": 296,
+      "added": 16,
+      "removed": 0,
+      "changedExistingEffectOrTarget": []
+    }
+  },
+  "existingNativeRules": {
+    "petCount": 1478,
+    "oldRuleComparisons": 35472,
+    "sameOldRuleFingerprints": true,
+    "same52Cases": true,
+    "factRoundTrips": 1478,
+    "factFailures": 0,
+    "boundaryPassed": 9,
+    "boundaryFailed": 0
+  }
+}

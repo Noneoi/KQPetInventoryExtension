@@ -102,7 +102,7 @@ class Contracts(unittest.TestCase):
             updater.fetch = fetch
             updater.selectable_package_source = {"versions":{"library/materialdataupdate":"2026100700000000"},"packages":{"11":{}}}
             versions = {activity.CONFIG_RESOURCE:"2026100700000000",updater.module:"2026100700000000",updater.empty:"2026100700000000"}
-            with patch.dict(sys.modules,{"activity_evolution_selector":type("Selector",(),{"dependency_revision":staticmethod(lambda v:"same")})}):
+            with patch.dict(sys.modules,{"activity_evolution_selector":type("Selector",(),{"RESOURCES": (), "dependency_revision":staticmethod(lambda v:"same")})}):
                 activity.update_activity_exchanges(updater,versions)
                 path = updater.root / "catalog" / activity.FILENAME
                 self.assertEqual(json.loads(path.read_text(encoding="utf-8"))["shops"],[])
@@ -454,7 +454,7 @@ class Contracts(unittest.TestCase):
         with tempfile.TemporaryDirectory() as temporary:
             updater = FakeUpdater(Path(temporary))
             versions = {activity.CONFIG_RESOURCE: "2026091100000000", updater.module: "2026091100000001", updater.empty: "2026091100000002"}
-            with patch.dict(sys.modules, {"activity_evolution_selector": type("Selector", (), {"dependency_revision": staticmethod(lambda versions: "same")})}):
+            with patch.dict(sys.modules, {"activity_evolution_selector": type("Selector", (), {"RESOURCES": (), "dependency_revision": staticmethod(lambda versions: "same")})}):
                 self.assertTrue(activity.update_activity_exchanges(updater, versions))
                 first = list(updater.calls)
                 self.assertEqual(len(first), 3)
@@ -478,7 +478,7 @@ class Contracts(unittest.TestCase):
         with tempfile.TemporaryDirectory() as temporary:
             updater = FakeUpdater(Path(temporary))
             versions = {activity.CONFIG_RESOURCE: "2026091100000000", updater.module: "2026091100000001", updater.empty: "2026091100000002"}
-            with patch.dict(sys.modules, {"activity_evolution_selector": type("Selector", (), {"dependency_revision": staticmethod(lambda versions: "same")})}):
+            with patch.dict(sys.modules, {"activity_evolution_selector": type("Selector", (), {"RESOURCES": (), "dependency_revision": staticmethod(lambda versions: "same")})}):
                 activity.update_activity_exchanges(updater, versions)
                 new_module = "newactivityext/newact20260918/futureexchange2/futureexchange2"
                 updater.registry = updater.registry.replace('<week version="20260911">',
@@ -497,7 +497,7 @@ class Contracts(unittest.TestCase):
         with tempfile.TemporaryDirectory() as temporary:
             updater = FakeUpdater(Path(temporary))
             versions = {activity.CONFIG_RESOURCE: "2026091100000000", updater.module: "2026091100000001", updater.empty: "2026091100000002"}
-            with patch.dict(sys.modules, {"activity_evolution_selector": type("Selector", (), {"dependency_revision": staticmethod(lambda versions: "same")})}):
+            with patch.dict(sys.modules, {"activity_evolution_selector": type("Selector", (), {"RESOURCES": (), "dependency_revision": staticmethod(lambda versions: "same")})}):
                 activity.update_activity_exchanges(updater, versions)
             data = json.loads((updater.root / "catalog" / activity.FILENAME).read_text(encoding="utf-8"))
             shop = next(shop for shop in data["shops"] if shop["sourceKey"].startswith(updater.module + "#"))
@@ -509,7 +509,7 @@ class Contracts(unittest.TestCase):
         with tempfile.TemporaryDirectory() as temporary:
             updater = FakeUpdater(Path(temporary))
             versions = {activity.CONFIG_RESOURCE: "2026091100000000", updater.module: "2026091100000001", updater.empty: "2026091100000002"}
-            with patch.dict(sys.modules, {"activity_evolution_selector": type("Selector", (), {"dependency_revision": staticmethod(lambda versions: "same")})}):
+            with patch.dict(sys.modules, {"activity_evolution_selector": type("Selector", (), {"RESOURCES": (), "dependency_revision": staticmethod(lambda versions: "same")})}):
                 activity.update_activity_exchanges(updater, versions)
                 versions[updater.module] = "2026091100000003"
                 updater.rows[0]["simpleParams"] = "CommonEnhancePrize,-1,123,39$2,8001#8002"
@@ -527,7 +527,7 @@ class Contracts(unittest.TestCase):
         with tempfile.TemporaryDirectory() as temporary:
             updater = FakeUpdater(Path(temporary))
             versions = {activity.CONFIG_RESOURCE: "2026091100000000", updater.module: "2026091100000001", updater.empty: "2026091100000002"}
-            with patch.dict(sys.modules, {"activity_evolution_selector": type("Selector", (), {"dependency_revision": staticmethod(lambda versions: "same")})}):
+            with patch.dict(sys.modules, {"activity_evolution_selector": type("Selector", (), {"RESOURCES": (), "dependency_revision": staticmethod(lambda versions: "same")})}):
                 activity.update_activity_exchanges(updater, versions)
                 cache = updater.root / "catalog" / activity.FILENAME
                 bundled_bytes = cache.read_bytes()
@@ -546,7 +546,7 @@ class Contracts(unittest.TestCase):
             (updater.baseline / activity.FILENAME).write_text(json.dumps({"schema": 1, "parserVersion": activity.PARSER_VERSION - 1,
                 "source": {}, "modules": {}, "shops": [], "pending": []}), encoding="utf-8")
             versions = {activity.CONFIG_RESOURCE: "2026091100000000", updater.module: "2026091100000001", updater.empty: "2026091100000002"}
-            with patch.dict(sys.modules, {"activity_evolution_selector": type("Selector", (), {"dependency_revision": staticmethod(lambda versions: "same")})}):
+            with patch.dict(sys.modules, {"activity_evolution_selector": type("Selector", (), {"RESOURCES": (), "dependency_revision": staticmethod(lambda versions: "same")})}):
                 self.assertTrue(activity.update_activity_exchanges(updater, versions))
                 self.assertEqual(len(updater.calls), 3)
 
@@ -666,6 +666,160 @@ class RewardStructures(unittest.TestCase):
         return activity.parse_module(scripts, 'unseen/next-update/event', {'activityName': '未来活动'},
                                      include_manual=True, **kwargs)
 
+    def purchase_fixture(self, prefix='Next', race=8101, price=1500, code='33'):
+        return {
+            prefix + '.as': f'''static const OFFERS:Array=[
+                {{"serverIndex":17,"rewardType":"Strengthen","rewardParams":"34","filter":[9999]}},
+                {{"serverIndex":29,"index":1,"cost":77,"rewardParams":"Strengthen:{code}?4:1:2","filter":[{race}]}}];
+                static const BUY:Object={{"type":"Strengthen","goodsId":123456,"title":"礼包","amount":{price}}};''',
+            'Panel.as': f'''function click():void {{
+                var cfg:Object={prefix}.OFFERS[index]; var way:Object={prefix}.BUY;
+                if(index=={prefix}.OFFERS.length-1){{
+                    info=new DirectBuyInfo().forMyself().forNormal(way["goodsId"],way["title"],way["amount"],1,ci);
+                    service.buyDirectly(info);
+                }}
+            }} function view():void {{var reward:Gift; if(!reward.done){{show();}}}}
+            function claimed():void {{var reward:Gift; reward.done=true;}}''',
+            'Model.as': f'''function init():void {{{prefix}.OFFERS.forEach(function(row:*):*{{
+                gifts.push(new Gift().initConfig(row).initData(response));
+            }});}}''',
+            'Gift.as': '''class Gift extends ActReward {
+                function initData(packet:Object):ActReward {this._done=packet["b"+_serverIndex]["taken"+_serverIndex];return this;}
+                function get done():Boolean {return this._done;}
+            }'''}
+
+    def test_consumed_direct_purchase_joins_existing_reward_without_diamond_cost(self):
+        for prefix, race, price, code in [('Summer2099',8101,1500,'33'), ('Winter2100',9012,2700,'34$7')]:
+            scripts = self.purchase_fixture(prefix, race, price, code)
+            shops, pending, _ = self.parse(scripts, reward_support={'directBuyVerified':True})
+            self.assertEqual(pending, [])
+            self.assertEqual(len(shops), 1)
+            self.assertEqual(len(shops[0]['goods']), 2)
+            good = shops[0]['goods'][1]
+            self.assertEqual((good['itemServerId'],good['enhanceType'],good['raceIds']), (29,code,[race]))
+            self.assertFalse(good['costKnown'])
+            self.assertEqual(good['cost'], '')
+            self.assertIn('商城付费',good['costDescription'])
+            purchase = good['source']['tradeFacts']['purchase']
+            self.assertEqual((purchase['goodsId'],purchase['goodsPrice'],purchase['goodsNum']),(123456,price,1))
+            self.assertEqual(good['limitCount'],1)
+            self.assertEqual(good['source']['tradeFacts']['claim']['statePath'],['b29','taken29'])
+            self.assertFalse(good['quotaCycleKnown'])
+            self.assertEqual(shops[0]['observation']['requests'], [])
+            repriced = self.parse(self.purchase_fixture(prefix,race,price+100,code),reward_support={'directBuyVerified':True})[0][0]['goods'][1]
+            self.assertEqual(repriced['itemServerId'],good['itemServerId'])
+            self.assertNotIn('purchase',shops[0]['goods'][0].get('source',{}).get('tradeFacts',{}))
+
+    def test_direct_purchase_requires_consumption_branch_and_unchanged_payment_info(self):
+        original = self.purchase_fixture()
+        variants = [
+            ('service.buyDirectly(info);',''),
+            ('index==Next.OFFERS.length-1','index!=Next.OFFERS.length-1'),
+            ('service.buyDirectly(info);','info.goodsPrice=runtimePrice;service.buyDirectly(info);'),
+            ('var cfg:Object=Next.OFFERS[index];','var cfg:Object=Unrelated.ROWS[index];'),
+            ('var way:Object=Next.BUY;','var way:Object=Next.BUY;way=other;'),
+            ('way["amount"],1,ci','runtimePrice,1,ci')]
+        for old, new in variants:
+            with self.subTest(old=old):
+                scripts = {**original, 'Panel.as':original['Panel.as'].replace(old,new)}
+                shops, pending, _ = self.parse(scripts,reward_support={'directBuyVerified':True})
+                self.assertTrue(pending)
+                self.assertFalse(any('purchase' in g['source'].get('tradeFacts',{}) for s in shops for g in s['goods']))
+        self.assertTrue(self.parse(original,reward_support={'directBuyVerified':False})[1])
+
+    def test_direct_purchase_conflict_preserves_pending_instead_of_selecting_a_price(self):
+        scripts = self.purchase_fixture()
+        scripts['Next.as'] += 'static const OTHER:Object={"type":"Strengthen","goodsId":777,"title":"另一礼包","amount":999};'
+        scripts['OtherPanel.as'] = scripts['Panel.as'].replace('Next.BUY','Next.OTHER')
+        shops, pending, _ = self.parse(scripts,reward_support={'directBuyVerified':True})
+        self.assertTrue(any('不同商城购买入口' in item['reason'] for item in pending))
+        self.assertFalse(any('purchase' in g['source'].get('tradeFacts',{}) for s in shops for g in s['goods']))
+
+    def test_shared_panel_resolves_terminal_package_and_tracks_evolution_dependency(self):
+        from activity_evolution_selector import shared_cultivation_targets
+        support = {'hiddenDisplayId':999,'pets':{'8203':{'testOnly':'0','priorContains':'1#2-999'}},
+                   'prices':{'1':{'strengthenParams':'83'},'2':{'strengthenParams':'34'}}}
+        graph = {'skins':[],'forms':[],'orderedEvolutionVerified':True,
+                 'evolution':{'excel':{'8101':[8202],'8202':[8203]},'legacy':{}}}
+        scripts = {'Future.as':'function open():void {service.showPanelCombo("8101");}'}
+        resolve = lambda seeds: shared_cultivation_targets(graph,seeds,support['pets'])
+        shops, pending, dependency = self.parse(scripts,reward_support=support,resolve_shared=resolve)
+        self.assertEqual(pending,[])
+        self.assertTrue(dependency)
+        good, = shops[0]['goods']
+        self.assertEqual((good['enhanceType'],good['raceIds']),('83',[8203]))
+        self.assertEqual(good['source']['callEvidence']['evolutionPath'],[8101,8202,8203])
+        self.assertTrue(good['manualSelectionRequired'])
+        del support['pets']['8203']
+        self.assertTrue(self.parse(scripts,reward_support=support,resolve_shared=resolve)[1])
+
+    def test_direct_service_constants_work_across_future_names_and_targets(self):
+        for name, race, effect in [('Spring2099', 8101, '34'), ('Winter2100', 9109, '84-92')]:
+            scripts = {
+                name + '.as': f'static const TARGET:int={race}; static const EFFECT:String="{effect}";',
+                'Controller.as': f'''function claim():void {{
+                  svc.showStrengthenPanel(StrengthenComboItem.createByString({name}.EFFECT).autoFillDisplayType(),
+                    Payment.getSimple(function(item:Object,pet:Object,done:Function):void {{done();}}),[{name}.TARGET]);
+                }}'''}
+            shops, pending, _ = self.parse(scripts)
+            self.assertEqual(pending, [])
+            good, = [g for s in shops for g in s['goods']]
+            self.assertEqual((good['enhanceType'],good['raceIds']), (effect,[race]))
+            self.assertTrue(good['manualSelectionRequired'])
+            self.assertFalse(good['costKnown'])
+            self.assertEqual(shops[0]['observation']['requests'], [])
+            self.assertEqual(good['source']['callEvidence']['consumer'], 'IStrengthenComboService.showStrengthenPanel')
+            icon_only = {'Poster.as': scripts['Controller.as'].replace('svc.showStrengthenPanel', 'svc.drawIcon'), name + '.as':scripts[name + '.as']}
+            self.assertEqual(self.parse(icon_only)[0], [])
+
+    def test_two_service_calls_keep_their_own_target_and_invalid_calls_are_reported(self):
+        source = '''static const A:int=8101; static const B:int=8102;
+          function first():void {svc.showStrengthenPanel(StrengthenComboItem.createByString("34"),pay,[A]);}
+          function second():void {svc.showStrengthenPanel(StrengthenComboItem.createByString("84"),pay,[B]);}
+          function third():void {svc.showStrengthenPanel(StrengthenComboItem.createByString("92"),pay,runtimeTargets);}
+          function bad():void {svc.showStrengthenPanel(StrengthenComboItem.createByString("future-expression"),pay,[A]);}'''
+        shops, pending, _ = self.parse({'Calls.as':source})
+        self.assertEqual({(g['enhanceType'],tuple(g['raceIds'])) for s in shops for g in s['goods']}, {('34',(8101,)),('84',(8102,))})
+        self.assertEqual(len(pending), 2)
+
+    def test_consumed_map_joins_fields_targets_and_trade_contract_after_renaming(self):
+        for prefix, price, limit, race, code in [('Spring', 27, 2, 8101, '34'), ('Autumn', 59, 4, 9101, '84')]:
+            config = f'''static const TARGETS:Array=[{race}];
+              static const RAW:Array=[{{"slot":7,"label":"新活动养成","amount":{price},"cap":{limit},"effect":"{code}"}},
+                                     {{"slot":8,"label":"普通材料"}}];
+              public static function project():Array {{return RAW.map(function(row:Object,index:int,...rest):Object {{
+                var item:Object={{"serverIndex":row["slot"],"basicDescription":row["label"],"price":row["amount"],"total_limited":row["cap"]}};
+                if(row.hasOwnProperty("effect")) {{item["rewardType"]="Strengthen"; item["rewardParams"]=row["effect"]; item["filter"]=TARGETS;}}
+                return item;
+              }});}}'''
+            reward = '''class Reward extends ActReward {
+              public function get price():int {return fragmentCollection.getFrag("price").configInfo.asInt;}
+              public function get limit():ActRewardFragmentLimited {return fragmentCollection.getFrag("total_limited") as ActRewardFragmentLimited;}
+              public function pay(callback:Function):void {showTip(Tip.diamondSelf(this.price,"",callback));}}'''
+            scripts = {prefix + 'Config.as':config, prefix + 'Reward.as':reward.replace('class Reward', 'class ' + prefix + 'Reward'),
+                'Consumer.as':f'data.init({prefix}Config.project(),packet,{prefix}Reward);'}
+            shops, pending, _ = self.parse(scripts)
+            self.assertEqual(pending, [])
+            good, = [g for s in shops for g in s['goods']]
+            self.assertEqual((good['enhanceType'],good['raceIds'],good['cost'],good['limitCount']), (code,[race],f'8:2:{price}',limit))
+            repriced = dict(scripts); repriced[prefix + 'Config.as'] = config.replace(f'"amount":{price}',f'"amount":{price + 20}')
+            changed = self.parse(repriced)[0][0]['goods'][0]
+            self.assertEqual(changed['itemServerId'], good['itemServerId'])
+            ambiguous = dict(scripts)
+            ambiguous[prefix + 'Config.as'] = config.replace('return item;', 'item["filter"]=runtimeTargets; return item;')
+            rejected, issues, _ = self.parse(ambiguous)
+            self.assertEqual(rejected, [])
+            self.assertTrue(any('额外分支' in x['reason'] for x in issues))
+            del scripts['Consumer.as']
+            self.assertEqual(self.parse(scripts)[0], [])
+
+    def test_runtime_shared_panel_navigation_is_not_an_independent_missing_store(self):
+        scripts = {'Verify.as':'function open():void {svc.showPanelCombo(originalRaceIds[0].toString());}'}
+        shops, pending, _ = self.parse(scripts)
+        self.assertEqual((shops, pending), ([], []))
+        scripts['Verify.as'] = 'function open():void {svc.showPanelCombo("8101");}'
+        self.assertTrue(self.parse(scripts)[1])
+
     def test_display_policy_keeps_verified_cultivation_alternative_as_manual(self):
         fixed = {'itemServerId':1,'description':'指定精灵提升','enhanceType':'92','raceIds':[8101],
                  'rewardRaw':'CommonEnhancePrize,-1,1,92,8101'}
@@ -678,10 +832,23 @@ class RewardStructures(unittest.TestCase):
             {**cultivation, 'rewardRaw':cultivation['rewardRaw'].replace('92,8101','92,8101:true')},
             {**fixed,'rewardRaw':'SelectPrizes,whatever'},
             {**fixed,'rewardRaw':'Material,139:11:1,1','selectablePackageIds':[11]},
-            {**fixed,'description':'任选3颗红星'},
+            {**fixed,'description':'任选3颗红星','rewardRaw':''},
             {**fixed,'rewardOptions':[{'id':1},{'id':2}]}]
         shops = activity.relevant_shops([{'sourceKey':'future/module#rewards','goods':[fixed,cultivation,*alternatives]}])
         self.assertEqual(shops[0]['goods'],[fixed,{**cultivation,'manualSelectionRequired':True}])
+
+    def test_verified_pet_effect_is_not_hidden_by_a_selection_word_in_its_title(self):
+        for code, title in [('34', '装备任选1颗红星'), ('34$1', '装备任选红星1颗'),
+                            ('84', '自选指定精灵升满一条星迹')]:
+            with self.subTest(code=code):
+                fixed = {'itemServerId': 1, 'description': title, 'enhanceType': code, 'raceIds': [8101],
+                         'rewardRaw': 'CommonEnhancePrize,,,' + code + ',8101'}
+                rejected = [{**fixed, 'raceIds': [8102]}, {**fixed, 'enhanceType': '62'},
+                            {**fixed, 'rewardOptions': [{'id': 1}, {'id': 2}]},
+                            {**fixed, 'rewardRaw': 'Choice,|' + fixed['rewardRaw'] + '|PetOpen,8101'},
+                            {**fixed, 'rewardRaw': 'Material,139:11:1,1', 'selectablePackageIds': [11]}]
+                shops = activity.relevant_shops([{'sourceKey': 'future/module#renamed', 'goods': [fixed, *rejected]}])
+                self.assertEqual(shops[0]['goods'], [fixed])
 
     def test_generic_and_bundle_titles_show_each_real_effect_without_changing_ids(self):
         support = {'descriptions':{'11':'满级','62':'完美天赋','86':'满星迹','89':'星迹突破','94':'源兽神觉升至满阶'}}
@@ -929,7 +1096,11 @@ class RewardStructures(unittest.TestCase):
             result = json.loads((updater.root/'catalog'/activity.FILENAME).read_text(encoding='utf-8'))
             self.assertEqual(result['coverage']['activityModules'],6)
             self.assertEqual(result['coverage']['goods'],6)
-            self.assertEqual(result['pending'],[])
+            # The inherited FakeUpdater HUD still points at futureexchange,
+            # which this test's replacement registry deliberately omits.
+            # It must now be visible in entry coverage instead of disappearing.
+            self.assertEqual([row.get('alias') for row in result['pending']], ['futureexchange'])
+            self.assertEqual(result['coverage']['entryReferences']['futureexchange']['status'], 'missing-registration')
 
 
 class ActivityPeriods(unittest.TestCase):

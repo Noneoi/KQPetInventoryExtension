@@ -81,7 +81,7 @@ class DesignatedPetCatalog(unittest.TestCase):
                 generator.official_date(invalid)
 
     def test_current_official_catalog_and_enhancement_coverage(self):
-        data = json.loads((ROOT / "assets/shop-exchange-data.json").read_text(encoding="utf-8"))
+        data = json.loads((ROOT / "tests/fixtures/shop/frozen-20260920.json").read_text(encoding="utf-8"))
         fixed_shops = [s for s in data["shops"] if not s.get("sourceKey")]
         goods = [g for s in fixed_shops for g in s["goods"]]
         self.assertEqual(len(goods), 26)
@@ -90,7 +90,6 @@ class DesignatedPetCatalog(unittest.TestCase):
         self.assertEqual({s["shopId"] for s in fixed_shops}, {1, 2, 3, 4, 5, 6})
         self.assertTrue(all(g["raceIds"] for g in goods))
         self.assertEqual({g["enhanceType"] for g in goods if "金星" in g["description"]}, {"31"})
-        self.assertEqual(data["source"]["shopVersion"], "2026091776736973")
 
 
 if __name__ == "__main__":

@@ -39,6 +39,9 @@
 #include <QVBoxLayout>
 #include <QVersionNumber>
 #include <QXmlStreamReader>
+#include <QTableWidget>
+#include <QHeaderView>
+#include <QScrollArea>
 
 #include <tuple>
 
@@ -66,6 +69,76 @@ QString sizeText(qint64 bytes) {
   if (bytes >= 1024LL * 1024 * 1024) return QStringLiteral("%1 GB").arg(double(bytes) / (1024.0 * 1024 * 1024), 0, 'f', 2);
   if (bytes >= 1024 * 1024) return QStringLiteral("%1 MB").arg(double(bytes) / (1024.0 * 1024), 0, 'f', 1);
   return QStringLiteral("%1 KB").arg(double(bytes) / 1024, 0, 'f', 1);
+}
+QString noticeSummary(const QJsonObject& row, bool compact = false) {
+  QStringList lines;
+  for (const auto& value : row.value("notices").toArray()) {
+    const auto notice = value.toObject();
+    QString message = notice.value("message").toString();
+    const QString kind = notice.value("kind").toString();
+    if (compact) {
+      const QMap<QString,QString> labels{{"analysis",QStringLiteral("适用条件")},{"extraction",QStringLiteral("活动配置")},
+          {"definitions",QStringLiteral("官方名称")},{"rules",QStringLiteral("日常规则")}};
+      if (labels.contains(kind)) message = QStringLiteral("%1：%2 项").arg(labels.value(kind))
+          .arg(notice.value("itemCount").toInt(int(notice.value("items").toArray().size())));
+    }
+    if (!message.isEmpty()) lines.append(message);
+  }
+  return lines.join(QStringLiteral("；"));
+}
+QString changeSummary(const QJsonObject& changes) {
+  const auto counts = [](const QJsonObject& value) {
+    return QStringLiteral("新增 %1，变化 %2，移除 %3").arg(value.value("added").toInt())
+        .arg(value.value("changed").toInt()).arg(value.value("removed").toInt());
+  };
+  if (changes.contains("goods")) return QStringLiteral("商品：") + counts(changes.value("goods").toObject()) +
+      QStringLiteral("；商店：") + counts(changes.value("shops").toObject());
+  return counts(changes);
+}
+QString updateDetails(const QJsonObject& report, const QTableWidget* table) {
+  QStringList lines{report.value("sessionApplied").toBool() ? QStringLiteral("工作台已载入资料。")
+                                                          : QStringLiteral("本次资料尚未完成载入。")};
+  const auto components = report.value("components").toObject();
+  for (int index = 0; index < table->rowCount(); ++index) {
+    const auto row = components.value(table->item(index,0)->data(Qt::UserRole).toString()).toObject();
+    if (row.isEmpty()) continue;
+    lines << QString() << table->item(index,0)->text() + QStringLiteral("：") + table->item(index,1)->text();
+    const auto changes = row.value("changes").toObject();
+    if (!changes.isEmpty()) lines << QStringLiteral("变化：") + changeSummary(changes);
+    const auto coverage = row.value("coverage").toObject();
+    if (!coverage.isEmpty()) {
+      lines << QStringLiteral("扫描覆盖：%1 个相关资源模块；独立服务入口 %2 / %3；%4 个模块未发现相关养成奖励。")
+          .arg(coverage.value("activityModules").toInt()).arg(coverage.value("scannedServiceEntries").toInt())
+          .arg(coverage.value("serviceEntries").toInt()).arg(coverage.value("withoutRelevantRewards").toInt());
+      lines << QStringLiteral("覆盖以当前官方入口及其引用为范围；待识别为零不表示所有游戏资源均已解析。完整入口去向保存在诊断资料中。");
+    }
+    const QMap<QString,QString> changeLabels{{"added",QStringLiteral("新增")},{"changed",QStringLiteral("变化")},{"removed",QStringLiteral("删除")}};
+    for (const auto& value : changes.value("items").toArray()) {
+      const auto item = value.toObject();
+      lines << QStringLiteral("  • ") + changeLabels.value(item.value("kind").toString(), QStringLiteral("变化")) +
+          QStringLiteral("：") + item.value("name").toString(item.value("id").toString());
+    }
+    if (changes.value("truncated").toBool()) lines << QStringLiteral("  变化条目较多，此处保留前 300 条。总数见上方统计。");
+    if (!row.value("error").toString().isEmpty()) lines << QStringLiteral("更新未完成原因：") + row.value("error").toString();
+    auto notices = row.value("notices").toArray();
+    QJsonArray ordered;
+    for (const auto& notice : notices) if (notice.toObject().value("kind").toString() != "analysis") ordered.append(notice);
+    for (const auto& notice : notices) if (notice.toObject().value("kind").toString() == "analysis") ordered.append(notice);
+    for (const auto& value : ordered) {
+      const auto notice = value.toObject();
+      lines << QStringLiteral("资料提示：") + notice.value("message").toString();
+      const auto items = notice.value("items").toArray();
+      for (const auto& entry : items) {
+        const auto item = entry.toObject();
+        QString title = item.value("activityName").toString();
+        if (!item.value("description").toString().isEmpty()) title += QStringLiteral(" / ") + item.value("description").toString();
+        lines << QStringLiteral("  • ") + title + (title.isEmpty() ? QString{} : QStringLiteral("：")) + item.value("reason").toString();
+      }
+      if (notice.value("itemCount").toInt(int(items.size())) > items.size())
+        lines << QStringLiteral("  完整条目将在任务结束后载入；也可导出诊断查看。");
+    }
+  }
+  return lines.join(QLatin1Char('\n'));
 }
 QString softwareClientRoot() {
   const QString configured = qEnvironmentVariable("KQPET_CLIENT_ROOT");
@@ -105,7 +178,9 @@ PetSettingsDialog::PetSettingsDialog(const RefreshTimings& timings, QWidget* par
   auto* tabs = new QTabWidget(this);
   tabs->setObjectName(QStringLiteral("KQSettingsTabs"));
   tabs->addTab(createCachePage(), QStringLiteral("本地缓存"));
-  tabs->addTab(createDataPage(), QStringLiteral("数据更新"));
+  auto* dataScroll = new QScrollArea(tabs); dataScroll->setWidgetResizable(true); dataScroll->setFrameShape(QFrame::NoFrame);
+  dataScroll->setWidget(createDataPage());
+  tabs->addTab(dataScroll, QStringLiteral("数据更新"));
   tabs->addTab(createSoftwareUpdatePage(), QStringLiteral("软件更新"));
   tabs->addTab(createTimingPage(), QStringLiteral("刷新参数"));
   root->addWidget(tabs);
@@ -282,8 +357,9 @@ QWidget* PetSettingsDialog::createDataPage() {
   auto* catalogs = new QGroupBox(QStringLiteral("官方公共数据"), page);
   auto* catalogLayout = new QVBoxLayout(catalogs);
   catalogLayout->addWidget(explanation(QStringLiteral(
-      "游戏更新后，点击“全部检查更新”即可；只有官方版本变化的部分才会重新下载和解析。"
-      "也可以只更新某一类数据，其余数据保持不变。首次检查需要准备解析工具，可能需要几分钟。"), catalogs));
+      "检查官方来源及内容变化，复用相同资源的提取结果。首次准备工具和资料可能需要几分钟。"
+      "公共资料只保留当前版和上一版，成功载入后自动清理更早版本及已结束的更新临时资料。"
+      "公共资料更新完成后，账号余额、兑换次数和任务进度仍以各页面的账号刷新时间为准。"), catalogs));
   dataUpdateButton_ = button(QStringLiteral("全部检查更新"), catalogs);
   dataUpdateButton_->setObjectName(QStringLiteral("KQCheckDataUpdate"));
   dataUpdateButton_->setToolTip(QStringLiteral("依次检查下面全部六类数据"));
@@ -317,6 +393,54 @@ QWidget* PetSettingsDialog::createDataPage() {
   dataUpdateStatus_ = explanation(QStringLiteral("尚未检查。更新失败时保留现有本地数据。"), catalogs);
   dataUpdateStatus_->setTextInteractionFlags(Qt::TextSelectableByMouse);
   catalogLayout->addWidget(dataUpdateStatus_);
+  dataPhase_ = explanation(QStringLiteral("六类资料分别记录检查和应用结果"), catalogs);
+  catalogLayout->addWidget(dataPhase_);
+  dataResults_ = new QTableWidget(6, 6, catalogs);
+  dataResults_->setObjectName(QStringLiteral("KQDataUpdateResults"));
+  dataResults_->setHorizontalHeaderLabels({QStringLiteral("资料"), QStringLiteral("更新结果"), QStringLiteral("最近检查"), QStringLiteral("最近应用"), QStringLiteral("变化 / 失败原因"), QStringLiteral("资料提示")});
+  dataResults_->verticalHeader()->hide(); dataResults_->setEditTriggers(QAbstractItemView::NoEditTriggers);
+  dataResults_->setSelectionBehavior(QAbstractItemView::SelectRows);
+  dataResults_->setWordWrap(false);
+  dataResults_->horizontalHeader()->setSectionResizeMode(QHeaderView::ResizeToContents);
+  dataResults_->horizontalHeader()->setSectionResizeMode(4, QHeaderView::Interactive);
+  dataResults_->setColumnWidth(4, 185);
+  dataResults_->horizontalHeader()->setSectionResizeMode(5, QHeaderView::Stretch);
+  dataResults_->setMinimumHeight(215);
+  for (int row = 0; row < parts.size(); ++row) {
+    for (int column = 0; column < 6; ++column) dataResults_->setItem(row, column, new QTableWidgetItem(column == 0 ? std::get<1>(parts[row]) : QStringLiteral("—")));
+    dataResults_->item(row, 0)->setData(Qt::UserRole, std::get<0>(parts[row]));
+  }
+  catalogLayout->addWidget(dataResults_);
+  auto* actions = new QGridLayout;
+  const QList<QPair<QString, QString>> actionNames{{"cancel", "取消检查"}, {"retry", "只重试未完成项"},
+      {"details", "查看变化与诊断"}, {"reload", "重新载入已保存资料"}, {"rollback", "恢复上一版资料"}, {"verify", "完整重新核验"}};
+  for (int index = 0; index < actionNames.size(); ++index) {
+    const auto [action, title] = actionNames[index];
+    auto* control = button(title, catalogs); control->setObjectName("KQDataAction-" + action);
+    dataActions_.insert(action, control); actions->addWidget(control, index / 3, index % 3);
+    connect(control, &QPushButton::clicked, this, [this, action] {
+      if (action == "details") {
+        auto* details = new QDialog(this); details->setAttribute(Qt::WA_DeleteOnClose); details->setWindowTitle(QStringLiteral("公共资料变化与诊断"));
+        auto* layout = new QVBoxLayout(details); auto* text = new QTextBrowser(details);
+        text->setObjectName(QStringLiteral("KQDataUpdateDetails"));
+        text->setPlainText(updateDetails(dataReport_, dataResults_));
+        layout->addWidget(text); auto* save = button(QStringLiteral("导出诊断…"), details); layout->addWidget(save);
+        connect(save, &QPushButton::clicked, details, [this] {
+          const auto path = QFileDialog::getSaveFileName(this, QStringLiteral("导出公共资料诊断"), QStringLiteral("公共资料诊断.json"), "JSON (*.json)");
+          if (path.isEmpty()) return;
+          QFile file(path);
+          const auto bytes = QJsonDocument(dataReport_).toJson(QJsonDocument::Indented);
+          if (!file.open(QIODevice::WriteOnly) || file.write(bytes) != bytes.size()) QMessageBox::warning(this, QStringLiteral("保存失败"), file.errorString());
+        });
+        details->resize(800, 600); details->open(); return;
+      }
+      if (action != "cancel") setDataUpdateStatus(QStringLiteral("操作已受理，正在准备…"), true);
+      else dataActions_.value("cancel")->setEnabled(false);
+      emit dataUpdateActionRequested(action);
+    });
+  }
+  dataActions_.value("cancel")->setEnabled(false);
+  catalogLayout->addLayout(actions);
   connect(dataUpdateButton_, &QPushButton::clicked, this, [this] {
     setDataUpdateStatus(QStringLiteral("正在检查全部官方数据…"), true);
     emit dataUpdateRequested({});
@@ -335,6 +459,9 @@ QWidget* PetSettingsDialog::createDataPage() {
   imageLayout->addWidget(explanation(QStringLiteral("已有图片直接从磁盘读取。查看精灵时，只为缺失图片下载；下载失败后可右键重试。\n“补齐缺失图片”会下载当前库存缺少的图片，已有图片不会重复下载。"), images));
   auto* row = new QHBoxLayout;
   missingImagesButton_ = button(QStringLiteral("补齐缺失图片"), images);
+  failedImagesButton_ = button(QStringLiteral("重试本轮失败图片"), images);
+  row->addWidget(failedImagesButton_);
+  connect(failedImagesButton_, &QPushButton::clicked, this, [this] { setImageBatchProgress(0, 0, 0); emit failedImagesRequested(); });
   imagePause_ = button(QStringLiteral("暂停"), images);
   imagePause_->setCheckable(true);
   imageCancel_ = button(QStringLiteral("取消"), images);
@@ -756,6 +883,11 @@ void PetSettingsDialog::applyCacheResult(const QString& action, const QJsonObjec
       .arg(summary.value(QStringLiteral("missingImages")).toInteger())
       .arg(summary.value(QStringLiteral("legacyImageFiles")).toInteger())
       .arg(latest.isValid() ? latest.toLocalTime().toString(QStringLiteral("yyyy-MM-dd HH:mm")) : QStringLiteral("暂无")));
+  const auto categories = summary.value("categories").toObject();
+  if (!categories.isEmpty()) cacheSummary_->setText(cacheSummary_->text() + QStringLiteral("\n账号原始资料 %1 · 公共资料 %2 · 图片 %3 · 派生缓存 %4\n解析工具 %5 · 提取缓存 %6（保留可加快下次更新）")
+      .arg(sizeText(categories.value("accountOriginal").toInteger()), sizeText(categories.value("publicCatalog").toInteger()),
+           sizeText(categories.value("images").toInteger()), sizeText(categories.value("derived").toInteger()),
+           sizeText(categories.value("tools").toInteger()), sizeText(categories.value("extraction").toInteger())));
   Q_UNUSED(action);
 }
 void PetSettingsDialog::setDataUpdateStatus(const QString& message, bool busy) {
@@ -764,7 +896,68 @@ void PetSettingsDialog::setDataUpdateStatus(const QString& message, bool busy) {
   dataUpdateButton_->setEnabled(!busy && !imageBatchRunning_);
   for (QPushButton* part : partialUpdateButtons_) part->setEnabled(!busy && !imageBatchRunning_);
   missingImagesButton_->setEnabled(!busy && !imageBatchRunning_);
+  failedImagesButton_->setEnabled(!busy && !imageBatchRunning_);
   if (shopSelectionDialog_) shopSelectionDialog_->setUpdateBusy(busy || imageBatchRunning_);
+  for (auto it = dataActions_.begin(); it != dataActions_.end(); ++it)
+    it.value()->setEnabled(it.key() == "details" || (it.key() == "cancel" ? busy && dataReport_.value("canCancel").toBool(true) : !busy && !imageBatchRunning_));
+  if (!busy) {
+    bool retryable = QStringList{"failed", "cancelled", "interrupted"}.contains(dataReport_.value("state").toString());
+    const auto rows = dataReport_.value("components").toObject();
+    for (const auto& value : rows) retryable |= value.toObject().value("retryable").toBool();
+    dataActions_.value("retry")->setEnabled(retryable && !imageBatchRunning_);
+    dataActions_.value("retry")->setToolTip(retryable ? QStringLiteral("只处理本次可以重新检查的未完成类别") : QStringLiteral("没有可自动重试的失败项；待识别结构需适配解析规则，可查看诊断"));
+    dataActions_.value("reload")->setEnabled(!dataReport_.value("revision").toString().isEmpty() && !imageBatchRunning_);
+    if (dataReport_.value("state").toString() == "applyFailed" && !dataReport_.value("diskCommitted").toBool()) dataActions_.value("reload")->setEnabled(false);
+    dataActions_.value("rollback")->setEnabled(!dataReport_.value("previousRevision").toString().isEmpty() && !imageBatchRunning_);
+  }
+}
+void PetSettingsDialog::setDataUpdateReport(const QJsonObject& report) {
+  dataReport_ = report;
+  const QString state = report.value("state").toString();
+  const bool busy = QStringList{"accepted", "preparing", "running", "applying", "prepared"}.contains(state);
+  const QMap<QString, QString> labels{{"updated", "已更新"}, {"unchanged", "无变化"}, {"partial", "部分更新"},
+    {"retained", "失败保旧"}, {"failed", "失败保旧"}, {"cancelled", "已取消"}, {"interrupted", "已中断"}, {"restored", "已恢复"}};
+  const auto rows = report.value("components").toObject();
+  QString componentLabel;
+  const auto time = [](const QJsonValue& value) {
+    const auto date = QDateTime::fromString(value.toString(), Qt::ISODateWithMs);
+    return date.isValid() ? date.toLocalTime().toString("MM-dd HH:mm:ss") : QStringLiteral("—");
+  };
+  for (int row = 0; row < dataResults_->rowCount(); ++row) {
+    const auto value = rows.value(dataResults_->item(row, 0)->data(Qt::UserRole).toString()).toObject();
+    const auto change = value.value("changes").toObject();
+    dataResults_->item(row, 1)->setText(labels.value(value.value("status").toString(), QStringLiteral("未检查")));
+    if (state == "applyFailed" && report.value("requested").toArray().contains(dataResults_->item(row, 0)->data(Qt::UserRole).toString()))
+      dataResults_->item(row, 1)->setText(QStringLiteral("载入未完成"));
+    if (busy && report.value("component").toString() == dataResults_->item(row, 0)->data(Qt::UserRole).toString()) {
+      componentLabel = dataResults_->item(row, 0)->text() + QStringLiteral(" · ");
+      dataResults_->item(row, 1)->setText(QStringLiteral("正在检查"));
+    }
+    dataResults_->item(row, 2)->setText(time(value.value("checkedUtc")));
+    dataResults_->item(row, 3)->setText(time(value.value("appliedUtc")));
+    const auto notices = noticeSummary(value);
+    dataResults_->item(row, 5)->setText(notices.isEmpty() ? QStringLiteral("—") : noticeSummary(value, true));
+    dataResults_->item(row, 5)->setToolTip(notices.isEmpty() ? QString{} : notices + QStringLiteral("\n具体活动、商品和原因见“查看变化与诊断”。"));
+    const QString message = value.value("error").toString(change.isEmpty() ? QStringLiteral("—") : changeSummary(change));
+    dataResults_->item(row, 4)->setText(message); dataResults_->item(row, 4)->setToolTip(message);
+  }
+  const QMap<QString, QString> stages{{"download", "获取来源"}, {"decompile", "提取脚本"}, {"extract", "提取脚本"},
+    {"parse", "整理资料"}, {"validate", "检查候选"}, {"save", "保存候选"}, {"applying", "准备应用"}, {"prepare", "准备资料"}, {"unpack", "解压配置"}};
+  const auto timings = report.value("timings").toObject();
+  const auto totals = timings.value("totals").toObject();
+  const auto downloads = totals.value("download").toObject();
+  const auto extracts = totals.value("decompile").toObject();
+  const auto reused = totals.value("extractCache").toObject();
+  dataPhase_->setText(QStringLiteral("%1 · 用时 %2 秒 · 资料下载 %3 MiB · 提取复用 %4 / %5")
+      .arg(componentLabel + stages.value(report.value("phase").toString(), busy ? QStringLiteral("正在检查") : QStringLiteral("任务已结束")))
+      .arg(report.value("wallSeconds").toDouble(timings.value("wallSeconds").toDouble()), 0, 'f', 1)
+      .arg(report.value("downloadedBytes").toDouble(downloads.value("bytes").toDouble()) / 1048576.0, 0, 'f', 2)
+      .arg(report.value("reusedExtractions").toInt(reused.value("reused").toInt())).arg(report.value("extractions").toInt(extracts.value("calls").toInt() + reused.value("calls").toInt())));
+  QString message = report.value("error").toString();
+  if (message.isEmpty()) message = report.value("sessionApplied").toBool() ? QStringLiteral("工作台已载入资料；各类结果见下表")
+      : busy ? QStringLiteral("任务进行中，关闭再打开设置可以查看进度") : report.isEmpty() ? QStringLiteral("尚未检查") : QStringLiteral("结果已保存；可重新检查或重新载入资料");
+  if (report.value("recovered").toBool()) message.prepend(QStringLiteral("上次记录："));
+  setDataUpdateStatus(message, busy && !report.value("recovered").toBool());
 }
 void PetSettingsDialog::setShopSelection(std::shared_ptr<const ShopCatalogSnapshot> catalog,
                                         bool editable, const QString& message) {
@@ -789,7 +982,9 @@ void PetSettingsDialog::openShopSelection() {
   emit shopSelectionRequested();
 }
 void PetSettingsDialog::setImageBatchProgress(int completed, int total, int failed) {
+  failedImagesButton_->setEnabled(false);
   imageBatchRunning_ = true;
+  setDataUpdateStatus(dataUpdateStatus_->text(), dataUpdateBusy_);
   if (shopSelectionDialog_) shopSelectionDialog_->setUpdateBusy(true);
   dataUpdateButton_->setEnabled(false);
   for (QPushButton* part : partialUpdateButtons_) part->setEnabled(false);
@@ -799,7 +994,9 @@ void PetSettingsDialog::setImageBatchProgress(int completed, int total, int fail
   imageStatus_->setText(QStringLiteral("已处理 %1 / %2 张；失败 %3 张。").arg(completed).arg(total).arg(failed));
 }
 void PetSettingsDialog::finishImageBatch(bool cancelled, int failed) {
+  failedImagesButton_->setEnabled(!dataUpdateBusy_);
   imageBatchRunning_ = false;
+  setDataUpdateStatus(dataUpdateStatus_->text(), dataUpdateBusy_);
   if (shopSelectionDialog_) shopSelectionDialog_->setUpdateBusy(dataUpdateBusy_);
   dataUpdateButton_->setEnabled(!dataUpdateBusy_);
   for (QPushButton* part : partialUpdateButtons_) part->setEnabled(!dataUpdateBusy_);

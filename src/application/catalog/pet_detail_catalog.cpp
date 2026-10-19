@@ -1,4 +1,5 @@
 #include "pet_detail_catalog.h"
+#include "embedded_public_data.h"
 
 #include "domain/pet_identity.h"
 
@@ -29,7 +30,8 @@ PetDetailCatalog::PetDetailCatalog() {
   auto embedded = std::make_shared<PetDetailCatalogSnapshot>();
   embedded->contentDigest = QCryptographicHash::hash(embeddedBytes, QCryptographicHash::Sha256);
   embedded->root = document.object();
-  embedded->sourceLabel = QStringLiteral("程序内置精灵元数据");
+  embedded->sourceLabel = embeddedPublicDataLabel(QStringLiteral("程序内置精灵元数据"));
+  embedded->sourceUpdatedAt = embeddedPublicDataVerifiedAt();
   embedded->loaded = !embedded->root.value(QStringLiteral("pets")).toObject().isEmpty();
   embedded->revision = 1;
   indexPets(embedded.get());

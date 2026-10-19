@@ -20,10 +20,95 @@
 #include <QtGlobal>
 
 #include <utility>
+#include <algorithm>
 #include <limits>
+
+void PetRefreshController::initializeDetailTaskStorage() {
+  detailTaskStorage_ = new ControllerCacheStorage(repository_->storageService(),
+      QStringLiteral("detail-refresh-task.json"), 8 * 1024 * 1024, this);
+  detailTaskStorage_->canWrite = [this] {
+    return detailTaskWritable_ && !account_.isEmpty() && repository_->accountKey() == account_ &&
+        repository_->sessionGeneration() == sessionGeneration_ && repository_->storageContext();
+  };
+  detailTaskStorage_->snapshot = [this] {
+    QJsonArray pending;
+    QList<qint64> ids = detailTaskPending_.keys();
+    std::sort(ids.begin(), ids.end());
+    for (const qint64 id : ids) pending.append(QJsonObject{
+        {QStringLiteral("id"), QString::number(id)},
+        {QStringLiteral("savedAtBefore"), detailTaskPending_.value(id).toUTC().toString(Qt::ISODateWithMs)}});
+    return QJsonObject{{QStringLiteral("schemaVersion"), 1}, {QStringLiteral("account"), account_},
+                       {QStringLiteral("pending"), pending}};
+  };
+  detailTaskStorage_->loaded = [this](StorageStatus status, const QJsonObject& value, const QString& error) {
+    // A corrupt or foreign checkpoint is never replaced silently.
+    detailTaskWritable_ = status == StorageStatus::NotFound ||
+        (status == StorageStatus::Loaded && value.value(QStringLiteral("schemaVersion")).toInt() == 1 &&
+         value.value(QStringLiteral("account")).toString() == account_ && value.value(QStringLiteral("pending")).isArray());
+    if (detailTaskWritable_ && status == StorageStatus::Loaded) {
+      const auto rows = value.value(QStringLiteral("pending")).toArray();
+      for (const auto& row : rows) {
+        const auto entry = row.toObject();
+        bool valid = false;
+        const qint64 id = entry.value(QStringLiteral("id")).toString().toLongLong(&valid);
+        if (!valid || id <= 0) { detailTaskWritable_ = false; break; }
+        detailTaskPending_.insert(id, QDateTime::fromString(entry.value(QStringLiteral("savedAtBefore")).toString(), Qt::ISODateWithMs));
+      }
+      if (!detailTaskWritable_) detailTaskPending_.clear();
+      else pruneCompletedDetailTask();
+    }
+    if (!detailTaskWritable_)
+      emit statusChanged(QStringLiteral("未完成详情任务记录无法读取；本轮仍可手动读取，但不能保存续读进度：%1").arg(error));
+    emitDetailProgress();
+    const auto requested = std::exchange(deferredDetailIds_, {});
+    if (!requested.isEmpty()) startWarehouseDetailRefreshForIds(requested);
+  };
+  detailTaskStorage_->changed = [this](const QString& account, quint64 epoch, quint64, StorageStatus status, const QString& error) {
+    if (account == account_ && epoch == sessionGeneration_ &&
+        status != StorageStatus::Queued && status != StorageStatus::Saved && status != StorageStatus::Superseded)
+      emit statusChanged(QStringLiteral("详情续读进度尚未保存：%1").arg(error));
+  };
+}
+
+void PetRefreshController::saveDetailTask() {
+  if (detailTaskWritable_) detailTaskStorage_->save();
+}
+
+bool PetRefreshController::detailTaskLoading() const { return detailTaskStorage_ && detailTaskStorage_->loading(); }
+
+void PetRefreshController::pruneCompletedDetailTask() {
+  bool changed = false;
+  for (auto it = detailTaskPending_.begin(); it != detailTaskPending_.end();) {
+    const QDateTime saved = repository_->detailSavedAt(it.key());
+    if (saved.isValid() && saved != it.value() && repository_->isDetailPersisted(it.key())) {
+      incompleteDetailIds_.remove(it.key());
+      it = detailTaskPending_.erase(it); changed = true;
+    } else ++it;
+  }
+  if (changed) saveDetailTask();
+}
 
 void PetRefreshController::startWarehouseDetailRefresh() {
   startWarehouseDetailRefreshForIds(repository_->warehouseIdsByDetailAge());
+}
+void PetRefreshController::retryIncompleteDetails(bool includeMissing) {
+  if (detailTaskStorage_->loading() || repository_->cacheLoading()) {
+    emit statusChanged(QStringLiteral("正在读取本地任务和精灵列表，请稍后继续未完成详情。")); return;
+  }
+  pruneCompletedDetailTask();
+  QList<qint64> ids;
+  for (qint64 id : repository_->warehouseIdsByDetailAge())
+    if (detailTaskPending_.contains(id) || incompleteDetailIds_.contains(id) || (includeMissing && !repository_->detailSavedAt(id).isValid())) ids.append(id);
+  if (repository_->listObservationsAuthoritativeForWrite()) {
+    const auto current = repository_->currentInstanceIds();
+    const QSet<qint64> present(current.begin(), current.end());
+    bool changed = false;
+    for (auto it = detailTaskPending_.begin(); it != detailTaskPending_.end();)
+      if (!present.contains(it.key())) { it = detailTaskPending_.erase(it); changed = true; } else ++it;
+    if (changed) { saveDetailTask(); emitDetailProgress(); }
+  }
+  if (ids.isEmpty()) { emit statusChanged(QStringLiteral("没有需要补读的失败、取消或缺失详情")); return; }
+  startWarehouseDetailRefreshForIds(ids);
 }
 
 void PetRefreshController::startWarehouseDetailRefreshForIds(const QList<qint64>& instanceIds) {
@@ -45,6 +130,11 @@ void PetRefreshController::startWarehouseDetailRefreshForIds(const QList<qint64>
     emit statusChanged(QStringLiteral("未选择需要刷新的仓库精灵。"));
     return;
   }
+  if (detailTaskStorage_->loading()) {
+    deferredDetailIds_ = instanceIds;
+    emit statusChanged(QStringLiteral("正在读取本地续读记录，随后启动已选择的详情任务……"));
+    return;
+  }
   const QSet<qint64> selectedIds(instanceIds.begin(), instanceIds.end());
   const QList<qint64> ids = repository_->warehouseIdsByDetailAge();
   batchQueue_.clear();
@@ -52,6 +142,7 @@ void PetRefreshController::startWarehouseDetailRefreshForIds(const QList<qint64>
   for (qint64 id : ids) {
     if (id <= 0 || id == currentDetailId_ || !selectedIds.contains(id)) continue;
     if (queuedIds_.contains(id)) {
+      if (shopDetailOwners_.remove(id)) oneShotDetailIds_.remove(id);
       batchIds_.insert(id);
       continue;
     }
@@ -66,6 +157,9 @@ void PetRefreshController::startWarehouseDetailRefreshForIds(const QList<qint64>
   batchSucceeded_ = 0;
   batchFailed_ = 0;
   consecutiveBatchTimeouts_ = 0;
+  for (qint64 id : batchIds_)
+    if (!detailTaskPending_.contains(id)) detailTaskPending_.insert(id, repository_->detailSavedAt(id));
+  if (batchRunning_) saveDetailTask();
   emitDetailProgress();
   if (!batchRunning_) {
     emit statusChanged(QStringLiteral("当前仓库没有可刷新的精灵详情。"));
@@ -100,17 +194,37 @@ void PetRefreshController::resumeWarehouseDetailRefresh() {
 }
 
 void PetRefreshController::cancelWarehouseDetailRefresh() {
-  if (!batchRunning_ && currentDetailId_ <= 0 && priorityQueue_.isEmpty()) return;
-  if (currentDetailId_ > 0)
+  if (!batchRunning_) return;
+  incompleteDetailIds_.unite(batchIds_);
+  // Priority requests have another consumer. Cancel only this batch's work.
+  for (qint64 id : batchQueue_) {
+    queuedIds_.remove(id); oneShotDetailIds_.remove(id);
+  }
+  batchQueue_.clear(); batchIds_.clear();
+  batchRunning_ = batchPaused_ = false;
+  if (currentDetailFromBatch_) {
     repository_->cancelDetailRequest(currentDetailId_, currentDetailGeneration_);
-  detailTimer_.stop();
-  detailTimeoutTimer_.stop();
-  clearDetailState();
-  emit statusChanged(QStringLiteral("仓库详情刷新任务已取消，已有本地缓存全部保留。"));
+    for (auto it = pendingDispatches_.begin(); it != pendingDispatches_.end();) {
+      if (it->kind == DispatchKind::Detail && it->generation == currentDetailGeneration_) {
+        it->intent.permit.revoke(); it = pendingDispatches_.erase(it);
+      } else ++it;
+    }
+    queuedIds_.remove(currentDetailId_); oneShotDetailIds_.remove(currentDetailId_);
+    currentDetailId_ = 0; currentDetailGeneration_ = 0; currentDetailRetries_ = 0;
+    currentDetailFromBatch_ = currentDetailAwaitingStorage_ = false;
+    detailTimeoutTimer_.stop();
+  }
+  if (currentDetailId_ <= 0) { detailTimer_.stop(); scheduleNextDetail(); }
+  saveDetailTask(); emitDetailProgress();
+  emit statusChanged(QStringLiteral("仓库详情任务已取消；未完成名单已保留，可稍后继续。其他详情读取继续执行。"));
 }
 
 void PetRefreshController::requestSingleDetail(qint64 instanceId) {
   if (instanceId <= 0) return;
+  // An explicit detail task now shares any pending shop request.
+  if (shopDetailOwners_.remove(instanceId) &&
+      (currentDetailId_ == instanceId || queuedIds_.contains(instanceId)))
+    oneShotDetailIds_.remove(instanceId);
   if (!repository_->isAuthenticated()) {
     repository_->requestCachedDetail(instanceId);
     const QString reason = QStringLiteral("当前未在线，继续显示本地缓存");
@@ -124,6 +238,7 @@ void PetRefreshController::requestSingleDetail(qint64 instanceId) {
     return;
   }
   if (currentDetailId_ == instanceId) {
+    currentDetailFromBatch_ = false;
     emit statusChanged(QStringLiteral("实例 %1 的详情正在更新，请等待服务器返回。")
                            .arg(instanceId));
     return;
@@ -147,10 +262,77 @@ bool PetRefreshController::requestMissingDetailOnce(qint64 instanceId) {
       !repository_->currentInstanceIds().contains(instanceId)) return false;
   // Share any existing user request; only a newly admitted automatic read
   // changes retry behavior, so analysis cannot alter a manual refresh task.
-  if (currentDetailId_ == instanceId || queuedIds_.contains(instanceId)) return true;
+  if (currentDetailId_ == instanceId || queuedIds_.contains(instanceId)) {
+    if (currentDetailId_ == instanceId) currentDetailFromBatch_ = false;
+    shopDetailOwners_.remove(instanceId);
+    return true;
+  }
   oneShotDetailIds_.insert(instanceId);
   requestSingleDetail(instanceId);
   return true;
+}
+
+bool PetRefreshController::requestShopDetailOnce(qint64 instanceId, quint64 visitToken) {
+  if (instanceId <= 0 || !visitToken) return false;
+  QString reason;
+  if (!repository_->isAuthenticated()) reason = QStringLiteral("当前未在线，继续显示本地数据");
+  else if (moveRunning()) reason = QStringLiteral("精灵移动正在进行，本次详情读取未发送");
+  else if (!repository_->currentInstanceIds().contains(instanceId)) reason = QStringLiteral("实例已不在当前精灵列表中");
+  if (!reason.isEmpty()) {
+    emit detailRequestFinished(instanceId, false, reason);
+    return false;
+  }
+  if (currentDetailId_ == instanceId || queuedIds_.contains(instanceId)) return true;
+  for (auto it = shopDetailOwners_.begin(); it != shopDetailOwners_.end();) {
+    if (it.key() != currentDetailId_ && !queuedIds_.contains(it.key())) it = shopDetailOwners_.erase(it);
+    else ++it;
+  }
+  shopDetailOwners_.insert(instanceId, visitToken);
+  oneShotDetailIds_.insert(instanceId);
+  queuedIds_.insert(instanceId);
+  priorityQueue_.append(instanceId);
+  // Respect the same gap as the existing detail queue. A UI completion event
+  // must not reset that gap to zero when admitting the next usable pet.
+  if (currentDetailId_ <= 0 && !detailTimer_.isActive()) scheduleNextDetail();
+  return true;
+}
+
+void PetRefreshController::cancelShopDetailRequests(quint64 visitToken) {
+  if (!visitToken) return;
+  QList<qint64> owned;
+  for (auto it = shopDetailOwners_.cbegin(); it != shopDetailOwners_.cend(); ++it)
+    if (it.value() == visitToken) owned.append(it.key());
+  for (qint64 id : owned) {
+    shopDetailOwners_.remove(id);
+    if (batchIds_.contains(id)) continue; // A warehouse task also needs it.
+    if (id == currentDetailId_) {
+      // A dispatched read is allowed to finish. Only revoke an exclusively
+      // owned intent that the transport confirms was never submitted.
+      quint64 pendingTask = 0;
+      for (auto it = pendingDispatches_.cbegin(); it != pendingDispatches_.cend(); ++it) {
+        if (it->kind == DispatchKind::Detail && it->intent.ticket.entityId == id &&
+            it->generation == currentDetailGeneration_ &&
+            it->intent.permit.revoke() == SubmissionOutcome::DefinitelyNotSubmitted) {
+          pendingTask = it.key(); break;
+        }
+      }
+      if (pendingTask) {
+        pendingDispatches_.remove(pendingTask);
+        if (pendingDispatches_.isEmpty()) dispatchReceiptTimer_.stop();
+        detailTimer_.stop(); detailTimeoutTimer_.stop();
+        repository_->cancelDetailRequest(id, currentDetailGeneration_);
+        finishCurrentDetail(false, QStringLiteral("已离开兑换项目，未发送的详情读取已取消"));
+      }
+      continue;
+    }
+    priorityQueue_.removeAll(id);
+    queuedIds_.remove(id);
+    oneShotDetailIds_.remove(id);
+  }
+  if (currentDetailId_ <= 0) {
+    if (priorityQueue_.isEmpty() && (!batchRunning_ || batchPaused_ || batchQueue_.isEmpty())) detailTimer_.stop();
+    else if (!detailTimer_.isActive()) scheduleNextDetail();
+  }
 }
 
 void PetRefreshController::scheduleNextDetail(int delayMs) {
@@ -241,6 +423,7 @@ void PetRefreshController::emitDetailProgress() {
 }
 
 bool PetRefreshController::removeQueuedDetail(qint64 instanceId) {
+  shopDetailOwners_.remove(instanceId);
   oneShotDetailIds_.remove(instanceId);
   priorityQueue_.removeAll(instanceId);
   batchQueue_.removeAll(instanceId);
@@ -256,6 +439,7 @@ void PetRefreshController::clearDetailState() {
   batchQueue_.clear();
   queuedIds_.clear();
   oneShotDetailIds_.clear();
+  shopDetailOwners_.clear();
   batchIds_.clear();
   batchRunning_ = false;
   batchPaused_ = false;

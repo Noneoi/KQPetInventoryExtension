@@ -1,0 +1,3032 @@
+{
+  "date": "2026-10-18",
+  "scope": "Offline replay of locally cached full pet details through the workbench domain functions; no claim of current server freshness. Cases without a local instance are explicitly synthetic.",
+  "summary": {
+    "cases": 52,
+    "localPetDetails": 1478,
+    "realReplayCases": 49,
+    "syntheticOnlyCases": 3,
+    "matchedPairs": 1948,
+    "usefulBefore": 9,
+    "usefulAfter": 72,
+    "unknownBefore": 1939,
+    "unknownAfter": 0,
+    "existingRulesUnchanged": 24,
+    "existingRuleComparisons": 35472,
+    "persistedFactRoundTrips": 1478,
+    "syntheticBoundaryChecks": 9
+  },
+  "publicSources": {
+    "https://aoqi.100bt.com/play/library/common~2026101571078066.swf": {
+      "bytes": 778366,
+      "sha256": "ab97b9d84ee716f763493c8ec21fbcce07eb0af4acaa3f24ef2106453bdfb575"
+    },
+    "https://aoqi.100bt.com/play/library/interfaces~2026101571078066.swf": {
+      "bytes": 621816,
+      "sha256": "fd992b24beb3a855d7728dd4495a76ae66377b3388dced250c7138265ea9cac8"
+    },
+    "https://aoqi.100bt.com/play/strengthencombo/strengthencomboservice~2026101571078066.swf": {
+      "bytes": 104744,
+      "sha256": "90963b24d18cf137575590822637dcf4899785b32bc038f097b8ac19c6749aa9"
+    }
+  },
+  "extractedScriptSha256": {
+    "official-strengthen/scripts/mmo/strengthencombo/checker/StrengthenComboSetChecker.as": "86eb2c83b7503a21a3771357b759bc6ba2063fce6d8d40b62fb24a4ff72a1b84",
+    "official-strengthen/scripts/mmo/strengthencombo/flow/separation/StrengthenComboFlowStargodSingle.as": "ccf163a12b20f9f65e65180abfe8d1065be277a25c58b3cdbde3cd525c7e882b",
+    "official-strengthen/scripts/mmo/strengthencombo/view/strengthen/isolated/StrengthenComboStrengthenOuterSacredEquip.as": "a3468e13edc1ee9d1b045f0ff08cebe0491cb7571d1618705b50bcba71d8e9e1",
+    "official-interfaces/scripts/mmo/interfaces/pet/data/PetAstrolabeChain.as": "2fadb5c4bfd209491dd28c609bb0c66e3d0fe9e4a02163f75b5b7b0b1f28985f",
+    "official-interfaces/scripts/mmo/interfaces/pet/data/PetBuild.as": "9c020d85dc40f2e6644681e2ab3d3dd3670cfae87078941865830df25d858ec6",
+    "official-interfaces/scripts/mmo/interfaces/pet/data/PetGift.as": "f2f6ce270a7943f6a27f2f7e1aa244e564d5eaad3926f980e4d320ff3a834afb",
+    "official-common/scripts/mmo/common/aoqi/strengthen/AQSType.as": "38848add4acb524ce6a1667026648ed1c3b4b24001a7687333af9657c15be4f9",
+    "official-common/scripts/mmo/common/dialog/common/strategy/Astrolabe_PutPetStrategy.as": "e2a5561ad2e7ac314db65dde8ac667af93b8e82b17efce6b042bc22baceb257b",
+    "official-common/scripts/mmo/common/dialog/common/strategy/StargodNew_PutPetStrategy.as": "66f58808ab036133f609ab1991287e01f701cc293d4ba92a80c4c3e39efed34b"
+  },
+  "rows": [
+    {
+      "activityName": "活动·中秋返钻商城",
+      "description": "指定精灵金钻极品养成（满级 / 源兽神觉升至满星 / 满金星+万变金星 / 超凡入圣）",
+      "sourceKey": "newactivityext/newact20230825/summerholidayrebateshop/summerholidayrebateshop#SHRSTab6Config.getRewardConfig",
+      "itemId": 2,
+      "enhanceType": "11-91-31-61",
+      "targetSpecies": [
+        6471,
+        6481,
+        6482,
+        6486,
+        6491,
+        6496,
+        6501,
+        6506,
+        6510,
+        6527,
+        6558,
+        6567,
+        6575,
+        6603,
+        6618,
+        6606,
+        6621,
+        6639,
+        6643,
+        6658,
+        6699,
+        6718,
+        6777,
+        6782,
+        6790,
+        6802,
+        6845,
+        6833,
+        6853,
+        6855,
+        6861,
+        6874,
+        6913,
+        6916,
+        6906,
+        6919,
+        6933,
+        6924,
+        6996,
+        7001,
+        7011,
+        7012,
+        7067,
+        7090,
+        7111,
+        7131,
+        7136,
+        7152,
+        7156,
+        7185,
+        7210,
+        7217,
+        7346,
+        7434,
+        7395,
+        7410,
+        7516,
+        5237,
+        5261,
+        5291,
+        5306,
+        5388,
+        5367,
+        5395,
+        5412,
+        5430,
+        5513,
+        5524,
+        5553,
+        5675,
+        5757,
+        5792,
+        5810,
+        5868,
+        5870,
+        5873,
+        5886,
+        5930,
+        5966,
+        5967,
+        6024,
+        6220,
+        6225,
+        6256,
+        6264,
+        6281,
+        6360,
+        5234,
+        5283,
+        5389,
+        5385,
+        5431,
+        5502,
+        5618,
+        5779,
+        5903,
+        5960
+      ],
+      "manualSelectionRequired": false,
+      "verification": "local-detail-replay",
+      "originalNoticeParameters": [
+        "61"
+      ],
+      "before": {
+        "localMatches": 119,
+        "usable": 9,
+        "notNeeded": 0,
+        "unknown": 110
+      },
+      "after": {
+        "localMatches": 119,
+        "usable": 9,
+        "notNeeded": 110,
+        "unknown": 0,
+        "reasons": {
+          "可提升：源兽星级、满金星+万变金星、超凡入圣天赋": 7,
+          "可提升：满金星+万变金星": 1,
+          "可提升：满金星+万变金星、超凡入圣天赋": 1,
+          "对应培养项已满足或资源已持有：等级、源兽星级、满金星+万变金星、超凡入圣天赋；已有星神先装备或升级，无需重复兑换": 110
+        }
+      },
+      "syntheticBoundaryChecks": null
+    },
+    {
+      "activityName": "活动·中秋返钻商城",
+      "description": "指定精灵装备1个红色星神",
+      "sourceKey": "newactivityext/newact20230825/summerholidayrebateshop/summerholidayrebateshop#SHRSTab6Config.getRewardConfig",
+      "itemId": 4,
+      "enhanceType": "34$1",
+      "targetSpecies": [
+        6471,
+        6481,
+        6482,
+        6486,
+        6491,
+        6496,
+        6501,
+        6506,
+        6510,
+        6527,
+        6558,
+        6567,
+        6575,
+        6603,
+        6618,
+        6606,
+        6621,
+        6639,
+        6643,
+        6658,
+        6699,
+        6718,
+        6777,
+        6782,
+        6790,
+        6802,
+        6845,
+        6833,
+        6853,
+        6855,
+        6861,
+        6874,
+        6913,
+        6916,
+        6906,
+        6919,
+        6933,
+        6924,
+        6996,
+        7001,
+        7011,
+        7012,
+        7067,
+        7090,
+        7111,
+        7131,
+        7136,
+        7152,
+        7156,
+        7185,
+        7210,
+        7217,
+        7346,
+        7434,
+        7395,
+        7410,
+        7516,
+        5237,
+        5261,
+        5291,
+        5306,
+        5388,
+        5367,
+        5395,
+        5412,
+        5430,
+        5513,
+        5524,
+        5553,
+        5675,
+        5757,
+        5792,
+        5810,
+        5868,
+        5870,
+        5873,
+        5886,
+        5930,
+        5966,
+        5967,
+        6024,
+        6220,
+        6225,
+        6256,
+        6264,
+        6281,
+        6360,
+        5234,
+        5283,
+        5389,
+        5385,
+        5431,
+        5502,
+        5618,
+        5779,
+        5903,
+        5960
+      ],
+      "manualSelectionRequired": false,
+      "verification": "local-detail-replay",
+      "originalNoticeParameters": [
+        "34$1"
+      ],
+      "before": {
+        "localMatches": 119,
+        "usable": 0,
+        "notNeeded": 0,
+        "unknown": 119
+      },
+      "after": {
+        "localMatches": 119,
+        "usable": 49,
+        "notNeeded": 70,
+        "unknown": 0,
+        "reasons": {
+          "可提升：红色星神": 49,
+          "对应培养项已满足或资源已持有：红色星神；已有星神先装备或升级，无需重复兑换": 70
+        }
+      },
+      "syntheticBoundaryChecks": null
+    },
+    {
+      "activityName": "活动·精英猎手训练营",
+      "description": "指定精灵源兽升1阶",
+      "sourceKey": "newactivityext/newact20240403/jingyingtrainingcamp/jingyingtrainingcamp#JYTCConfig.BONUS_GAIN",
+      "itemId": 1,
+      "enhanceType": "92$1",
+      "targetSpecies": [
+        5261,
+        5388,
+        5367
+      ],
+      "manualSelectionRequired": false,
+      "verification": "local-detail-replay",
+      "originalNoticeParameters": [
+        "92$1"
+      ],
+      "before": {
+        "localMatches": 3,
+        "usable": 0,
+        "notNeeded": 0,
+        "unknown": 3
+      },
+      "after": {
+        "localMatches": 3,
+        "usable": 1,
+        "notNeeded": 2,
+        "unknown": 0,
+        "reasons": {
+          "可提升：源兽/神源兽阶级": 1,
+          "对应培养项已满足或资源已持有：源兽/神源兽阶级": 2
+        }
+      },
+      "syntheticBoundaryChecks": null
+    },
+    {
+      "activityName": "活动·精英猎手训练营",
+      "description": "指定精灵装备1颗红星",
+      "sourceKey": "newactivityext/newact20240403/jingyingtrainingcamp/jingyingtrainingcamp#JYTCConfig.BONUS_GAIN",
+      "itemId": 2,
+      "enhanceType": "34$1",
+      "targetSpecies": [
+        5261,
+        5388,
+        5367
+      ],
+      "manualSelectionRequired": false,
+      "verification": "local-detail-replay",
+      "originalNoticeParameters": [
+        "34$1"
+      ],
+      "before": {
+        "localMatches": 3,
+        "usable": 0,
+        "notNeeded": 0,
+        "unknown": 3
+      },
+      "after": {
+        "localMatches": 3,
+        "usable": 3,
+        "notNeeded": 0,
+        "unknown": 0,
+        "reasons": {
+          "可提升：红色星神": 3
+        }
+      },
+      "syntheticBoundaryChecks": null
+    },
+    {
+      "activityName": "活动·灵初路因加德特惠专场-TAB3",
+      "description": "激活1个内圈星迹",
+      "sourceKey": "newactivityext/newact20240712/longzunshenzhumalltab3/longzunshenzhumalltab3#LZSZMT3Controller.sharedCultivation",
+      "itemId": 197384984,
+      "enhanceType": "81",
+      "targetSpecies": [
+        6295
+      ],
+      "manualSelectionRequired": true,
+      "verification": "local-detail-replay",
+      "originalNoticeParameters": [
+        "81"
+      ],
+      "before": {
+        "localMatches": 1,
+        "usable": 0,
+        "notNeeded": 0,
+        "unknown": 1
+      },
+      "after": {
+        "localMatches": 1,
+        "usable": 0,
+        "notNeeded": 1,
+        "unknown": 0,
+        "reasons": {
+          "对应培养项已满足或资源已持有：内圈星迹": 1
+        }
+      },
+      "syntheticBoundaryChecks": null
+    },
+    {
+      "activityName": "活动·灵初路因加德特惠专场-TAB3",
+      "description": "激活1个外圈星迹",
+      "sourceKey": "newactivityext/newact20240712/longzunshenzhumalltab3/longzunshenzhumalltab3#LZSZMT3Controller.sharedCultivation",
+      "itemId": 64121357,
+      "enhanceType": "82",
+      "targetSpecies": [
+        6295
+      ],
+      "manualSelectionRequired": true,
+      "verification": "local-detail-replay",
+      "originalNoticeParameters": [
+        "82"
+      ],
+      "before": {
+        "localMatches": 1,
+        "usable": 0,
+        "notNeeded": 0,
+        "unknown": 1
+      },
+      "after": {
+        "localMatches": 1,
+        "usable": 0,
+        "notNeeded": 1,
+        "unknown": 0,
+        "reasons": {
+          "对应培养项已满足或资源已持有：外圈星迹": 1
+        }
+      },
+      "syntheticBoundaryChecks": null
+    },
+    {
+      "activityName": "活动·灵初路因加德特惠专场-TAB3",
+      "description": "激活1个专属星迹",
+      "sourceKey": "newactivityext/newact20240712/longzunshenzhumalltab3/longzunshenzhumalltab3#LZSZMT3Controller.sharedCultivation",
+      "itemId": 72862479,
+      "enhanceType": "83",
+      "targetSpecies": [
+        6295
+      ],
+      "manualSelectionRequired": true,
+      "verification": "local-detail-replay",
+      "originalNoticeParameters": [
+        "83"
+      ],
+      "before": {
+        "localMatches": 1,
+        "usable": 0,
+        "notNeeded": 0,
+        "unknown": 1
+      },
+      "after": {
+        "localMatches": 1,
+        "usable": 0,
+        "notNeeded": 1,
+        "unknown": 0,
+        "reasons": {
+          "对应培养项已满足或资源已持有：专属星迹": 1
+        }
+      },
+      "syntheticBoundaryChecks": null
+    },
+    {
+      "activityName": "活动·灵初阿瑞斯",
+      "description": "激活1个内圈星迹",
+      "sourceKey": "newactivityext/newact20251010/lingchuaruisi/lingchuaruisi#LCARS_MainPanel.sharedCultivation",
+      "itemId": 58460442,
+      "enhanceType": "81",
+      "targetSpecies": [
+        6790
+      ],
+      "manualSelectionRequired": true,
+      "verification": "local-detail-replay",
+      "originalNoticeParameters": [
+        "81"
+      ],
+      "before": {
+        "localMatches": 1,
+        "usable": 0,
+        "notNeeded": 0,
+        "unknown": 1
+      },
+      "after": {
+        "localMatches": 1,
+        "usable": 0,
+        "notNeeded": 1,
+        "unknown": 0,
+        "reasons": {
+          "对应培养项已满足或资源已持有：内圈星迹": 1
+        }
+      },
+      "syntheticBoundaryChecks": null
+    },
+    {
+      "activityName": "活动·灵初阿瑞斯",
+      "description": "激活1个外圈星迹",
+      "sourceKey": "newactivityext/newact20251010/lingchuaruisi/lingchuaruisi#LCARS_MainPanel.sharedCultivation",
+      "itemId": 11725939,
+      "enhanceType": "82",
+      "targetSpecies": [
+        6790
+      ],
+      "manualSelectionRequired": true,
+      "verification": "local-detail-replay",
+      "originalNoticeParameters": [
+        "82"
+      ],
+      "before": {
+        "localMatches": 1,
+        "usable": 0,
+        "notNeeded": 0,
+        "unknown": 1
+      },
+      "after": {
+        "localMatches": 1,
+        "usable": 0,
+        "notNeeded": 1,
+        "unknown": 0,
+        "reasons": {
+          "对应培养项已满足或资源已持有：外圈星迹": 1
+        }
+      },
+      "syntheticBoundaryChecks": null
+    },
+    {
+      "activityName": "活动·灵初阿瑞斯",
+      "description": "激活1个专属星迹",
+      "sourceKey": "newactivityext/newact20251010/lingchuaruisi/lingchuaruisi#LCARS_MainPanel.sharedCultivation",
+      "itemId": 212880525,
+      "enhanceType": "83",
+      "targetSpecies": [
+        6790
+      ],
+      "manualSelectionRequired": true,
+      "verification": "local-detail-replay",
+      "originalNoticeParameters": [
+        "83"
+      ],
+      "before": {
+        "localMatches": 1,
+        "usable": 0,
+        "notNeeded": 0,
+        "unknown": 1
+      },
+      "after": {
+        "localMatches": 1,
+        "usable": 0,
+        "notNeeded": 1,
+        "unknown": 0,
+        "reasons": {
+          "对应培养项已满足或资源已持有：专属星迹": 1
+        }
+      },
+      "syntheticBoundaryChecks": null
+    },
+    {
+      "activityName": "活动·新手福利中心tab3-精灵养成",
+      "description": "爱心（1个指定红色星神（与材料奖励二选一））",
+      "sourceKey": "newactivityext/newact20260618/nub6tab3petstrength/nub6tab3petstrength#NUB6T3PSConfig.ArrayPetData",
+      "itemId": 0,
+      "enhanceType": "35$65",
+      "targetSpecies": [
+        6501
+      ],
+      "manualSelectionRequired": true,
+      "verification": "local-detail-replay",
+      "originalNoticeParameters": [
+        "35$65"
+      ],
+      "before": {
+        "localMatches": 2,
+        "usable": 0,
+        "notNeeded": 0,
+        "unknown": 2
+      },
+      "after": {
+        "localMatches": 2,
+        "usable": 0,
+        "notNeeded": 2,
+        "unknown": 0,
+        "reasons": {
+          "对应培养项已满足或资源已持有：指定星神 #65；已有星神先装备或升级，无需重复兑换": 2
+        }
+      },
+      "syntheticBoundaryChecks": null
+    },
+    {
+      "activityName": "活动·新手福利中心tab3-精灵养成",
+      "description": "热血（1个指定红色星神（与材料奖励二选一））",
+      "sourceKey": "newactivityext/newact20260618/nub6tab3petstrength/nub6tab3petstrength#NUB6T3PSConfig.ArrayPetData",
+      "itemId": 1,
+      "enhanceType": "35$71",
+      "targetSpecies": [
+        6491
+      ],
+      "manualSelectionRequired": true,
+      "verification": "local-detail-replay",
+      "originalNoticeParameters": [
+        "35$71"
+      ],
+      "before": {
+        "localMatches": 2,
+        "usable": 0,
+        "notNeeded": 0,
+        "unknown": 2
+      },
+      "after": {
+        "localMatches": 2,
+        "usable": 0,
+        "notNeeded": 2,
+        "unknown": 0,
+        "reasons": {
+          "对应培养项已满足或资源已持有：指定星神 #71；已有星神先装备或升级，无需重复兑换": 2
+        }
+      },
+      "syntheticBoundaryChecks": null
+    },
+    {
+      "activityName": "活动·新手福利中心tab3-精灵养成",
+      "description": "王者（1个指定红色星神（与材料奖励二选一））",
+      "sourceKey": "newactivityext/newact20260618/nub6tab3petstrength/nub6tab3petstrength#NUB6T3PSConfig.ArrayPetData",
+      "itemId": 2,
+      "enhanceType": "35$71",
+      "targetSpecies": [
+        6496
+      ],
+      "manualSelectionRequired": true,
+      "verification": "local-detail-replay",
+      "originalNoticeParameters": [
+        "35$71"
+      ],
+      "before": {
+        "localMatches": 2,
+        "usable": 0,
+        "notNeeded": 0,
+        "unknown": 2
+      },
+      "after": {
+        "localMatches": 2,
+        "usable": 0,
+        "notNeeded": 2,
+        "unknown": 0,
+        "reasons": {
+          "对应培养项已满足或资源已持有：指定星神 #71；已有星神先装备或升级，无需重复兑换": 2
+        }
+      },
+      "syntheticBoundaryChecks": null
+    },
+    {
+      "activityName": "活动·新手福利中心tab3-精灵养成",
+      "description": "超能（1个指定红色星神（与材料奖励二选一））",
+      "sourceKey": "newactivityext/newact20260618/nub6tab3petstrength/nub6tab3petstrength#NUB6T3PSConfig.ArrayPetData",
+      "itemId": 3,
+      "enhanceType": "35$71",
+      "targetSpecies": [
+        6510
+      ],
+      "manualSelectionRequired": true,
+      "verification": "local-detail-replay",
+      "originalNoticeParameters": [
+        "35$71"
+      ],
+      "before": {
+        "localMatches": 2,
+        "usable": 0,
+        "notNeeded": 0,
+        "unknown": 2
+      },
+      "after": {
+        "localMatches": 2,
+        "usable": 0,
+        "notNeeded": 2,
+        "unknown": 0,
+        "reasons": {
+          "对应培养项已满足或资源已持有：指定星神 #71；已有星神先装备或升级，无需重复兑换": 2
+        }
+      },
+      "syntheticBoundaryChecks": null
+    },
+    {
+      "activityName": "活动·新手福利中心tab3-精灵养成",
+      "description": "暗黑（1个指定红色星神（与材料奖励二选一））",
+      "sourceKey": "newactivityext/newact20260618/nub6tab3petstrength/nub6tab3petstrength#NUB6T3PSConfig.ArrayPetData",
+      "itemId": 4,
+      "enhanceType": "35$65",
+      "targetSpecies": [
+        6471
+      ],
+      "manualSelectionRequired": true,
+      "verification": "local-detail-replay",
+      "originalNoticeParameters": [
+        "35$65"
+      ],
+      "before": {
+        "localMatches": 2,
+        "usable": 0,
+        "notNeeded": 0,
+        "unknown": 2
+      },
+      "after": {
+        "localMatches": 2,
+        "usable": 0,
+        "notNeeded": 2,
+        "unknown": 0,
+        "reasons": {
+          "对应培养项已满足或资源已持有：指定星神 #65；已有星神先装备或升级，无需重复兑换": 2
+        }
+      },
+      "syntheticBoundaryChecks": null
+    },
+    {
+      "activityName": "活动·新手福利中心tab3-精灵养成",
+      "description": "哆啦（1个指定红色星神（与材料奖励二选一））",
+      "sourceKey": "newactivityext/newact20260618/nub6tab3petstrength/nub6tab3petstrength#NUB6T3PSConfig.ArrayPetData",
+      "itemId": 5,
+      "enhanceType": "35$70",
+      "targetSpecies": [
+        6486
+      ],
+      "manualSelectionRequired": true,
+      "verification": "local-detail-replay",
+      "originalNoticeParameters": [
+        "35$70"
+      ],
+      "before": {
+        "localMatches": 2,
+        "usable": 0,
+        "notNeeded": 0,
+        "unknown": 2
+      },
+      "after": {
+        "localMatches": 2,
+        "usable": 0,
+        "notNeeded": 2,
+        "unknown": 0,
+        "reasons": {
+          "对应培养项已满足或资源已持有：指定星神 #70；已有星神先装备或升级，无需重复兑换": 2
+        }
+      },
+      "syntheticBoundaryChecks": null
+    },
+    {
+      "activityName": "活动·新手福利中心tab3-精灵养成",
+      "description": "炼金（1个指定红色星神（与材料奖励二选一））",
+      "sourceKey": "newactivityext/newact20260618/nub6tab3petstrength/nub6tab3petstrength#NUB6T3PSConfig.ArrayPetData",
+      "itemId": 6,
+      "enhanceType": "35$71",
+      "targetSpecies": [
+        6506
+      ],
+      "manualSelectionRequired": true,
+      "verification": "local-detail-replay",
+      "originalNoticeParameters": [
+        "35$71"
+      ],
+      "before": {
+        "localMatches": 2,
+        "usable": 0,
+        "notNeeded": 0,
+        "unknown": 2
+      },
+      "after": {
+        "localMatches": 2,
+        "usable": 2,
+        "notNeeded": 0,
+        "unknown": 0,
+        "reasons": {
+          "可提升：指定星神 #71": 2
+        }
+      },
+      "syntheticBoundaryChecks": null
+    },
+    {
+      "activityName": "活动·30天回归2026版tab3-抽皮肤 · 奖励档位 1",
+      "description": "放入精灵激活专属星迹（激活1个专属星迹（与材料奖励二选一））",
+      "sourceKey": "newactivityext/newact20260626/r2026tab3lotteryskin/r2026tab3lotteryskin#R2026T3LSConfig.ArrayData/lv=1",
+      "itemId": 1,
+      "enhanceType": "83",
+      "targetSpecies": [
+        7272,
+        7271,
+        7269,
+        7268,
+        7266,
+        7217,
+        7210,
+        7185,
+        7152,
+        7150,
+        7148,
+        7136,
+        7123,
+        7115,
+        7094,
+        7090,
+        7067,
+        7012,
+        7006,
+        7001,
+        6996,
+        6995,
+        6974,
+        6964,
+        6924,
+        6913,
+        6909,
+        6898,
+        6890,
+        6874,
+        6855,
+        6833,
+        6821,
+        6809,
+        6799,
+        6790,
+        6789,
+        6782,
+        6777,
+        6718,
+        6658,
+        6643,
+        6631,
+        6623,
+        6618,
+        6603,
+        6567,
+        6558,
+        6547,
+        6510,
+        6506,
+        6501,
+        6496,
+        6491,
+        6486,
+        6481,
+        6471
+      ],
+      "manualSelectionRequired": true,
+      "verification": "local-detail-replay",
+      "originalNoticeParameters": [
+        "83"
+      ],
+      "before": {
+        "localMatches": 83,
+        "usable": 0,
+        "notNeeded": 0,
+        "unknown": 83
+      },
+      "after": {
+        "localMatches": 83,
+        "usable": 0,
+        "notNeeded": 83,
+        "unknown": 0,
+        "reasons": {
+          "对应培养项已满足或资源已持有：专属星迹": 83
+        }
+      },
+      "syntheticBoundaryChecks": null
+    },
+    {
+      "activityName": "活动·30天回归2026版tab3-抽皮肤 · 奖励档位 1",
+      "description": "放入精灵激活专属星迹（激活1个专属星迹（与材料奖励二选一））",
+      "sourceKey": "newactivityext/newact20260626/r2026tab3lotteryskin/r2026tab3lotteryskin#R2026T3LSConfig.ArrayData/lv=1",
+      "itemId": 3,
+      "enhanceType": "83",
+      "targetSpecies": [
+        7272,
+        7271,
+        7269,
+        7268,
+        7266,
+        7217,
+        7210,
+        7185,
+        7152,
+        7150,
+        7148,
+        7136,
+        7123,
+        7115,
+        7094,
+        7090,
+        7067,
+        7012,
+        7006,
+        7001,
+        6996,
+        6995,
+        6974,
+        6964,
+        6924,
+        6913,
+        6909,
+        6898,
+        6890,
+        6874,
+        6855,
+        6833,
+        6821,
+        6809,
+        6799,
+        6790,
+        6789,
+        6782,
+        6777,
+        6718,
+        6658,
+        6643,
+        6631,
+        6623,
+        6618,
+        6603,
+        6567,
+        6558,
+        6547,
+        6510,
+        6506,
+        6501,
+        6496,
+        6491,
+        6486,
+        6481,
+        6471
+      ],
+      "manualSelectionRequired": true,
+      "verification": "local-detail-replay",
+      "originalNoticeParameters": [
+        "83"
+      ],
+      "before": {
+        "localMatches": 83,
+        "usable": 0,
+        "notNeeded": 0,
+        "unknown": 83
+      },
+      "after": {
+        "localMatches": 83,
+        "usable": 0,
+        "notNeeded": 83,
+        "unknown": 0,
+        "reasons": {
+          "对应培养项已满足或资源已持有：专属星迹": 83
+        }
+      },
+      "syntheticBoundaryChecks": null
+    },
+    {
+      "activityName": "活动·30天回归2026版tab3-抽皮肤 · 奖励档位 1",
+      "description": "放入精灵激活专属星迹（激活1个专属星迹（与材料奖励二选一））",
+      "sourceKey": "newactivityext/newact20260626/r2026tab3lotteryskin/r2026tab3lotteryskin#R2026T3LSConfig.ArrayData/lv=1",
+      "itemId": 5,
+      "enhanceType": "83",
+      "targetSpecies": [
+        7272,
+        7271,
+        7269,
+        7268,
+        7266,
+        7217,
+        7210,
+        7185,
+        7152,
+        7150,
+        7148,
+        7136,
+        7123,
+        7115,
+        7094,
+        7090,
+        7067,
+        7012,
+        7006,
+        7001,
+        6996,
+        6995,
+        6974,
+        6964,
+        6924,
+        6913,
+        6909,
+        6898,
+        6890,
+        6874,
+        6855,
+        6833,
+        6821,
+        6809,
+        6799,
+        6790,
+        6789,
+        6782,
+        6777,
+        6718,
+        6658,
+        6643,
+        6631,
+        6623,
+        6618,
+        6603,
+        6567,
+        6558,
+        6547,
+        6510,
+        6506,
+        6501,
+        6496,
+        6491,
+        6486,
+        6481,
+        6471
+      ],
+      "manualSelectionRequired": true,
+      "verification": "local-detail-replay",
+      "originalNoticeParameters": [
+        "83"
+      ],
+      "before": {
+        "localMatches": 83,
+        "usable": 0,
+        "notNeeded": 0,
+        "unknown": 83
+      },
+      "after": {
+        "localMatches": 83,
+        "usable": 0,
+        "notNeeded": 83,
+        "unknown": 0,
+        "reasons": {
+          "对应培养项已满足或资源已持有：专属星迹": 83
+        }
+      },
+      "syntheticBoundaryChecks": null
+    },
+    {
+      "activityName": "活动·30天回归2026版tab3-抽皮肤 · 奖励档位 1",
+      "description": "放入精灵激活专属星迹（激活1个专属星迹（与材料奖励二选一））",
+      "sourceKey": "newactivityext/newact20260626/r2026tab3lotteryskin/r2026tab3lotteryskin#R2026T3LSConfig.ArrayData/lv=1",
+      "itemId": 7,
+      "enhanceType": "83",
+      "targetSpecies": [
+        7272,
+        7271,
+        7269,
+        7268,
+        7266,
+        7217,
+        7210,
+        7185,
+        7152,
+        7150,
+        7148,
+        7136,
+        7123,
+        7115,
+        7094,
+        7090,
+        7067,
+        7012,
+        7006,
+        7001,
+        6996,
+        6995,
+        6974,
+        6964,
+        6924,
+        6913,
+        6909,
+        6898,
+        6890,
+        6874,
+        6855,
+        6833,
+        6821,
+        6809,
+        6799,
+        6790,
+        6789,
+        6782,
+        6777,
+        6718,
+        6658,
+        6643,
+        6631,
+        6623,
+        6618,
+        6603,
+        6567,
+        6558,
+        6547,
+        6510,
+        6506,
+        6501,
+        6496,
+        6491,
+        6486,
+        6481,
+        6471
+      ],
+      "manualSelectionRequired": true,
+      "verification": "local-detail-replay",
+      "originalNoticeParameters": [
+        "83"
+      ],
+      "before": {
+        "localMatches": 83,
+        "usable": 0,
+        "notNeeded": 0,
+        "unknown": 83
+      },
+      "after": {
+        "localMatches": 83,
+        "usable": 0,
+        "notNeeded": 83,
+        "unknown": 0,
+        "reasons": {
+          "对应培养项已满足或资源已持有：专属星迹": 83
+        }
+      },
+      "syntheticBoundaryChecks": null
+    },
+    {
+      "activityName": "活动·30天回归2026版tab3-抽皮肤 · 奖励档位 2",
+      "description": "放入精灵激活专属星迹（激活1个专属星迹（与材料奖励二选一））",
+      "sourceKey": "newactivityext/newact20260626/r2026tab3lotteryskin/r2026tab3lotteryskin#R2026T3LSConfig.ArrayData/lv=2",
+      "itemId": 1,
+      "enhanceType": "83",
+      "targetSpecies": [
+        7272,
+        7271,
+        7269,
+        7268,
+        7266,
+        7217,
+        7210,
+        7185,
+        7152,
+        7150,
+        7148,
+        7136,
+        7123,
+        7115,
+        7094,
+        7090,
+        7067,
+        7012,
+        7006,
+        7001,
+        6996,
+        6995,
+        6974,
+        6964,
+        6924,
+        6913,
+        6909,
+        6898,
+        6890,
+        6874,
+        6855,
+        6833,
+        6821,
+        6809,
+        6799,
+        6790,
+        6789,
+        6782,
+        6777,
+        6718,
+        6658,
+        6643,
+        6631,
+        6623,
+        6618,
+        6603,
+        6567,
+        6558,
+        6547,
+        6510,
+        6506,
+        6501,
+        6496,
+        6491,
+        6486,
+        6481,
+        6471
+      ],
+      "manualSelectionRequired": true,
+      "verification": "local-detail-replay",
+      "originalNoticeParameters": [
+        "83"
+      ],
+      "before": {
+        "localMatches": 83,
+        "usable": 0,
+        "notNeeded": 0,
+        "unknown": 83
+      },
+      "after": {
+        "localMatches": 83,
+        "usable": 0,
+        "notNeeded": 83,
+        "unknown": 0,
+        "reasons": {
+          "对应培养项已满足或资源已持有：专属星迹": 83
+        }
+      },
+      "syntheticBoundaryChecks": null
+    },
+    {
+      "activityName": "活动·30天回归2026版tab3-抽皮肤 · 奖励档位 2",
+      "description": "放入精灵激活专属星迹（激活1个专属星迹（与材料奖励二选一））",
+      "sourceKey": "newactivityext/newact20260626/r2026tab3lotteryskin/r2026tab3lotteryskin#R2026T3LSConfig.ArrayData/lv=2",
+      "itemId": 3,
+      "enhanceType": "83",
+      "targetSpecies": [
+        7272,
+        7271,
+        7269,
+        7268,
+        7266,
+        7217,
+        7210,
+        7185,
+        7152,
+        7150,
+        7148,
+        7136,
+        7123,
+        7115,
+        7094,
+        7090,
+        7067,
+        7012,
+        7006,
+        7001,
+        6996,
+        6995,
+        6974,
+        6964,
+        6924,
+        6913,
+        6909,
+        6898,
+        6890,
+        6874,
+        6855,
+        6833,
+        6821,
+        6809,
+        6799,
+        6790,
+        6789,
+        6782,
+        6777,
+        6718,
+        6658,
+        6643,
+        6631,
+        6623,
+        6618,
+        6603,
+        6567,
+        6558,
+        6547,
+        6510,
+        6506,
+        6501,
+        6496,
+        6491,
+        6486,
+        6481,
+        6471
+      ],
+      "manualSelectionRequired": true,
+      "verification": "local-detail-replay",
+      "originalNoticeParameters": [
+        "83"
+      ],
+      "before": {
+        "localMatches": 83,
+        "usable": 0,
+        "notNeeded": 0,
+        "unknown": 83
+      },
+      "after": {
+        "localMatches": 83,
+        "usable": 0,
+        "notNeeded": 83,
+        "unknown": 0,
+        "reasons": {
+          "对应培养项已满足或资源已持有：专属星迹": 83
+        }
+      },
+      "syntheticBoundaryChecks": null
+    },
+    {
+      "activityName": "活动·30天回归2026版tab3-抽皮肤 · 奖励档位 2",
+      "description": "放入精灵激活专属星迹（激活1个专属星迹（与材料奖励二选一））",
+      "sourceKey": "newactivityext/newact20260626/r2026tab3lotteryskin/r2026tab3lotteryskin#R2026T3LSConfig.ArrayData/lv=2",
+      "itemId": 5,
+      "enhanceType": "83",
+      "targetSpecies": [
+        7272,
+        7271,
+        7269,
+        7268,
+        7266,
+        7217,
+        7210,
+        7185,
+        7152,
+        7150,
+        7148,
+        7136,
+        7123,
+        7115,
+        7094,
+        7090,
+        7067,
+        7012,
+        7006,
+        7001,
+        6996,
+        6995,
+        6974,
+        6964,
+        6924,
+        6913,
+        6909,
+        6898,
+        6890,
+        6874,
+        6855,
+        6833,
+        6821,
+        6809,
+        6799,
+        6790,
+        6789,
+        6782,
+        6777,
+        6718,
+        6658,
+        6643,
+        6631,
+        6623,
+        6618,
+        6603,
+        6567,
+        6558,
+        6547,
+        6510,
+        6506,
+        6501,
+        6496,
+        6491,
+        6486,
+        6481,
+        6471
+      ],
+      "manualSelectionRequired": true,
+      "verification": "local-detail-replay",
+      "originalNoticeParameters": [
+        "83"
+      ],
+      "before": {
+        "localMatches": 83,
+        "usable": 0,
+        "notNeeded": 0,
+        "unknown": 83
+      },
+      "after": {
+        "localMatches": 83,
+        "usable": 0,
+        "notNeeded": 83,
+        "unknown": 0,
+        "reasons": {
+          "对应培养项已满足或资源已持有：专属星迹": 83
+        }
+      },
+      "syntheticBoundaryChecks": null
+    },
+    {
+      "activityName": "活动·30天回归2026版tab3-抽皮肤 · 奖励档位 2",
+      "description": "放入精灵激活专属星迹（激活1个专属星迹（与材料奖励二选一））",
+      "sourceKey": "newactivityext/newact20260626/r2026tab3lotteryskin/r2026tab3lotteryskin#R2026T3LSConfig.ArrayData/lv=2",
+      "itemId": 7,
+      "enhanceType": "83",
+      "targetSpecies": [
+        7272,
+        7271,
+        7269,
+        7268,
+        7266,
+        7217,
+        7210,
+        7185,
+        7152,
+        7150,
+        7148,
+        7136,
+        7123,
+        7115,
+        7094,
+        7090,
+        7067,
+        7012,
+        7006,
+        7001,
+        6996,
+        6995,
+        6974,
+        6964,
+        6924,
+        6913,
+        6909,
+        6898,
+        6890,
+        6874,
+        6855,
+        6833,
+        6821,
+        6809,
+        6799,
+        6790,
+        6789,
+        6782,
+        6777,
+        6718,
+        6658,
+        6643,
+        6631,
+        6623,
+        6618,
+        6603,
+        6567,
+        6558,
+        6547,
+        6510,
+        6506,
+        6501,
+        6496,
+        6491,
+        6486,
+        6481,
+        6471
+      ],
+      "manualSelectionRequired": true,
+      "verification": "local-detail-replay",
+      "originalNoticeParameters": [
+        "83"
+      ],
+      "before": {
+        "localMatches": 83,
+        "usable": 0,
+        "notNeeded": 0,
+        "unknown": 83
+      },
+      "after": {
+        "localMatches": 83,
+        "usable": 0,
+        "notNeeded": 83,
+        "unknown": 0,
+        "reasons": {
+          "对应培养项已满足或资源已持有：专属星迹": 83
+        }
+      },
+      "syntheticBoundaryChecks": null
+    },
+    {
+      "activityName": "活动·30天回归2026版tab3-抽皮肤 · 奖励档位 3",
+      "description": "放入精灵激活专属星迹（激活1个专属星迹（与材料奖励二选一））",
+      "sourceKey": "newactivityext/newact20260626/r2026tab3lotteryskin/r2026tab3lotteryskin#R2026T3LSConfig.ArrayData/lv=3",
+      "itemId": 1,
+      "enhanceType": "83",
+      "targetSpecies": [
+        7272,
+        7271,
+        7269,
+        7268,
+        7266,
+        7217,
+        7210,
+        7185,
+        7152,
+        7150,
+        7148,
+        7136,
+        7123,
+        7115,
+        7094,
+        7090,
+        7067,
+        7012,
+        7006,
+        7001,
+        6996,
+        6995,
+        6974,
+        6964,
+        6924,
+        6913,
+        6909,
+        6898,
+        6890,
+        6874,
+        6855,
+        6833,
+        6821,
+        6809,
+        6799,
+        6790,
+        6789,
+        6782,
+        6777,
+        6718,
+        6658,
+        6643,
+        6631,
+        6623,
+        6618,
+        6603,
+        6567,
+        6558,
+        6547,
+        6510,
+        6506,
+        6501,
+        6496,
+        6491,
+        6486,
+        6481,
+        6471
+      ],
+      "manualSelectionRequired": true,
+      "verification": "local-detail-replay",
+      "originalNoticeParameters": [
+        "83"
+      ],
+      "before": {
+        "localMatches": 83,
+        "usable": 0,
+        "notNeeded": 0,
+        "unknown": 83
+      },
+      "after": {
+        "localMatches": 83,
+        "usable": 0,
+        "notNeeded": 83,
+        "unknown": 0,
+        "reasons": {
+          "对应培养项已满足或资源已持有：专属星迹": 83
+        }
+      },
+      "syntheticBoundaryChecks": null
+    },
+    {
+      "activityName": "活动·30天回归2026版tab3-抽皮肤 · 奖励档位 3",
+      "description": "放入精灵激活专属星迹（激活1个专属星迹（与材料奖励二选一））",
+      "sourceKey": "newactivityext/newact20260626/r2026tab3lotteryskin/r2026tab3lotteryskin#R2026T3LSConfig.ArrayData/lv=3",
+      "itemId": 2,
+      "enhanceType": "83",
+      "targetSpecies": [
+        7272,
+        7271,
+        7269,
+        7268,
+        7266,
+        7217,
+        7210,
+        7185,
+        7152,
+        7150,
+        7148,
+        7136,
+        7123,
+        7115,
+        7094,
+        7090,
+        7067,
+        7012,
+        7006,
+        7001,
+        6996,
+        6995,
+        6974,
+        6964,
+        6924,
+        6913,
+        6909,
+        6898,
+        6890,
+        6874,
+        6855,
+        6833,
+        6821,
+        6809,
+        6799,
+        6790,
+        6789,
+        6782,
+        6777,
+        6718,
+        6658,
+        6643,
+        6631,
+        6623,
+        6618,
+        6603,
+        6567,
+        6558,
+        6547,
+        6510,
+        6506,
+        6501,
+        6496,
+        6491,
+        6486,
+        6481,
+        6471
+      ],
+      "manualSelectionRequired": true,
+      "verification": "local-detail-replay",
+      "originalNoticeParameters": [
+        "83"
+      ],
+      "before": {
+        "localMatches": 83,
+        "usable": 0,
+        "notNeeded": 0,
+        "unknown": 83
+      },
+      "after": {
+        "localMatches": 83,
+        "usable": 0,
+        "notNeeded": 83,
+        "unknown": 0,
+        "reasons": {
+          "对应培养项已满足或资源已持有：专属星迹": 83
+        }
+      },
+      "syntheticBoundaryChecks": null
+    },
+    {
+      "activityName": "活动·30天回归2026版tab3-抽皮肤 · 奖励档位 3",
+      "description": "放入精灵激活专属星迹（激活1个专属星迹（与材料奖励二选一））",
+      "sourceKey": "newactivityext/newact20260626/r2026tab3lotteryskin/r2026tab3lotteryskin#R2026T3LSConfig.ArrayData/lv=3",
+      "itemId": 3,
+      "enhanceType": "83",
+      "targetSpecies": [
+        7272,
+        7271,
+        7269,
+        7268,
+        7266,
+        7217,
+        7210,
+        7185,
+        7152,
+        7150,
+        7148,
+        7136,
+        7123,
+        7115,
+        7094,
+        7090,
+        7067,
+        7012,
+        7006,
+        7001,
+        6996,
+        6995,
+        6974,
+        6964,
+        6924,
+        6913,
+        6909,
+        6898,
+        6890,
+        6874,
+        6855,
+        6833,
+        6821,
+        6809,
+        6799,
+        6790,
+        6789,
+        6782,
+        6777,
+        6718,
+        6658,
+        6643,
+        6631,
+        6623,
+        6618,
+        6603,
+        6567,
+        6558,
+        6547,
+        6510,
+        6506,
+        6501,
+        6496,
+        6491,
+        6486,
+        6481,
+        6471
+      ],
+      "manualSelectionRequired": true,
+      "verification": "local-detail-replay",
+      "originalNoticeParameters": [
+        "83"
+      ],
+      "before": {
+        "localMatches": 83,
+        "usable": 0,
+        "notNeeded": 0,
+        "unknown": 83
+      },
+      "after": {
+        "localMatches": 83,
+        "usable": 0,
+        "notNeeded": 83,
+        "unknown": 0,
+        "reasons": {
+          "对应培养项已满足或资源已持有：专属星迹": 83
+        }
+      },
+      "syntheticBoundaryChecks": null
+    },
+    {
+      "activityName": "活动·30天回归2026版tab3-抽皮肤 · 奖励档位 3",
+      "description": "放入精灵激活专属星迹（激活1个专属星迹（与材料奖励二选一））",
+      "sourceKey": "newactivityext/newact20260626/r2026tab3lotteryskin/r2026tab3lotteryskin#R2026T3LSConfig.ArrayData/lv=3",
+      "itemId": 5,
+      "enhanceType": "83",
+      "targetSpecies": [
+        7272,
+        7271,
+        7269,
+        7268,
+        7266,
+        7217,
+        7210,
+        7185,
+        7152,
+        7150,
+        7148,
+        7136,
+        7123,
+        7115,
+        7094,
+        7090,
+        7067,
+        7012,
+        7006,
+        7001,
+        6996,
+        6995,
+        6974,
+        6964,
+        6924,
+        6913,
+        6909,
+        6898,
+        6890,
+        6874,
+        6855,
+        6833,
+        6821,
+        6809,
+        6799,
+        6790,
+        6789,
+        6782,
+        6777,
+        6718,
+        6658,
+        6643,
+        6631,
+        6623,
+        6618,
+        6603,
+        6567,
+        6558,
+        6547,
+        6510,
+        6506,
+        6501,
+        6496,
+        6491,
+        6486,
+        6481,
+        6471
+      ],
+      "manualSelectionRequired": true,
+      "verification": "local-detail-replay",
+      "originalNoticeParameters": [
+        "83"
+      ],
+      "before": {
+        "localMatches": 83,
+        "usable": 0,
+        "notNeeded": 0,
+        "unknown": 83
+      },
+      "after": {
+        "localMatches": 83,
+        "usable": 0,
+        "notNeeded": 83,
+        "unknown": 0,
+        "reasons": {
+          "对应培养项已满足或资源已持有：专属星迹": 83
+        }
+      },
+      "syntheticBoundaryChecks": null
+    },
+    {
+      "activityName": "活动·30天回归2026版tab3-抽皮肤 · 奖励档位 3",
+      "description": "放入精灵激活专属星迹（激活1个专属星迹（与材料奖励二选一））",
+      "sourceKey": "newactivityext/newact20260626/r2026tab3lotteryskin/r2026tab3lotteryskin#R2026T3LSConfig.ArrayData/lv=3",
+      "itemId": 7,
+      "enhanceType": "83",
+      "targetSpecies": [
+        7272,
+        7271,
+        7269,
+        7268,
+        7266,
+        7217,
+        7210,
+        7185,
+        7152,
+        7150,
+        7148,
+        7136,
+        7123,
+        7115,
+        7094,
+        7090,
+        7067,
+        7012,
+        7006,
+        7001,
+        6996,
+        6995,
+        6974,
+        6964,
+        6924,
+        6913,
+        6909,
+        6898,
+        6890,
+        6874,
+        6855,
+        6833,
+        6821,
+        6809,
+        6799,
+        6790,
+        6789,
+        6782,
+        6777,
+        6718,
+        6658,
+        6643,
+        6631,
+        6623,
+        6618,
+        6603,
+        6567,
+        6558,
+        6547,
+        6510,
+        6506,
+        6501,
+        6496,
+        6491,
+        6486,
+        6481,
+        6471
+      ],
+      "manualSelectionRequired": true,
+      "verification": "local-detail-replay",
+      "originalNoticeParameters": [
+        "83"
+      ],
+      "before": {
+        "localMatches": 83,
+        "usable": 0,
+        "notNeeded": 0,
+        "unknown": 83
+      },
+      "after": {
+        "localMatches": 83,
+        "usable": 0,
+        "notNeeded": 83,
+        "unknown": 0,
+        "reasons": {
+          "对应培养项已满足或资源已持有：专属星迹": 83
+        }
+      },
+      "syntheticBoundaryChecks": null
+    },
+    {
+      "activityName": "活动·30天回归2026版tab3-抽皮肤 · 奖励档位 4",
+      "description": "放入精灵激活专属星迹（激活1个专属星迹（与材料奖励二选一））",
+      "sourceKey": "newactivityext/newact20260626/r2026tab3lotteryskin/r2026tab3lotteryskin#R2026T3LSConfig.ArrayData/lv=4",
+      "itemId": 1,
+      "enhanceType": "83",
+      "targetSpecies": [
+        7272,
+        7271,
+        7269,
+        7268,
+        7266,
+        7217,
+        7210,
+        7185,
+        7152,
+        7150,
+        7148,
+        7136,
+        7123,
+        7115,
+        7094,
+        7090,
+        7067,
+        7012,
+        7006,
+        7001,
+        6996,
+        6995,
+        6974,
+        6964,
+        6924,
+        6913,
+        6909,
+        6898,
+        6890,
+        6874,
+        6855,
+        6833,
+        6821,
+        6809,
+        6799,
+        6790,
+        6789,
+        6782,
+        6777,
+        6718,
+        6658,
+        6643,
+        6631,
+        6623,
+        6618,
+        6603,
+        6567,
+        6558,
+        6547,
+        6510,
+        6506,
+        6501,
+        6496,
+        6491,
+        6486,
+        6481,
+        6471
+      ],
+      "manualSelectionRequired": true,
+      "verification": "local-detail-replay",
+      "originalNoticeParameters": [
+        "83"
+      ],
+      "before": {
+        "localMatches": 83,
+        "usable": 0,
+        "notNeeded": 0,
+        "unknown": 83
+      },
+      "after": {
+        "localMatches": 83,
+        "usable": 0,
+        "notNeeded": 83,
+        "unknown": 0,
+        "reasons": {
+          "对应培养项已满足或资源已持有：专属星迹": 83
+        }
+      },
+      "syntheticBoundaryChecks": null
+    },
+    {
+      "activityName": "活动·30天回归2026版tab3-抽皮肤 · 奖励档位 4",
+      "description": "放入精灵激活专属星迹（激活1个专属星迹（与材料奖励二选一））",
+      "sourceKey": "newactivityext/newact20260626/r2026tab3lotteryskin/r2026tab3lotteryskin#R2026T3LSConfig.ArrayData/lv=4",
+      "itemId": 2,
+      "enhanceType": "83",
+      "targetSpecies": [
+        7272,
+        7271,
+        7269,
+        7268,
+        7266,
+        7217,
+        7210,
+        7185,
+        7152,
+        7150,
+        7148,
+        7136,
+        7123,
+        7115,
+        7094,
+        7090,
+        7067,
+        7012,
+        7006,
+        7001,
+        6996,
+        6995,
+        6974,
+        6964,
+        6924,
+        6913,
+        6909,
+        6898,
+        6890,
+        6874,
+        6855,
+        6833,
+        6821,
+        6809,
+        6799,
+        6790,
+        6789,
+        6782,
+        6777,
+        6718,
+        6658,
+        6643,
+        6631,
+        6623,
+        6618,
+        6603,
+        6567,
+        6558,
+        6547,
+        6510,
+        6506,
+        6501,
+        6496,
+        6491,
+        6486,
+        6481,
+        6471
+      ],
+      "manualSelectionRequired": true,
+      "verification": "local-detail-replay",
+      "originalNoticeParameters": [
+        "83"
+      ],
+      "before": {
+        "localMatches": 83,
+        "usable": 0,
+        "notNeeded": 0,
+        "unknown": 83
+      },
+      "after": {
+        "localMatches": 83,
+        "usable": 0,
+        "notNeeded": 83,
+        "unknown": 0,
+        "reasons": {
+          "对应培养项已满足或资源已持有：专属星迹": 83
+        }
+      },
+      "syntheticBoundaryChecks": null
+    },
+    {
+      "activityName": "活动·30天回归2026版tab3-抽皮肤 · 奖励档位 4",
+      "description": "放入精灵激活专属星迹（激活1个专属星迹（与材料奖励二选一））",
+      "sourceKey": "newactivityext/newact20260626/r2026tab3lotteryskin/r2026tab3lotteryskin#R2026T3LSConfig.ArrayData/lv=4",
+      "itemId": 3,
+      "enhanceType": "83",
+      "targetSpecies": [
+        7272,
+        7271,
+        7269,
+        7268,
+        7266,
+        7217,
+        7210,
+        7185,
+        7152,
+        7150,
+        7148,
+        7136,
+        7123,
+        7115,
+        7094,
+        7090,
+        7067,
+        7012,
+        7006,
+        7001,
+        6996,
+        6995,
+        6974,
+        6964,
+        6924,
+        6913,
+        6909,
+        6898,
+        6890,
+        6874,
+        6855,
+        6833,
+        6821,
+        6809,
+        6799,
+        6790,
+        6789,
+        6782,
+        6777,
+        6718,
+        6658,
+        6643,
+        6631,
+        6623,
+        6618,
+        6603,
+        6567,
+        6558,
+        6547,
+        6510,
+        6506,
+        6501,
+        6496,
+        6491,
+        6486,
+        6481,
+        6471
+      ],
+      "manualSelectionRequired": true,
+      "verification": "local-detail-replay",
+      "originalNoticeParameters": [
+        "83"
+      ],
+      "before": {
+        "localMatches": 83,
+        "usable": 0,
+        "notNeeded": 0,
+        "unknown": 83
+      },
+      "after": {
+        "localMatches": 83,
+        "usable": 0,
+        "notNeeded": 83,
+        "unknown": 0,
+        "reasons": {
+          "对应培养项已满足或资源已持有：专属星迹": 83
+        }
+      },
+      "syntheticBoundaryChecks": null
+    },
+    {
+      "activityName": "活动·30天回归2026版tab3-抽皮肤 · 奖励档位 4",
+      "description": "放入精灵激活专属星迹（激活1个专属星迹（与材料奖励二选一））",
+      "sourceKey": "newactivityext/newact20260626/r2026tab3lotteryskin/r2026tab3lotteryskin#R2026T3LSConfig.ArrayData/lv=4",
+      "itemId": 5,
+      "enhanceType": "83",
+      "targetSpecies": [
+        7272,
+        7271,
+        7269,
+        7268,
+        7266,
+        7217,
+        7210,
+        7185,
+        7152,
+        7150,
+        7148,
+        7136,
+        7123,
+        7115,
+        7094,
+        7090,
+        7067,
+        7012,
+        7006,
+        7001,
+        6996,
+        6995,
+        6974,
+        6964,
+        6924,
+        6913,
+        6909,
+        6898,
+        6890,
+        6874,
+        6855,
+        6833,
+        6821,
+        6809,
+        6799,
+        6790,
+        6789,
+        6782,
+        6777,
+        6718,
+        6658,
+        6643,
+        6631,
+        6623,
+        6618,
+        6603,
+        6567,
+        6558,
+        6547,
+        6510,
+        6506,
+        6501,
+        6496,
+        6491,
+        6486,
+        6481,
+        6471
+      ],
+      "manualSelectionRequired": true,
+      "verification": "local-detail-replay",
+      "originalNoticeParameters": [
+        "83"
+      ],
+      "before": {
+        "localMatches": 83,
+        "usable": 0,
+        "notNeeded": 0,
+        "unknown": 83
+      },
+      "after": {
+        "localMatches": 83,
+        "usable": 0,
+        "notNeeded": 83,
+        "unknown": 0,
+        "reasons": {
+          "对应培养项已满足或资源已持有：专属星迹": 83
+        }
+      },
+      "syntheticBoundaryChecks": null
+    },
+    {
+      "activityName": "活动·30天回归2026版tab3-抽皮肤 · 奖励档位 4",
+      "description": "放入精灵激活专属星迹（激活1个专属星迹（与材料奖励二选一））",
+      "sourceKey": "newactivityext/newact20260626/r2026tab3lotteryskin/r2026tab3lotteryskin#R2026T3LSConfig.ArrayData/lv=4",
+      "itemId": 7,
+      "enhanceType": "83",
+      "targetSpecies": [
+        7272,
+        7271,
+        7269,
+        7268,
+        7266,
+        7217,
+        7210,
+        7185,
+        7152,
+        7150,
+        7148,
+        7136,
+        7123,
+        7115,
+        7094,
+        7090,
+        7067,
+        7012,
+        7006,
+        7001,
+        6996,
+        6995,
+        6974,
+        6964,
+        6924,
+        6913,
+        6909,
+        6898,
+        6890,
+        6874,
+        6855,
+        6833,
+        6821,
+        6809,
+        6799,
+        6790,
+        6789,
+        6782,
+        6777,
+        6718,
+        6658,
+        6643,
+        6631,
+        6623,
+        6618,
+        6603,
+        6567,
+        6558,
+        6547,
+        6510,
+        6506,
+        6501,
+        6496,
+        6491,
+        6486,
+        6481,
+        6471
+      ],
+      "manualSelectionRequired": true,
+      "verification": "local-detail-replay",
+      "originalNoticeParameters": [
+        "83"
+      ],
+      "before": {
+        "localMatches": 83,
+        "usable": 0,
+        "notNeeded": 0,
+        "unknown": 83
+      },
+      "after": {
+        "localMatches": 83,
+        "usable": 0,
+        "notNeeded": 83,
+        "unknown": 0,
+        "reasons": {
+          "对应培养项已满足或资源已持有：专属星迹": 83
+        }
+      },
+      "syntheticBoundaryChecks": null
+    },
+    {
+      "activityName": "活动·赛季PVE S2",
+      "description": "指定精灵激活专属星迹",
+      "sourceKey": "newactivityext/newact20260828/seasonpves2/seasonpves2#SPVES2Config.REWARD_CONFIG",
+      "itemId": 29,
+      "enhanceType": "83",
+      "targetSpecies": [
+        6471,
+        6486,
+        6491,
+        6496,
+        6501,
+        6506,
+        6510,
+        6553,
+        6558,
+        6567,
+        6603,
+        6618,
+        6623,
+        6631,
+        6643,
+        6645,
+        6658,
+        6718,
+        6777,
+        6782,
+        6790,
+        6809,
+        6821,
+        6833,
+        6840,
+        6847,
+        6855,
+        6874,
+        6890,
+        6898,
+        6909,
+        6913,
+        6924,
+        6964,
+        6974,
+        7001,
+        7012,
+        7056,
+        7067,
+        7090,
+        7115,
+        7123,
+        7136,
+        7148,
+        7152,
+        5238,
+        5259,
+        5307,
+        5369,
+        5377,
+        5466,
+        5568,
+        5590,
+        5669,
+        5767,
+        5773,
+        5780,
+        5864,
+        5871,
+        5931,
+        5972,
+        5987,
+        6234,
+        6240,
+        6248,
+        6256,
+        6260,
+        6281,
+        6312,
+        6360,
+        6372,
+        6449,
+        6453,
+        6454,
+        6456
+      ],
+      "manualSelectionRequired": false,
+      "verification": "local-detail-replay",
+      "originalNoticeParameters": [
+        "83"
+      ],
+      "before": {
+        "localMatches": 96,
+        "usable": 0,
+        "notNeeded": 0,
+        "unknown": 96
+      },
+      "after": {
+        "localMatches": 96,
+        "usable": 8,
+        "notNeeded": 88,
+        "unknown": 0,
+        "reasons": {
+          "可提升：专属星迹": 8,
+          "对应培养项已满足或资源已持有：专属星迹": 88
+        }
+      },
+      "syntheticBoundaryChecks": null
+    },
+    {
+      "activityName": "活动·S级灵初钻石昆吾全民可得",
+      "description": "激活1个内圈星迹",
+      "sourceKey": "newactivityext/newact20260918/lingchudiamondkunwu/lingchudiamondkunwu#LCDKWMainPanel.sharedCultivation",
+      "itemId": 41207980,
+      "enhanceType": "81",
+      "targetSpecies": [
+        7552
+      ],
+      "manualSelectionRequired": true,
+      "verification": "synthetic-boundaries-passed",
+      "originalNoticeParameters": [
+        "81"
+      ],
+      "before": {
+        "localMatches": 0,
+        "usable": 0,
+        "notNeeded": 0,
+        "unknown": 0
+      },
+      "after": {
+        "localMatches": 0,
+        "usable": 0,
+        "notNeeded": 0,
+        "unknown": 0,
+        "reasons": {}
+      },
+      "syntheticBoundaryChecks": {
+        "completed": true,
+        "missing": true,
+        "missingDetail": true
+      }
+    },
+    {
+      "activityName": "活动·S级灵初钻石昆吾全民可得",
+      "description": "激活1个外圈星迹",
+      "sourceKey": "newactivityext/newact20260918/lingchudiamondkunwu/lingchudiamondkunwu#LCDKWMainPanel.sharedCultivation",
+      "itemId": 140429976,
+      "enhanceType": "82",
+      "targetSpecies": [
+        7552
+      ],
+      "manualSelectionRequired": true,
+      "verification": "synthetic-boundaries-passed",
+      "originalNoticeParameters": [
+        "82"
+      ],
+      "before": {
+        "localMatches": 0,
+        "usable": 0,
+        "notNeeded": 0,
+        "unknown": 0
+      },
+      "after": {
+        "localMatches": 0,
+        "usable": 0,
+        "notNeeded": 0,
+        "unknown": 0,
+        "reasons": {}
+      },
+      "syntheticBoundaryChecks": {
+        "completed": true,
+        "missing": true,
+        "missingDetail": true
+      }
+    },
+    {
+      "activityName": "活动·S级灵初钻石昆吾全民可得",
+      "description": "激活1个专属星迹",
+      "sourceKey": "newactivityext/newact20260918/lingchudiamondkunwu/lingchudiamondkunwu#LCDKWMainPanel.sharedCultivation",
+      "itemId": 20562461,
+      "enhanceType": "83",
+      "targetSpecies": [
+        7552
+      ],
+      "manualSelectionRequired": true,
+      "verification": "synthetic-boundaries-passed",
+      "originalNoticeParameters": [
+        "83"
+      ],
+      "before": {
+        "localMatches": 0,
+        "usable": 0,
+        "notNeeded": 0,
+        "unknown": 0
+      },
+      "after": {
+        "localMatches": 0,
+        "usable": 0,
+        "notNeeded": 0,
+        "unknown": 0,
+        "reasons": {}
+      },
+      "syntheticBoundaryChecks": {
+        "completed": true,
+        "missing": true,
+        "missingDetail": true
+      }
+    },
+    {
+      "activityName": "活动·SS级灵初阿里阿德涅专属养成买一送一",
+      "description": "第1只源兽",
+      "sourceKey": "newactivityext/newact20260930/lingchualiadeniestrengthenonebyone/lingchualiadeniestrengthenonebyone#LCASOBO_Config.PRO_REWARDS",
+      "itemId": 0,
+      "enhanceType": "92$1",
+      "targetSpecies": [
+        7607
+      ],
+      "manualSelectionRequired": false,
+      "verification": "local-detail-replay",
+      "originalNoticeParameters": [
+        "92$1"
+      ],
+      "before": {
+        "localMatches": 1,
+        "usable": 0,
+        "notNeeded": 0,
+        "unknown": 1
+      },
+      "after": {
+        "localMatches": 1,
+        "usable": 0,
+        "notNeeded": 1,
+        "unknown": 0,
+        "reasons": {
+          "对应培养项已满足或资源已持有：源兽/神源兽阶级": 1
+        }
+      },
+      "syntheticBoundaryChecks": null
+    },
+    {
+      "activityName": "活动·SS级灵初阿里阿德涅专属养成买一送一",
+      "description": "送第2只源兽",
+      "sourceKey": "newactivityext/newact20260930/lingchualiadeniestrengthenonebyone/lingchualiadeniestrengthenonebyone#LCASOBO_Config.PRO_REWARDS",
+      "itemId": 1,
+      "enhanceType": "92$1",
+      "targetSpecies": [
+        7607
+      ],
+      "manualSelectionRequired": false,
+      "verification": "local-detail-replay",
+      "originalNoticeParameters": [
+        "92$1"
+      ],
+      "before": {
+        "localMatches": 1,
+        "usable": 0,
+        "notNeeded": 0,
+        "unknown": 1
+      },
+      "after": {
+        "localMatches": 1,
+        "usable": 0,
+        "notNeeded": 1,
+        "unknown": 0,
+        "reasons": {
+          "对应培养项已满足或资源已持有：源兽/神源兽阶级": 1
+        }
+      },
+      "syntheticBoundaryChecks": null
+    },
+    {
+      "activityName": "活动·SS级灵初阿里阿德涅专属养成买一送一",
+      "description": "第3只源兽",
+      "sourceKey": "newactivityext/newact20260930/lingchualiadeniestrengthenonebyone/lingchualiadeniestrengthenonebyone#LCASOBO_Config.PRO_REWARDS",
+      "itemId": 2,
+      "enhanceType": "92$1",
+      "targetSpecies": [
+        7607
+      ],
+      "manualSelectionRequired": false,
+      "verification": "local-detail-replay",
+      "originalNoticeParameters": [
+        "92$1"
+      ],
+      "before": {
+        "localMatches": 1,
+        "usable": 0,
+        "notNeeded": 0,
+        "unknown": 1
+      },
+      "after": {
+        "localMatches": 1,
+        "usable": 0,
+        "notNeeded": 1,
+        "unknown": 0,
+        "reasons": {
+          "对应培养项已满足或资源已持有：源兽/神源兽阶级": 1
+        }
+      },
+      "syntheticBoundaryChecks": null
+    },
+    {
+      "activityName": "活动·SS级灵初阿里阿德涅专属养成买一送一",
+      "description": "送第4只源兽",
+      "sourceKey": "newactivityext/newact20260930/lingchualiadeniestrengthenonebyone/lingchualiadeniestrengthenonebyone#LCASOBO_Config.PRO_REWARDS",
+      "itemId": 3,
+      "enhanceType": "92$1",
+      "targetSpecies": [
+        7607
+      ],
+      "manualSelectionRequired": false,
+      "verification": "local-detail-replay",
+      "originalNoticeParameters": [
+        "92$1"
+      ],
+      "before": {
+        "localMatches": 1,
+        "usable": 0,
+        "notNeeded": 0,
+        "unknown": 1
+      },
+      "after": {
+        "localMatches": 1,
+        "usable": 0,
+        "notNeeded": 1,
+        "unknown": 0,
+        "reasons": {
+          "对应培养项已满足或资源已持有：源兽/神源兽阶级": 1
+        }
+      },
+      "syntheticBoundaryChecks": null
+    },
+    {
+      "activityName": "活动·SS级灵初阿里阿德涅专属养成买一送一",
+      "description": "点亮专属星迹",
+      "sourceKey": "newactivityext/newact20260930/lingchualiadeniestrengthenonebyone/lingchualiadeniestrengthenonebyone#LCASOBO_Config.PRO_REWARDS",
+      "itemId": 6,
+      "enhanceType": "83",
+      "targetSpecies": [
+        7607
+      ],
+      "manualSelectionRequired": false,
+      "verification": "local-detail-replay",
+      "originalNoticeParameters": [
+        "83"
+      ],
+      "before": {
+        "localMatches": 1,
+        "usable": 0,
+        "notNeeded": 0,
+        "unknown": 1
+      },
+      "after": {
+        "localMatches": 1,
+        "usable": 0,
+        "notNeeded": 1,
+        "unknown": 0,
+        "reasons": {
+          "对应培养项已满足或资源已持有：专属星迹": 1
+        }
+      },
+      "syntheticBoundaryChecks": null
+    },
+    {
+      "activityName": "活动·SS级灵初阿里阿德涅专属养成买一送一",
+      "description": "装备任选红星1颗",
+      "sourceKey": "newactivityext/newact20260930/lingchualiadeniestrengthenonebyone/lingchualiadeniestrengthenonebyone#LCASOBO_Config.PRO_REWARDS",
+      "itemId": 7,
+      "enhanceType": "34$1",
+      "targetSpecies": [
+        7607
+      ],
+      "manualSelectionRequired": false,
+      "verification": "local-detail-replay",
+      "originalNoticeParameters": [
+        "34$1"
+      ],
+      "before": {
+        "localMatches": 1,
+        "usable": 0,
+        "notNeeded": 0,
+        "unknown": 1
+      },
+      "after": {
+        "localMatches": 1,
+        "usable": 0,
+        "notNeeded": 1,
+        "unknown": 0,
+        "reasons": {
+          "对应培养项已满足或资源已持有：红色星神；已有星神先装备或升级，无需重复兑换": 1
+        }
+      },
+      "syntheticBoundaryChecks": null
+    },
+    {
+      "activityName": "活动·SS级灵初阿里阿德涅专属养成买一送一",
+      "description": "第1颗红星",
+      "sourceKey": "newactivityext/newact20260930/lingchualiadeniestrengthenonebyone/lingchualiadeniestrengthenonebyone#LCASOBO_Config.PRO_REWARDS",
+      "itemId": 8,
+      "enhanceType": "34$1",
+      "targetSpecies": [
+        7607
+      ],
+      "manualSelectionRequired": false,
+      "verification": "local-detail-replay",
+      "originalNoticeParameters": [
+        "34$1"
+      ],
+      "before": {
+        "localMatches": 1,
+        "usable": 0,
+        "notNeeded": 0,
+        "unknown": 1
+      },
+      "after": {
+        "localMatches": 1,
+        "usable": 0,
+        "notNeeded": 1,
+        "unknown": 0,
+        "reasons": {
+          "对应培养项已满足或资源已持有：红色星神；已有星神先装备或升级，无需重复兑换": 1
+        }
+      },
+      "syntheticBoundaryChecks": null
+    },
+    {
+      "activityName": "活动·SS级灵初阿里阿德涅专属养成买一送一",
+      "description": "送第2颗红星",
+      "sourceKey": "newactivityext/newact20260930/lingchualiadeniestrengthenonebyone/lingchualiadeniestrengthenonebyone#LCASOBO_Config.PRO_REWARDS",
+      "itemId": 9,
+      "enhanceType": "34$1",
+      "targetSpecies": [
+        7607
+      ],
+      "manualSelectionRequired": false,
+      "verification": "local-detail-replay",
+      "originalNoticeParameters": [
+        "34$1"
+      ],
+      "before": {
+        "localMatches": 1,
+        "usable": 0,
+        "notNeeded": 0,
+        "unknown": 1
+      },
+      "after": {
+        "localMatches": 1,
+        "usable": 0,
+        "notNeeded": 1,
+        "unknown": 0,
+        "reasons": {
+          "对应培养项已满足或资源已持有：红色星神；已有星神先装备或升级，无需重复兑换": 1
+        }
+      },
+      "syntheticBoundaryChecks": null
+    },
+    {
+      "activityName": "活动·SS级灵初阿里阿德涅专属养成买一送一",
+      "description": "第3颗红星",
+      "sourceKey": "newactivityext/newact20260930/lingchualiadeniestrengthenonebyone/lingchualiadeniestrengthenonebyone#LCASOBO_Config.PRO_REWARDS",
+      "itemId": 10,
+      "enhanceType": "34$1",
+      "targetSpecies": [
+        7607
+      ],
+      "manualSelectionRequired": false,
+      "verification": "local-detail-replay",
+      "originalNoticeParameters": [
+        "34$1"
+      ],
+      "before": {
+        "localMatches": 1,
+        "usable": 0,
+        "notNeeded": 0,
+        "unknown": 1
+      },
+      "after": {
+        "localMatches": 1,
+        "usable": 0,
+        "notNeeded": 1,
+        "unknown": 0,
+        "reasons": {
+          "对应培养项已满足或资源已持有：红色星神；已有星神先装备或升级，无需重复兑换": 1
+        }
+      },
+      "syntheticBoundaryChecks": null
+    },
+    {
+      "activityName": "活动·SS级灵初阿里阿德涅专属养成买一送一",
+      "description": "送第4颗红星",
+      "sourceKey": "newactivityext/newact20260930/lingchualiadeniestrengthenonebyone/lingchualiadeniestrengthenonebyone#LCASOBO_Config.PRO_REWARDS",
+      "itemId": 11,
+      "enhanceType": "34$1",
+      "targetSpecies": [
+        7607
+      ],
+      "manualSelectionRequired": false,
+      "verification": "local-detail-replay",
+      "originalNoticeParameters": [
+        "34$1"
+      ],
+      "before": {
+        "localMatches": 1,
+        "usable": 0,
+        "notNeeded": 0,
+        "unknown": 1
+      },
+      "after": {
+        "localMatches": 1,
+        "usable": 0,
+        "notNeeded": 1,
+        "unknown": 0,
+        "reasons": {
+          "对应培养项已满足或资源已持有：红色星神；已有星神先装备或升级，无需重复兑换": 1
+        }
+      },
+      "syntheticBoundaryChecks": null
+    },
+    {
+      "activityName": "活动·SS级灵初阿里阿德涅专属养成买一送一",
+      "description": "第5颗红星",
+      "sourceKey": "newactivityext/newact20260930/lingchualiadeniestrengthenonebyone/lingchualiadeniestrengthenonebyone#LCASOBO_Config.PRO_REWARDS",
+      "itemId": 12,
+      "enhanceType": "34$1",
+      "targetSpecies": [
+        7607
+      ],
+      "manualSelectionRequired": false,
+      "verification": "local-detail-replay",
+      "originalNoticeParameters": [
+        "34$1"
+      ],
+      "before": {
+        "localMatches": 1,
+        "usable": 0,
+        "notNeeded": 0,
+        "unknown": 1
+      },
+      "after": {
+        "localMatches": 1,
+        "usable": 0,
+        "notNeeded": 1,
+        "unknown": 0,
+        "reasons": {
+          "对应培养项已满足或资源已持有：红色星神；已有星神先装备或升级，无需重复兑换": 1
+        }
+      },
+      "syntheticBoundaryChecks": null
+    },
+    {
+      "activityName": "活动·SS级灵初阿里阿德涅专属养成买一送一",
+      "description": "送第6颗红星",
+      "sourceKey": "newactivityext/newact20260930/lingchualiadeniestrengthenonebyone/lingchualiadeniestrengthenonebyone#LCASOBO_Config.PRO_REWARDS",
+      "itemId": 13,
+      "enhanceType": "34$1",
+      "targetSpecies": [
+        7607
+      ],
+      "manualSelectionRequired": false,
+      "verification": "local-detail-replay",
+      "originalNoticeParameters": [
+        "34$1"
+      ],
+      "before": {
+        "localMatches": 1,
+        "usable": 0,
+        "notNeeded": 0,
+        "unknown": 1
+      },
+      "after": {
+        "localMatches": 1,
+        "usable": 0,
+        "notNeeded": 1,
+        "unknown": 0,
+        "reasons": {
+          "对应培养项已满足或资源已持有：红色星神；已有星神先装备或升级，无需重复兑换": 1
+        }
+      },
+      "syntheticBoundaryChecks": null
+    },
+    {
+      "activityName": "活动·中秋华诞福利中心TAB13：资源转化抽大奖",
+      "description": "指定精灵激活专属星迹*1（激活1个专属星迹（与材料奖励二选一））",
+      "sourceKey": "newactivityext/newact20261016/resourceconversionlottery/resourceconversionlottery#RCLConfig.REWARD_DATA",
+      "itemId": 6,
+      "enhanceType": "83",
+      "targetSpecies": [
+        6471,
+        6481,
+        6486,
+        6491,
+        6496,
+        6501,
+        6506,
+        6510,
+        6558,
+        6567,
+        6603,
+        6618,
+        6623,
+        6631,
+        6643,
+        6658,
+        6718,
+        6777,
+        6782,
+        6790,
+        6799,
+        6809,
+        6821,
+        6833,
+        6853,
+        6855,
+        6874,
+        6890,
+        6898,
+        6909,
+        6913,
+        6924,
+        6964,
+        6974,
+        6996,
+        7001,
+        7012,
+        7056,
+        7067,
+        7090,
+        7115,
+        7123,
+        7136,
+        7148,
+        7152,
+        7185,
+        7210,
+        7217,
+        7266,
+        7268,
+        7269,
+        7271,
+        7272,
+        7346,
+        7397,
+        7410,
+        7447,
+        7471,
+        7517
+      ],
+      "manualSelectionRequired": true,
+      "verification": "local-detail-replay",
+      "originalNoticeParameters": [
+        "83"
+      ],
+      "before": {
+        "localMatches": 82,
+        "usable": 0,
+        "notNeeded": 0,
+        "unknown": 82
+      },
+      "after": {
+        "localMatches": 82,
+        "usable": 0,
+        "notNeeded": 82,
+        "unknown": 0,
+        "reasons": {
+          "对应培养项已满足或资源已持有：专属星迹": 82
+        }
+      },
+      "syntheticBoundaryChecks": null
+    }
+  ],
+  "existingRuleFingerprints": {
+    "11": "cc5a69787068e84fc83a74abf7a29f0f14c1b89196d3ddb37b3c10f54b834f25",
+    "31": "e08b863f3ce7dc4a23019479fb0ce7bcc78d6859d3f5bba122e9bb74e7fb9fb9",
+    "32": "bbd4c0965a9bf51dc65339d19b869649565f05e6afdd04c1882e2c46d7e6ebfc",
+    "33": "f4da25c93bd38582846b3279169e13eee7984797d6e3df2795ab9ad08532ad85",
+    "33$1": "f4da25c93bd38582846b3279169e13eee7984797d6e3df2795ab9ad08532ad85",
+    "33$5": "f4da25c93bd38582846b3279169e13eee7984797d6e3df2795ab9ad08532ad85",
+    "34": "0a64fad0668fdf79627148c7ef3e7d5d1edbdff84481ae44b4df34d0a1f4b8e9",
+    "39": "0a64fad0668fdf79627148c7ef3e7d5d1edbdff84481ae44b4df34d0a1f4b8e9",
+    "39$1": "0a64fad0668fdf79627148c7ef3e7d5d1edbdff84481ae44b4df34d0a1f4b8e9",
+    "39$3": "0a64fad0668fdf79627148c7ef3e7d5d1edbdff84481ae44b4df34d0a1f4b8e9",
+    "41": "cd749ab4ab6cd12848cf982832690ba66449816dc4d956d6a6751ab126aa7117",
+    "42": "4a962ad605d062facf39ad7c74c04592ee1bc09ebcc394164cd17cc519d3e239",
+    "43": "cd749ab4ab6cd12848cf982832690ba66449816dc4d956d6a6751ab126aa7117",
+    "44": "4a962ad605d062facf39ad7c74c04592ee1bc09ebcc394164cd17cc519d3e239",
+    "62": "9835129b15e0de1c9cf593417d0916922014e06c1134052d17ad91f7f6927fe4",
+    "84": "1f23ea7ba946bc538e008bfd633c7841c3317106c2b6ac1657e32dbf67084cff",
+    "85": "b1b9edb06200059602169e798460b63965fe527da2cdab6bda135c57289cd0f3",
+    "86": "1f23ea7ba946bc538e008bfd633c7841c3317106c2b6ac1657e32dbf67084cff",
+    "89": "3c648bee19387c700e262ddb343fda1c40e4eecce02251d0d510ac3e2aef0b55",
+    "89$1": "3c648bee19387c700e262ddb343fda1c40e4eecce02251d0d510ac3e2aef0b55",
+    "91": "b1b096d4c798b3ca88beb307ad2ebc8bce0372e7284527e4e0a8f888c1bbf108",
+    "92": "7dba504b0ad8b0d6252fcc9407bf82f081ffb6f86835326d884690cc95fb411b",
+    "94": "7dba504b0ad8b0d6252fcc9407bf82f081ffb6f86835326d884690cc95fb411b",
+    "95": "bdea6e6d69d2e20b933b2eef715376fce083ec66e319e70cb6627782545e2a9a"
+  }
+}

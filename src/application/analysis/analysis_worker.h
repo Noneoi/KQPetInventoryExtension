@@ -47,6 +47,11 @@ struct AnalysisWorkInput {
   // only, pets must be empty and totalPets must equal this frozen collection.
   bool usePreparedFacts = false;
   QList<PetAnalysisFacts> preparedFacts;
+  struct FactFrame {
+    QByteArray bytes;
+    PetAssetRecord identity;
+  };
+  QList<FactFrame> preparedFrames;
   // Production freezes these values on Core. Compilation, race indexing and
   // account-condition preparation happen incrementally on Compute.
   std::shared_ptr<const ShopCatalogSnapshot> catalogSnapshot;

@@ -18,14 +18,24 @@ endfunction()
 # Python tools, PowerShell scripts and architecture guards
 # =============================================================================
 add_test(NAME public_data_updater_smoke COMMAND Python3::Interpreter -B "${CMAKE_CURRENT_SOURCE_DIR}/tests/python/test_public_data_updater.py")
+add_test(NAME embedded_public_snapshot_smoke COMMAND Python3::Interpreter -B "${CMAKE_CURRENT_SOURCE_DIR}/tools/sync_embedded_public_data.py")
+add_test(NAME public_update_support_smoke COMMAND Python3::Interpreter -B "${CMAKE_CURRENT_SOURCE_DIR}/tests/python/test_public_update_support.py")
+add_test(NAME public_update_store_smoke COMMAND Python3::Interpreter -B "${CMAKE_CURRENT_SOURCE_DIR}/tests/python/test_public_update_store.py")
+add_test(NAME public_data_retention_smoke COMMAND Python3::Interpreter -B "${CMAKE_CURRENT_SOURCE_DIR}/tests/python/test_public_data_retention.py")
 add_test(NAME shop_extraction_smoke COMMAND Python3::Interpreter -B "${CMAKE_CURRENT_SOURCE_DIR}/tests/python/test_generate_shop_exchange_data.py")
 add_test(NAME pet_skill_data_smoke COMMAND Python3::Interpreter -B "${CMAKE_CURRENT_SOURCE_DIR}/tests/python/test_pet_skill_data.py")
+add_test(NAME public_pet_relations_smoke COMMAND Python3::Interpreter -B "${CMAKE_CURRENT_SOURCE_DIR}/tests/python/test_public_pet_relations.py")
 add_test(NAME public_names_updater_smoke COMMAND Python3::Interpreter -B "${CMAKE_CURRENT_SOURCE_DIR}/tests/python/test_public_names_updater.py")
 add_test(NAME public_icons_updater_smoke COMMAND Python3::Interpreter -B "${CMAKE_CURRENT_SOURCE_DIR}/tests/python/public_icon_updater_test.py")
 add_test(NAME public_routine_updater_smoke COMMAND Python3::Interpreter -B "${CMAKE_CURRENT_SOURCE_DIR}/tests/python/test_public_routine_updater.py")
 add_test(NAME activity_evolution_selector_smoke COMMAND Python3::Interpreter -B "${CMAKE_CURRENT_SOURCE_DIR}/tests/python/test_activity_evolution_selector.py")
 add_test(NAME public_activity_exchange_smoke COMMAND Python3::Interpreter -B "${CMAKE_CURRENT_SOURCE_DIR}/tests/python/public_activity_exchange_updater_test.py")
 add_test(NAME activity_trade_facts_smoke COMMAND Python3::Interpreter -B "${CMAKE_CURRENT_SOURCE_DIR}/tests/python/test_activity_trade_facts.py")
+add_test(NAME activity_constructed_offers_smoke COMMAND Python3::Interpreter -B "${CMAKE_CURRENT_SOURCE_DIR}/tests/python/test_activity_constructed_offers.py")
+add_test(NAME activity_call_rewards_smoke COMMAND Python3::Interpreter -B "${CMAKE_CURRENT_SOURCE_DIR}/tests/python/test_activity_call_rewards.py")
+add_test(NAME activity_price_rules_smoke COMMAND Python3::Interpreter -B "${CMAKE_CURRENT_SOURCE_DIR}/tests/python/test_activity_price_rules.py")
+add_test(NAME activity_service_discovery_smoke COMMAND Python3::Interpreter -B "${CMAKE_CURRENT_SOURCE_DIR}/tests/python/test_activity_service_discovery.py")
+add_test(NAME activity_navigation_smoke COMMAND Python3::Interpreter -B "${CMAKE_CURRENT_SOURCE_DIR}/tests/python/test_activity_navigation.py")
 add_test(NAME public_updater_output_encoding_smoke COMMAND Python3::Interpreter -B "${CMAKE_CURRENT_SOURCE_DIR}/tests/python/public_updater_output_encoding_test.py")
 add_test(NAME cache_manager_smoke COMMAND Python3::Interpreter -B "${CMAKE_CURRENT_SOURCE_DIR}/tests/python/test_cache_manager.py")
 add_test(NAME power_metadata_smoke COMMAND Python3::Interpreter -B "${CMAKE_CURRENT_SOURCE_DIR}/tests/python/test_power_metadata.py")
@@ -122,6 +132,9 @@ target_compile_options(KQPowerConsumersSmoke PRIVATE $<$<CXX_COMPILER_ID:MSVC>:/
 add_test(NAME power_consumers_smoke COMMAND KQPowerConsumersSmoke)
 
 add_executable(KQShopPetParameterizedSmoke tests/domain/shop_pet_parameterized_smoke.cpp)
+add_executable(KQShopCultivationAudit tests/domain/shop_cultivation_audit.cpp)
+target_link_libraries(KQShopCultivationAudit PRIVATE KQPetDomain)
+target_compile_options(KQShopCultivationAudit PRIVATE $<$<CXX_COMPILER_ID:MSVC>:/utf-8>)
 target_link_libraries(KQShopPetParameterizedSmoke PRIVATE KQPetDomain)
 target_compile_options(KQShopPetParameterizedSmoke PRIVATE $<$<CXX_COMPILER_ID:MSVC>:/utf-8>)
 add_test(NAME shop_pet_parameterized_smoke COMMAND KQShopPetParameterizedSmoke)
@@ -136,6 +149,13 @@ target_link_libraries(KQPetDetailPreparationSmoke PRIVATE KQPetDomain)
 target_compile_options(KQPetDetailPreparationSmoke PRIVATE $<$<CXX_COMPILER_ID:MSVC>:/utf-8>)
 add_test(NAME pet_detail_preparation_smoke COMMAND KQPetDetailPreparationSmoke)
 set_tests_properties(pet_detail_preparation_smoke PROPERTIES TIMEOUT 30)
+
+add_executable(KQPetRelationOptionsSmoke tests/domain/pet_relation_options_smoke.cpp)
+target_link_libraries(KQPetRelationOptionsSmoke PRIVATE KQPetDomain)
+target_compile_options(KQPetRelationOptionsSmoke PRIVATE $<$<CXX_COMPILER_ID:MSVC>:/utf-8>)
+add_test(NAME pet_relation_options_smoke COMMAND KQPetRelationOptionsSmoke)
+set_tests_properties(pet_relation_options_smoke PROPERTIES TIMEOUT 30)
+kqpet_use_qt_runtime(pet_relation_options_smoke)
 
 kqpet_use_qt_runtime(domain_core_smoke pet_cultivation_requirements_smoke pet_power_composition_smoke
   power_consumers_smoke shop_pet_parameterized_smoke activity_shop_observation_smoke
@@ -199,6 +219,25 @@ kqpet_use_qt_runtime(inbound_queue_smoke outbound_contract_smoke protocol_transp
 # =============================================================================
 # tests/bridge
 # =============================================================================
+add_executable(KQGameNavigationScriptProbe tests/bridge/game_navigation_script_probe.cpp
+  src/bridge/game_navigation_script.cpp)
+target_compile_options(KQGameNavigationScriptProbe PRIVATE $<$<CXX_COMPILER_ID:MSVC>:/utf-8>)
+target_link_libraries(KQGameNavigationScriptProbe PRIVATE Qt6::Core)
+add_test(NAME game_navigation_smoke COMMAND Python3::Interpreter -B
+  "${CMAKE_CURRENT_SOURCE_DIR}/tests/python/test_game_navigation.py" $<TARGET_FILE:KQGameNavigationScriptProbe>)
+set_tests_properties(game_navigation_smoke PROPERTIES TIMEOUT 45)
+kqpet_use_qt_runtime(game_navigation_smoke)
+
+add_library(KQNavigationCefFixture SHARED tests/bridge/navigation_cef_fixture.cpp)
+target_link_libraries(KQNavigationCefFixture PRIVATE Qt6::Widgets)
+add_executable(KQGameNavigationBridgeSmoke tests/bridge/game_navigation_bridge_smoke.cpp)
+target_compile_options(KQGameNavigationBridgeSmoke PRIVATE $<$<CXX_COMPILER_ID:MSVC>:/utf-8>)
+target_link_libraries(KQGameNavigationBridgeSmoke PRIVATE KQPetBridge Qt6::Test)
+add_dependencies(KQGameNavigationBridgeSmoke KQNavigationCefFixture)
+add_test(NAME game_navigation_bridge_smoke COMMAND KQGameNavigationBridgeSmoke $<TARGET_FILE:KQNavigationCefFixture>)
+set_tests_properties(game_navigation_bridge_smoke PROPERTIES TIMEOUT 15 ENVIRONMENT "QT_QPA_PLATFORM=offscreen")
+kqpet_use_qt_runtime(game_navigation_bridge_smoke)
+
 add_executable(KQInlineHookPolicySmoke tests/bridge/inline_hook_policy_smoke.cpp)
 target_compile_options(KQInlineHookPolicySmoke PRIVATE $<$<CXX_COMPILER_ID:MSVC>:/utf-8 /wd4828>)
 target_link_libraries(KQInlineHookPolicySmoke PRIVATE KQPetBridge)
@@ -229,6 +268,17 @@ add_executable(KQPetCatalogSmoke tests/application/catalog_smoke.cpp src/extensi
 target_compile_options(KQPetCatalogSmoke PRIVATE $<$<CXX_COMPILER_ID:MSVC>:/utf-8 /wd4828>)
 target_link_libraries(KQPetCatalogSmoke PRIVATE KQPetCore)
 add_test(NAME pet_detail_catalog_smoke COMMAND KQPetCatalogSmoke)
+add_executable(KQPublicCatalogVersionSmoke tests/application/public_catalog_version_smoke.cpp src/extension/resources.qrc)
+target_compile_options(KQPublicCatalogVersionSmoke PRIVATE $<$<CXX_COMPILER_ID:MSVC>:/utf-8>)
+target_link_libraries(KQPublicCatalogVersionSmoke PRIVATE KQPetApplicationCore)
+add_test(NAME public_catalog_version_smoke COMMAND KQPublicCatalogVersionSmoke)
+kqpet_use_qt_runtime(public_catalog_version_smoke)
+add_executable(KQDataUpdateServiceSmoke tests/application/data_update_service_smoke.cpp src/extension/resources.qrc)
+target_compile_options(KQDataUpdateServiceSmoke PRIVATE $<$<CXX_COMPILER_ID:MSVC>:/utf-8>)
+target_link_libraries(KQDataUpdateServiceSmoke PRIVATE KQPetApplication)
+add_test(NAME data_update_service_smoke COMMAND KQDataUpdateServiceSmoke)
+kqpet_use_qt_runtime(data_update_service_smoke)
+add_test(NAME public_skill_update_smoke COMMAND "${Python3_EXECUTABLE}" -B "${CMAKE_SOURCE_DIR}/tests/python/test_public_skill_update.py")
 
 add_executable(KQCatalogIoSmoke tests/application/catalog_io_smoke.cpp src/extension/resources.qrc)
 target_link_libraries(KQCatalogIoSmoke PRIVATE KQPetCore)
@@ -290,7 +340,7 @@ add_test(NAME move_operation_smoke COMMAND KQMoveOperationSmoke)
 add_executable(KQPetShopSmoke tests/application/shop_exchange_smoke.cpp src/extension/resources.qrc)
 target_compile_options(KQPetShopSmoke PRIVATE $<$<CXX_COMPILER_ID:MSVC>:/utf-8 /wd4828>)
 target_link_libraries(KQPetShopSmoke PRIVATE KQPetCore)
-add_test(NAME shop_exchange_smoke COMMAND KQPetShopSmoke)
+add_test(NAME shop_exchange_smoke COMMAND KQPetShopSmoke "${CMAKE_CURRENT_SOURCE_DIR}/tests/fixtures/shop/frozen-20260920.json")
 
 add_executable(KQActivityShopControllerSmoke tests/application/activity_shop_controller_smoke.cpp src/extension/resources.qrc)
 target_link_libraries(KQActivityShopControllerSmoke PRIVATE KQPetApplicationCore)
@@ -327,6 +377,11 @@ target_link_libraries(KQRecommendationSmoke PRIVATE KQPetCore)
 add_test(NAME recommendation_smoke COMMAND KQRecommendationSmoke)
 
 add_executable(KQAssetAnalysisSmoke tests/application/asset_analysis_smoke.cpp src/extension/resources.qrc)
+add_executable(KQEmbeddedCatalogSmoke tests/application/embedded_catalog_smoke.cpp src/extension/resources.qrc)
+target_compile_options(KQEmbeddedCatalogSmoke PRIVATE $<$<CXX_COMPILER_ID:MSVC>:/utf-8>)
+target_link_libraries(KQEmbeddedCatalogSmoke PRIVATE KQPetApplication)
+add_test(NAME embedded_catalog_smoke COMMAND KQEmbeddedCatalogSmoke)
+kqpet_use_qt_runtime(embedded_catalog_smoke)
 target_compile_options(KQAssetAnalysisSmoke PRIVATE $<$<CXX_COMPILER_ID:MSVC>:/utf-8 /wd4828>)
 target_link_libraries(KQAssetAnalysisSmoke PRIVATE KQPetApplication)
 add_test(NAME asset_analysis_smoke COMMAND KQAssetAnalysisSmoke)
@@ -438,6 +493,9 @@ target_compile_options(KQShopUiPreview PRIVATE $<$<CXX_COMPILER_ID:MSVC>:/utf-8 
 target_link_libraries(KQShopUiPreview PRIVATE KQPetUi KQPetApplication)
 kqpet_use_build_info(KQShopUiPreview)
 add_test(NAME shop_ui_preview_smoke COMMAND KQShopUiPreview)
+add_test(NAME shop_usable_detail_refresh_smoke COMMAND KQShopUiPreview --usable-refresh-only)
+set_tests_properties(shop_usable_detail_refresh_smoke PROPERTIES TIMEOUT 45)
+kqpet_use_qt_runtime(shop_usable_detail_refresh_smoke)
 
 add_executable(KQShopSelectionSmoke tests/ui/shop_selection_smoke.cpp src/extension/resources.qrc)
 target_compile_options(KQShopSelectionSmoke PRIVATE $<$<CXX_COMPILER_ID:MSVC>:/utf-8>)
@@ -470,8 +528,24 @@ kqpet_use_build_info(KQCultivationFilterSmoke)
 add_test(NAME cultivation_filter_smoke COMMAND KQCultivationFilterSmoke)
 kqpet_use_qt_runtime(cultivation_filter_smoke)
 
+add_executable(KQCultivationMaterialPanelSmoke tests/ui/cultivation_material_panel_smoke.cpp)
+target_compile_options(KQCultivationMaterialPanelSmoke PRIVATE $<$<CXX_COMPILER_ID:MSVC>:/utf-8>)
+target_link_libraries(KQCultivationMaterialPanelSmoke PRIVATE KQPetUi KQPetDiagnostics)
+kqpet_use_build_info(KQCultivationMaterialPanelSmoke)
+add_test(NAME cultivation_material_panel_smoke COMMAND KQCultivationMaterialPanelSmoke)
+set_tests_properties(cultivation_material_panel_smoke PROPERTIES ENVIRONMENT "QT_QPA_PLATFORM=offscreen" TIMEOUT 15)
+kqpet_use_qt_runtime(cultivation_material_panel_smoke)
+
+add_executable(KQPetRelationIntegration tests/ui/pet_relation_integration.cpp src/extension/resources.qrc)
+target_compile_options(KQPetRelationIntegration PRIVATE $<$<CXX_COMPILER_ID:MSVC>:/utf-8>)
+target_link_libraries(KQPetRelationIntegration PRIVATE KQPetUi KQPetApplication)
+kqpet_use_build_info(KQPetRelationIntegration)
+add_test(NAME pet_relation_integration COMMAND KQPetRelationIntegration)
+set_tests_properties(pet_relation_integration PROPERTIES ENVIRONMENT "QT_QPA_PLATFORM=offscreen" TIMEOUT 60)
+kqpet_use_qt_runtime(pet_relation_integration)
+
 set_tests_properties(
-  pet_ui_preview_smoke shop_ui_preview_smoke routine_ui_preview_smoke
+  pet_ui_preview_smoke shop_ui_preview_smoke shop_usable_detail_refresh_smoke routine_ui_preview_smoke
   asset_analysis_ui_preview_smoke ui_preferences_smoke
   PROPERTIES
     ENVIRONMENT "QT_QPA_PLATFORM=offscreen;KQPET_PREVIEW_SELF_TEST=1;KQPET_PREVIEW_EXIT_MS=3000"

@@ -1,4 +1,5 @@
 #include "analysis_worker.h"
+#include <QtEndian>
 
 #include <QElapsedTimer>
 #include <QCoreApplication>
@@ -293,6 +294,7 @@ public:
   qint64 compileNanoseconds = 0, prepareNanoseconds = 0;
 private:
   const AnalysisWorkInput& input_;
+  qsizetype frameIndex_ = 0;
   AlgorithmPipelineStats* stats_;
   AccountResourceView resources_;
   QHash<QString, QString> names_;
@@ -307,6 +309,20 @@ private:
 // Walk retained JSON values incrementally, charging 64 bytes per value plus
 // UTF-16 strings and object keys. No full-document serialization or scan blocks
 // the event loop; a large single pet may span many input-meter slices.
+RecommendationSession::FactReader frameReader(const std::shared_ptr<const AnalysisWorkInput>& input) {
+  if (input->preparedFrames.isEmpty()) return {};
+  return [input](qsizetype index) -> std::optional<PetAnalysisFacts> {
+    if (index < 0 || index >= input->preparedFrames.size()) return {};
+    const auto& frame = input->preparedFrames.at(index);
+    auto facts = unpackPetAnalysisFacts(frame.bytes);
+    if (!facts || facts->asset.instanceId != frame.identity.instanceId) return {};
+    facts->asset.name = frame.identity.name; facts->asset.location = frame.identity.location;
+    facts->asset.pet = frame.identity.pet;
+    facts->asset.observationVerified &= frame.identity.observationVerified;
+    return facts;
+  };
+}
+
 class InputMeter final {
 public:
   explicit InputMeter(const AnalysisWorkInput& input) : input_(input), resource_(input.resourceCounts.cbegin()) {
@@ -315,6 +331,7 @@ public:
         stringCharge(input.overview.account) +
         quint64(input.overview.pets.capacity()) * sizeof(PetAssetRecord) +
         quint64(input.preparedFacts.capacity()) * sizeof(PetAnalysisFacts) +
+        quint64(input.preparedFrames.capacity()) * sizeof(AnalysisWorkInput::FactFrame) +
         quint64(input.retainedRawPayloads.capacity()) * sizeof(QByteArray);
     if (!input.catalogSnapshot) bytes += input.conditions.catalog().retainedBytes() +
         quint64(input.conditions.goods().capacity()) * sizeof(PreparedShopGoodConditions);
@@ -335,6 +352,22 @@ public:
         }
         factIdentities_.insert(fact.asset.instanceId);
         bytes += petAnalysisFactsRetainedBytes(fact) - sizeof(PetAnalysisFacts);
+      } else if (frameIndex_ < input_.preparedFrames.size()) {
+        const auto& frame = input_.preparedFrames.at(frameIndex_++);
+        const auto& pet = frame.identity;
+        if (frame.bytes.size() < 5 || frame.bytes.size() > 1024 * 1024 || pet.instanceId <= 0 || factIdentities_.contains(pet.instanceId)) {
+          invalid = true; break;
+        }
+        const quint32 expanded = qFromBigEndian<quint32>(frame.bytes.constData());
+        if (!expanded || expanded > 1024 * 1024) { invalid = true; break; }
+        // Reserve decoding/JSON scratch before Compute calls the decoder. It
+        // is reused for every frame, not multiplied by the account's pet count.
+        const quint64 scratch = quint64(expanded) * 64 + 256 * 1024;
+        if (scratch > frameScratch_) { bytes += scratch - frameScratch_; frameScratch_ = scratch; }
+        factIdentities_.insert(pet.instanceId);
+        bytes += quint64(frame.bytes.capacity()) + stringCharge(pet.name) + stringCharge(pet.location) +
+                 stringsCharge(pet.gapKeys) + stringsCharge(pet.gaps) + cultivationRequirementsRetainedBytes(pet.cultivationRequirements);
+        pushJson(pet.pet);
       } else if (pet_ < input_.overview.pets.size()) {
         const auto& pet = input_.overview.pets.at(pet_++);
         bytes += stringCharge(pet.name) + stringCharge(pet.location) +
@@ -444,6 +477,8 @@ private:
   }
 
   const AnalysisWorkInput& input_;
+  qsizetype frameIndex_ = 0;
+  quint64 frameScratch_ = 0;
   qsizetype pet_ = 0, fact_ = 0, good_ = 0, raw_ = 0, shop_ = 0, rawGood_ = 0;
   bool metadata_ = false;
   int rawInputs_ = 0;
@@ -535,7 +570,7 @@ private:
           }
           else session_ = std::make_unique<RecommendationSession>(key_.account, input_->overview,
               input_->conditions, input_->metadata, &stats_, input_->deriveOverview,
-              input_->usePreparedFacts ? &input_->preparedFacts : nullptr);
+              input_->usePreparedFacts && input_->preparedFrames.isEmpty() ? &input_->preparedFacts : nullptr, frameReader(input_));
         }
         schedule();
         return;
@@ -559,7 +594,7 @@ private:
           if (!activeCatalog_) retainCompiledCatalog();
           session_ = std::make_unique<RecommendationSession>(key_.account, input_->overview,
               preparation_->prepared, input_->metadata, &stats_, input_->deriveOverview,
-              input_->usePreparedFacts ? &input_->preparedFacts : nullptr);
+              input_->usePreparedFacts && input_->preparedFrames.isEmpty() ? &input_->preparedFacts : nullptr, frameReader(input_));
         }
         schedule(); return;
       }
@@ -844,8 +879,9 @@ struct AnalysisWorker::Impl {
     }
     if (!input || (!input->catalogSnapshot && input->conditions.goods().size() != input->conditions.catalog().goods().size()) ||
         (input->usePreparedFacts && (!input->overview.pets.isEmpty() || !input->retainedRawPayloads.isEmpty() ||
-            input->overview.totalPets != input->preparedFacts.size())) ||
-        (!input->usePreparedFacts && !input->preparedFacts.isEmpty()) ||
+            input->overview.totalPets != input->preparedFacts.size() + input->preparedFrames.size() ||
+            (!input->preparedFacts.isEmpty() && !input->preparedFrames.isEmpty()))) ||
+        (!input->usePreparedFacts && (!input->preparedFacts.isEmpty() || !input->preparedFrames.isEmpty())) ||
         !(input->key == descriptor.key) ||
         input->overview.account != descriptor.key.account ||
         input->overview.inputSessionEpoch != descriptor.key.epoch ||

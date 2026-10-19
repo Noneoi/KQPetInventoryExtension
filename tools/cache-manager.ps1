@@ -68,8 +68,16 @@ try {
     switch([string]$request.mode) {
         'inspect' {
             $accounts=@{}; [long]$total=0; $imageCount=0; $detailCount=0; $latest=$null; $legacyCount=0
+            $categories=[ordered]@{accountOriginal=[long]0;publicCatalog=[long]0;images=[long]0;derived=[long]0;tools=[long]0;extraction=[long]0;settings=[long]0}
             foreach($file in $files) {
                 $relative=Relative-Path $root $file.FullName
+                if($relative -match '^data-tools/extract-cache/'){$categories.extraction+=$file.Length}
+                elseif($relative -match '^data-tools/'){$categories.tools+=$file.Length}
+                elseif($relative -match '^accounts/[^/]+/derived/'){$categories.derived+=$file.Length}
+                elseif($relative -match '^accounts/'){$categories.accountOriginal+=$file.Length}
+                elseif($relative -match '^(catalog/|public/)'){$categories.publicCatalog+=$file.Length}
+                elseif($relative -match '^images/'){$categories.images+=$file.Length}
+                elseif($relative -match '^(settings\.json|last-account\.txt)$'){$categories.settings+=$file.Length}
                 if(-not (Cache-File $relative)){continue}; $total+=$file.Length
                 if($relative -match '^accounts/([^/]+)/details/[^/]+\.json$') {
                     $account=$Matches[1]; if(-not $accounts.ContainsKey($account)){$accounts[$account]=[ordered]@{account=$account;details=0;bytes=0}}
@@ -85,6 +93,7 @@ try {
             }
             $result.summary=[ordered]@{bytes=$total;details=$detailCount;images=$imageCount;missingImages=$missing;legacyImageFiles=$legacyCount;latest=if($latest){$latest.ToString('o')}else{''};accounts=@($accounts.Values|ForEach-Object{[pscustomobject]$_}|Sort-Object account)}
             $result.message='缓存统计已更新。'
+            $result.summary.categories=$categories
         }
         {$_ -in @('clear-account','clear-detail','clear-images','clear-image','clear-all')} {
             $account=[string]$request.account

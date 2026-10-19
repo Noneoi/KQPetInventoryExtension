@@ -30,10 +30,11 @@ struct RecommendationSliceStats {
 class RecommendationSession final {
 public:
   enum class Status { Running, Complete, Cancelled, ResultBudgetExceeded, InvalidInput };
+  using FactReader = std::function<std::optional<PetAnalysisFacts>(qsizetype)>;
   RecommendationSession(const QString& account, const AccountAssetOverview& overview,
       const PreparedShopConditions& prepared, const ShopPetMetadataSnapshot& metadata,
       AlgorithmPipelineStats* stats = nullptr, bool deriveOverview = false,
-      const QList<PetAnalysisFacts>* preparedFacts = nullptr);
+      const QList<PetAnalysisFacts>* preparedFacts = nullptr, FactReader reader = {});
   ~RecommendationSession();
   RecommendationSession(const RecommendationSession&) = delete;
   RecommendationSession& operator=(const RecommendationSession&) = delete;

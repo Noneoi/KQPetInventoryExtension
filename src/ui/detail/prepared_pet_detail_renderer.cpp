@@ -15,7 +15,7 @@ QString sectionName(DetailSection section) {
     case DetailSection::EquippedStargods: return QStringLiteral("已装备星神");
     case DetailSection::StargodBackpack: return QStringLiteral("星神背包");
     case DetailSection::SummonRelations: return QStringLiteral("召唤物关系");
-    case DetailSection::CarryRelations: return QStringLiteral("神使契约");
+    case DetailSection::CarryRelations: return QStringLiteral("携带关系");
   }
   return {};
 }
@@ -121,7 +121,9 @@ QString ownershipName(DetailOwnership ownership) {
     case DetailOwnership::WarehouseNormal: return QStringLiteral("普通仓库");
     case DetailOwnership::WarehouseElite: return QStringLiteral("精英仓库");
     case DetailOwnership::WarehouseGoodbye: return QStringLiteral("告别仓库");
-    case DetailOwnership::Missing: return QStringLiteral("不在本账号");
+    case DetailOwnership::Missing: return QStringLiteral("当前名单未记录");
+    case DetailOwnership::OwnedLocationUnknown: return QStringLiteral("已记录，位置待确认");
+    case DetailOwnership::WarehouseUnknown: return QStringLiteral("仓库（分组未记录）");
     case DetailOwnership::Unknown: break;
   }
   return QStringLiteral("位置待确认");
@@ -132,27 +134,27 @@ bool held(const DetailEntry& entry) { return entry.ownership != DetailOwnership:
 // A held pet opens its own detail popup; one this account does not hold, or one
 // with no usable instance, has no detail to open and stays plain text.
 QString relatedName(const DetailEntry& entry, const QString& color) {
-  const QString text = QStringLiteral("<b style='color:%1'>%2</b>").arg(color, escaped(entry.name));
+  const auto name = entry.originalName.isEmpty() ? entry.name : entry.originalName;
+  const QString text = QStringLiteral("<b style='color:%1'>%2</b>").arg(color, escaped(name));
   if (!held(entry) || entry.relatedInstanceId <= 0) return text;
   return QStringLiteral("<a href='kqdetail://pet/%1'>%2</a>").arg(entry.relatedInstanceId).arg(text);
 }
 QString relationRows(const QVector<const DetailEntry*>& entries, const QString& color) {
   QString html = QStringLiteral("<table width='100%' cellspacing='0' cellpadding='4'>"
-      "<tr><td width='26%' style='color:#64748b'>精灵</td><td width='18%' style='color:#64748b'>原名</td>"
-      "<td width='14%' style='color:#64748b'>位置</td><td width='10%' style='color:#64748b'>等级</td>"
-      "<td width='16%' style='color:#64748b'>当前战力</td><td style='color:#64748b'>极限战力</td></tr>");
+      "<tr><td width='32%' style='color:#64748b'>精灵原名</td>"
+      "<td width='22%' style='color:#64748b'>位置</td><td width='10%' style='color:#64748b'>等级</td>"
+      "<td width='18%' style='color:#64748b'>当前战力</td><td style='color:#64748b'>极限战力</td></tr>");
   for (const auto* entry : entries) {
-    html += QStringLiteral("<tr><td>%1</td><td>%2</td><td>%3</td><td>%4</td><td>%5</td><td>%6</td></tr>")
+    html += QStringLiteral("<tr><td>%1</td><td>%2</td><td>%3</td><td>%4</td><td>%5</td></tr>")
         .arg(relatedName(*entry, color),
-             escaped(entry->originalName.isEmpty() ? QStringLiteral("—") : entry->originalName),
              escaped(ownershipName(entry->ownership)), escaped(valueFor(*entry,QStringLiteral("等级"))),
              escaped(valueFor(*entry,QStringLiteral("当前战力"))),
              escaped(valueFor(*entry,QStringLiteral("极限战力"))));
     const QString era = valueFor(*entry,QStringLiteral("时代"));
     if (!era.isEmpty())
-      html += QStringLiteral("<tr><td colspan='6' class='muted'>时代 %1</td></tr>").arg(escaped(era));
+      html += QStringLiteral("<tr><td colspan='5' class='muted'>时代 %1</td></tr>").arg(escaped(era));
     if (!entry->problem.isEmpty())
-      html += QStringLiteral("<tr><td colspan='6' class='muted'>%1</td></tr>").arg(escaped(entry->problem));
+      html += QStringLiteral("<tr><td colspan='5' class='muted'>%1</td></tr>").arg(escaped(entry->problem));
   }
   return html + QStringLiteral("</table>");
 }
@@ -173,7 +175,9 @@ QString grid(const QStringList& cells, int columns) {
 QString candidateCell(const DetailEntry& entry) {
   QString cell = relatedName(entry, QStringLiteral("#233044"));
   QStringList note;
-  if (!entry.originalName.isEmpty()) note.append(escaped(entry.originalName));
+  if (entry.relationType == 4) note.append(QStringLiteral("神使"));
+  else if (entry.relationType == 8) note.append(QStringLiteral("召唤兽"));
+  else if (entry.relationType == 16) note.append(QStringLiteral("不朽书灵"));
   note.append(escaped(ownershipName(entry.ownership)));
   return cell + QStringLiteral("<br><span class='muted'>%1</span>").arg(note.join(QStringLiteral(" · ")));
 }
@@ -181,24 +185,54 @@ QString heading(const QString& title, const QString& note) {
   if (note.isEmpty()) return QStringLiteral("<p><b>%1</b></p>").arg(escaped(title));
   return QStringLiteral("<p><b>%1</b>　<span class='muted'>%2</span></p>").arg(escaped(title), escaped(note));
 }
-// Pets this account does not hold carry no level, power or detail of their own.
-// They are listed apart so the held ones stay comparable row by row.
-QString missingGroup(const QStringList& names, const QString& title) {
-  if (names.isEmpty()) return {};
-  return QStringLiteral("<p class='muted'>%1　共 %2 只不在本账号的背包或仓库</p>")
-      .arg(escaped(title)).arg(names.size()) + grid(names, 4);
-}
 QString relationBlock(const QString& title, const QString& note, const QVector<const DetailEntry*>& entries,
                       const QString& color, const QString& emptyText) {
-  QVector<const DetailEntry*> rows; QStringList missing;
-  for (const auto* entry : entries) {
-    if (held(*entry)) rows.append(entry);
-    else missing.append(QStringLiteral("<span class='muted'>%1</span>").arg(escaped(entry->name)));
-  }
   QString html = heading(title, note);
-  if (rows.isEmpty() && missing.isEmpty()) return html + QStringLiteral("<p class='muted'>%1</p>").arg(escaped(emptyText));
-  if (!rows.isEmpty()) html += relationRows(rows, color);
-  return html + missingGroup(missing, QStringLiteral("以下未拥有"));
+  if (entries.isEmpty()) return html + QStringLiteral("<p class='muted'>%1</p>").arg(escaped(emptyText));
+  // Current/reverse associations are observations of specific instances. Keep
+  // their name, status color and observed fields even outside the loaded roster.
+  html += relationRows(entries,color);
+  for (const auto* entry : entries) if (entry->ownership == DetailOwnership::Missing)
+    return html + QStringLiteral("<p class='muted'>本地背包、仓库名单中未记录，不等同于未拥有。</p>");
+  return html;
+}
+QString carryObjectName(DetailCarryKind kind) {
+  if (kind == DetailCarryKind::Companion) return QStringLiteral("携同精灵");
+  if (kind == DetailCarryKind::Swallow) return QStringLiteral("吞噬对象");
+  if (kind == DetailCarryKind::Almighty) return QStringLiteral("天觉携带精灵");
+  return QStringLiteral("携带精灵");
+}
+QString relationPageName(const DetailPage& page) {
+  if (page.section != DetailSection::CarryRelations) return sectionName(page.section);
+  if (page.carryKind == DetailCarryKind::Companion) return QStringLiteral("携同关系");
+  if (page.carryKind == DetailCarryKind::Swallow) return QStringLiteral("吞噬关系");
+  if (page.carryKind == DetailCarryKind::Almighty) return QStringLiteral("天觉携带关系");
+  return sectionName(page.section);
+}
+QString candidateGroups(const QVector<const DetailEntry*>& entries) {
+  QVector<const DetailEntry*> backpack, warehouse, unknown, absent;
+  for (const auto* entry : entries) {
+    if (entry->selected) continue;
+    switch (entry->ownership) {
+      case DetailOwnership::Backpack: backpack.append(entry); break;
+      case DetailOwnership::WarehouseNormal: case DetailOwnership::WarehouseElite:
+      case DetailOwnership::WarehouseGoodbye: case DetailOwnership::WarehouseUnknown: warehouse.append(entry); break;
+      case DetailOwnership::Missing: absent.append(entry); break;
+      default: unknown.append(entry); break;
+    }
+  }
+  QString html;
+  const auto add = [&](const QString& title, const QVector<const DetailEntry*>& group) {
+    if (group.isEmpty()) return;
+    html += heading(title,QStringLiteral("%1 项").arg(group.size()));
+    if (title == QStringLiteral("当前名单未记录"))
+      html += QStringLiteral("<p class='muted'>本地背包、仓库名单中未记录，不等同于未拥有。</p>");
+    QStringList cells; for (const auto* entry : group) cells.append(candidateCell(*entry));
+    html += grid(cells,3);
+  };
+  add(QStringLiteral("背包内"),backpack); add(QStringLiteral("仓库内"),warehouse);
+  add(QStringLiteral("位置待确认"),unknown); add(QStringLiteral("当前名单未记录"),absent);
+  return html;
 }
 QString carry(const DetailPage& page) {
   QVector<const DetailEntry*> carried, carriers, candidates;
@@ -208,48 +242,58 @@ QString carry(const DetailPage& page) {
     else carried.append(&entry);
   }
   QString html;
+  if (!page.relationCatalogProblem.isEmpty()) html += QStringLiteral("<p class='muted'>%1</p>").arg(escaped(page.relationCatalogProblem));
   // Only the side this pet is actually on is shown: a carrier is never told
   // that nobody carries it, and an envoy is never offered a candidate list.
   if (page.contractCarrierRole) {
     if (page.pageIndex == 0 || !carried.isEmpty())
-      html += relationBlock(QStringLiteral("已契约神使"), QStringLiteral("本精灵当前携带的精灵"),
-                            carried, QStringLiteral("#b91c1c"), QStringLiteral("未契约任何神使"));
+      html += relationBlock(QStringLiteral("当前%1").arg(carryObjectName(page.carryKind)), {},
+                            carried, QStringLiteral("#15803d"), QStringLiteral("当前关联未记录"));
     if (page.hasCarryCandidates) {
       // Expanded, the grid is the exact list; collapsed, the client's own list
       // length is reported without resolving every candidate identity.
       const int total = page.carryCandidatesExpanded ? int(candidates.size()) : page.carryCandidateCount;
       html += QStringLiteral("<p><b>%1</b>　<span class='muted'>%2</span>　%3</p>")
-          .arg(QStringLiteral("可契约候选"),
+          .arg(QStringLiteral("可选%1").arg(carryObjectName(page.carryKind)),
                total >= 0 ? QStringLiteral("共 %1 只").arg(total) : QStringLiteral("数量待确认"),
                page.carryCandidatesExpanded ? link(DetailSection::Overview,0,QStringLiteral("▼ 收起"))
                                             : link(DetailSection::CarryRelations,0,QStringLiteral("▶ 展开全部")));
       if (page.carryCandidatesExpanded) {
-        QStringList heldCells, missingNames;
-        for (const auto* entry : candidates) {
-          if (held(*entry)) heldCells.append(candidateCell(*entry));
-          else missingNames.append(QStringLiteral("<span class='muted'>%1</span>").arg(escaped(entry->name)));
-        }
-        html += grid(heldCells, 3) + missingGroup(missingNames, QStringLiteral("以下未拥有"));
+        html += candidateGroups(candidates);
       }
     } else if (page.pageIndex == 0) {
-      html += heading(QStringLiteral("可契约候选"),
-                      page.carryCandidatesKnown ? QStringLiteral("无") : QStringLiteral("待确认"));
+      html += heading(QStringLiteral("可选%1").arg(carryObjectName(page.carryKind)),
+                      page.carryCandidatesKnown ? QStringLiteral("当前无其他可选对象") : QStringLiteral("完整配对资料待确认"));
     }
   }
   if (page.contractEnvoyRole && (page.pageIndex == 0 || !carriers.isEmpty()))
-    html += relationBlock(QStringLiteral("被契约"), QStringLiteral("契约本精灵的精灵"),
-                          carriers, QStringLiteral("#1d4ed8"), QStringLiteral("没有精灵契约本精灵"));
+    for (const auto kind : {DetailCarryKind::Companion,DetailCarryKind::Almighty,DetailCarryKind::Swallow,DetailCarryKind::Unknown}) {
+      QVector<const DetailEntry*> group;
+      for (const auto* entry : carriers) if (entry->carryKind == kind) group.append(entry);
+      if (group.isEmpty()) continue;
+      const QString title = kind == DetailCarryKind::Swallow ? QStringLiteral("吞噬本精灵的精灵") :
+          kind == DetailCarryKind::Companion ? QStringLiteral("与本精灵携同的精灵") : QStringLiteral("携带本精灵的精灵");
+      html += relationBlock(title,{},group,QStringLiteral("#1d4ed8"),{});
+    }
   return html;
 }
 QString summon(const DetailPage& page) {
-  QStringList order; QHash<QString, QVector<const DetailEntry*>> grouped;
+  QVector<const DetailEntry*> current, candidates, summoners;
   for (const auto& entry : page.entries) {
-    if (!grouped.contains(entry.group)) order.append(entry.group);
-    grouped[entry.group].append(&entry);
+    if (entry.group == DetailRelationGroup::summonList()) candidates.append(&entry);
+    else if (entry.group == DetailRelationGroup::summoner()) summoners.append(&entry);
+    else current.append(&entry);
   }
   QString html;
-  for (const auto& group : order)
-    html += relationBlock(group, {}, grouped.value(group), QStringLiteral("#233044"), QStringLiteral("无"));
+  if (!page.relationCatalogProblem.isEmpty()) html += QStringLiteral("<p class='muted'>%1</p>").arg(escaped(page.relationCatalogProblem));
+  if (!current.isEmpty() || (page.pageIndex == 0 && (page.hasSummonCandidates || page.officialRelationCandidates)))
+    html += relationBlock(QStringLiteral("已召唤精灵"),{},current,QStringLiteral("#15803d"),QStringLiteral("当前关联未记录"));
+  if (!candidates.isEmpty()) {
+    html += heading(QStringLiteral("可召唤对象"),page.officialRelationCandidates ? QStringLiteral("按官方配对规则列出") : QStringLiteral("已记录候选"));
+    html += candidateGroups(candidates);
+  } else if (page.pageIndex == 0 && page.summonCandidatesKnown)
+    html += heading(QStringLiteral("可召唤对象"),QStringLiteral("当前无其他可选对象"));
+  if (!summoners.isEmpty()) html += relationBlock(QStringLiteral("召唤者"),{},summoners,QStringLiteral("#1d4ed8"),{});
   return html;
 }
 }
@@ -284,7 +328,7 @@ QString PreparedPetDetailRenderer::render(const PreparedPetDetailHandle& detail,
     if (!page.relationsApplicable || seen.contains(int(page.section))) continue;
     seen.insert(int(page.section));
     if (!page.problem.startsWith(QStringLiteral("该时代没有")))
-      navigation += link(page.section, 0, sectionName(page.section)) + QStringLiteral("　");
+      navigation += link(page.section, 0, relationPageName(page)) + QStringLiteral("　");
   }
   QString body = header + QStringLiteral("<p>%1</p><h3>战斗力</h3><table width='100%'>").arg(navigation);
   const auto& power = detail->battlePower;
@@ -309,7 +353,7 @@ QString PreparedPetDetailRenderer::render(const PreparedPetDetailHandle& detail,
     const bool relation = page.section == DetailSection::SummonRelations || page.section == DetailSection::CarryRelations;
     const bool stars = page.section == DetailSection::EquippedStargods || page.section == DetailSection::StargodBackpack;
     if (stars && !starHeading) { body += QStringLiteral("<h3>星神</h3>"); starHeading = true; }
-    body += stars ? QStringLiteral("<p><b>%1</b></p>").arg(page.section == DetailSection::EquippedStargods ? QStringLiteral("已装备星神") : QStringLiteral("对应背包的星神")) : QStringLiteral("<h3>%1</h3>").arg(sectionName(page.section));
+    body += stars ? QStringLiteral("<p><b>%1</b></p>").arg(page.section == DetailSection::EquippedStargods ? QStringLiteral("已装备星神") : QStringLiteral("对应背包的星神")) : QStringLiteral("<h3>%1</h3>").arg(relationPageName(page));
     if (!page.problem.isEmpty()) body += QStringLiteral("<p class='muted'>%1</p>").arg(escaped(page.problem));
     if (page.entries.isEmpty() && !relation) body += QStringLiteral("<p class='muted'>%1</p>").arg(page.state == DetailKnowledge::Known ? QStringLiteral("无记录") : QStringLiteral("信息未确认"));
     if (page.section == DetailSection::Badges) body += badges(page);

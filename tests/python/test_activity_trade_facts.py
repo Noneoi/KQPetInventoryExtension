@@ -44,7 +44,71 @@ def parse(scripts):
     return shops
 
 
+def progress_fixture(name='Future', costs=(50, 10, 100, 10, 150)):
+    rows = [{'index': i, 'serverIndex': 20 + i, 'cost': cost,
+             'rewardType': 'Strengthen', 'rewardParams': '11-62', 'filter': [8101]}
+            for i, cost in enumerate(costs)]
+    scripts = {
+        'Config.as': 'class Config {static const ROWS:Array=' + json.dumps(rows) + ';}',
+        'Reward.as': '''class Reward extends ActReward {
+          function initConfig(data:Object):ActReward {this._amount=data["cost"];return this;}
+          function get amount():int {return this._amount;}
+        }''',
+        'Model.as': '''class Model {
+          function init(packet:Object):void {this._rewards=[];
+            Config.ROWS.forEach(function(row:*,i:*,all:*):* {
+              _rewards.push(new Reward().initConfig(row).initData(packet));
+            }); this._progress=packet["tokens"];
+          }
+          function get rewards():Array {return this._rewards;}
+          function get progress():int {return this._progress;}
+        }''',
+        'Panel.as': '''class Panel {private var _model:Model;
+          function update():void {var progress:int=this._model.progress;
+            var current:Reward;var sum:int=0;var i:int=0;
+            while(i<this._model.rewards.length) {
+              current=this._model.rewards[i]; sum+=current.amount;
+              if(i==this._model.rewards.length-1) {showDirectPurchase(current);break;}
+              if(!current.claimed && progress>=sum) {showClaim(current);break;}
+              if(progress<sum) {showProgress(current);break;}
+              i++;
+            }
+          }
+        }''',
+    }
+    for cls in ('Config', 'Reward', 'Model', 'Panel'):
+        scripts = {key.replace(cls, name + cls): re.sub(r'\b' + cls + r'\b', name + cls, value) for key, value in scripts.items()}
+    return scripts
+
+
 class RewardFactsTest(unittest.TestCase):
+    def test_prefix_sum_progress_is_not_price_and_future_names_are_irrelevant(self):
+        for name, costs, expected in [('NextSeason', (50, 10, 100, 10, 150), [50, 60, 160, 170]),
+                                      ('Renamed2099', (21, 3, 90, 6, 200), [21, 24, 114, 120])]:
+            goods = parse(progress_fixture(name, costs))[0]['goods']
+            self.assertEqual([good['progressRequirement']['amount'] for good in goods[:-1]], expected)
+            self.assertTrue(all(good['acquisitionKind'] == 'progress' and good['cost'] == '' and not good['costKnown'] for good in goods[:-1]))
+            self.assertIn('不是本次扣费', goods[2]['costDescription'])
+            self.assertEqual(goods[2]['progressRequirement']['statePath'], ['tokens'])
+            self.assertNotIn('progressRequirement', goods[-1])
+            self.assertEqual(goods[-1]['acquisitionKind'], 'exchange')
+
+    def test_prefix_sum_requires_actual_zero_origin_and_comparison(self):
+        for before, after in [('var sum:int=0', 'var sum:int=100'), ('progress>=sum', 'progress>=current.amount')]:
+            scripts = progress_fixture()
+            scripts['FuturePanel.as'] = scripts['FuturePanel.as'].replace(before, after)
+            self.assertTrue(all('progressRequirement' not in good for shop in parse(scripts) for good in shop['goods']))
+
+    def test_progress_enrichment_preserves_existing_product_identity(self):
+        scripts = progress_fixture()
+        after = parse(scripts)[0]['goods']
+        scripts['FuturePanel.as'] = scripts['FuturePanel.as'].replace('sum+=current.amount;', '')
+        before = parse(scripts)[0]['goods']
+        for left, right in zip(before, after):
+            self.assertEqual(left['itemServerId'], right['itemServerId'])
+            self.assertEqual(left['rewardRaw'], right['rewardRaw'])
+            self.assertEqual(left['enhanceType'], right['enhanceType'])
+
     def test_future_names_and_prices_are_taken_from_consumers(self):
         for name, amount, maximum in [('Spring2099', 83, 2), ('Winter2100', 187, 7)]:
             shop = parse(fixture(name, price=amount, maximum=maximum))[0]

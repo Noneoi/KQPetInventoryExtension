@@ -68,6 +68,20 @@ int main(int argc,char** argv) {
         "main quota evidence was reused for an independent activity");
   }
   QTemporaryDir temporary;
+  {
+    auto serviceRoot = root;
+    auto serviceActivity = activity;
+    serviceActivity[QStringLiteral("navigationLink")] = QStringLiteral("btnService_FuturePass_showMainPanelWithTab_-1");
+    auto serviceShops = mainShops; serviceShops.append(serviceActivity);
+    serviceRoot[QStringLiteral("shops")] = serviceShops;
+    const auto serviceCatalog = ShopExchangeCatalog::prepare(serviceRoot,QStringLiteral("service-navigation"),{},&error);
+    require(serviceCatalog && serviceCatalog->allShops.last().navigationLink == serviceActivity.value(QStringLiteral("navigationLink")).toString(),
+            "verified service panel navigation was rejected or lost");
+    serviceActivity[QStringLiteral("navigationLink")] = QStringLiteral("btnService_FuturePass_buyItem_1");
+    serviceShops[serviceShops.size() - 1] = serviceActivity; serviceRoot[QStringLiteral("shops")] = serviceShops;
+    require(!ShopExchangeCatalog::prepare(serviceRoot,QStringLiteral("invalid-service-navigation"),{},&error),
+            "non-navigation service method was accepted");
+  }
   StorageService storage(temporary.path());
   CatalogIoService service(&storage);
   require(writeCatalogFixture(QDir(temporary.path()).filePath(QStringLiteral("catalog/shop-exchange-data.json")),

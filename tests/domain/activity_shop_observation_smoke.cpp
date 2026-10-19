@@ -1,8 +1,11 @@
 #include "domain/activity_shop_observation.h"
+#include "domain/public_price_rule.h"
+#include "domain/prepared_shop_conditions.h"
 
 #include <QCoreApplication>
 #include <QJsonArray>
 #include <QJsonObject>
+#include <QJsonDocument>
 #include <QStringList>
 #include <cstdio>
 
@@ -232,6 +235,47 @@ int main(int argc, char** argv) {
   result = observeActivityShopGood(claimed, packetFor(claimed, {{QStringLiteral("b7"), QJsonObject{{QStringLiteral("oo"), QStringLiteral("false")}}}}));
   ok &= require(!result.quotaKnown, "malformed claim flag became a usable reward");
   ok &= require(!observeActivityShopGood(claimed, {}).quotaKnown, "absent account observation became an unused claim");
-  if (ok) std::puts("PASS: isolated official activity observation shapes, typed paths, dynamic prices and historical resource counts");
+  auto priceRule = QJsonDocument::fromJson(R"({"schema":1,"kind":"shared-cultivation","currency":"8:2",
+    "preset":[{"amount":109,"when":{"type":"always","value":true}}],"overrideCases":[],
+    "unconditionalOverride":null,"componentCount":2,
+    "globalDiscount":{"numerator":9,"denominator":10,"when":{"type":"date","startsAt":"2026-06-18T02:00:00+08:00","endsAt":"2026-06-26T02:00:00+08:00"}},
+    "payment":{"ticket":{"when":{"type":"always","value":false},"minComponents":2,"maxDeduction":200}}})").object();
+  const auto during = QDateTime::fromString(QStringLiteral("2026-06-20T03:00:00+08:00"),Qt::ISODate);
+  const auto expiry = QDateTime::fromString(QStringLiteral("2026-06-26T02:00:00+08:00"),Qt::ISODate);
+  auto quote = evaluatePublicPriceRule(priceRule,during);
+  ok &= require(quote.known && quote.amount == 99 && quote.discounted && !quote.optionalPayment,
+      "public discount must ceil 109 * 0.9, without subtracting disabled ticket amount");
+  quote = evaluatePublicPriceRule(priceRule,expiry);
+  ok &= require(quote.known && quote.amount == 109 && !quote.discounted,
+      "expired dated discount survived its exclusive boundary");
+  ok &= require(nextPublicPriceChange(priceRule,during) == expiry,"price date was not scheduled for reevaluation");
+  auto conditionalPrice = priceRule;
+  conditionalPrice.insert(QStringLiteral("overrideCases"),QJsonArray{
+      QJsonObject{{QStringLiteral("amount"),30},{QStringLiteral("when"),QJsonObject{{QStringLiteral("type"),QStringLiteral("vip")}}}},
+      QJsonObject{{QStringLiteral("amount"),70},{QStringLiteral("when"),QJsonObject{{QStringLiteral("type"),QStringLiteral("always")},{QStringLiteral("value"),true}}}}});
+  ok &= require(!evaluatePublicPriceRule(conditionalPrice,expiry).known,"unknown first VIP case was bypassed by a later cheaper quote");
+  quote = evaluatePublicPriceRule(conditionalPrice,expiry,nullptr,{{QStringLiteral("rmbVip"),false}});
+  ok &= require(quote.known && quote.amount == 70,"known false VIP condition did not advance to next public price case");
+  conditionalPrice.insert(QStringLiteral("preset"),QJsonArray{QJsonObject{{QStringLiteral("amount"),100},
+      {QStringLiteral("when"),QJsonObject{{QStringLiteral("type"),QStringLiteral("always")},{QStringLiteral("value"),false}}}}});
+  quote = evaluatePublicPriceRule(conditionalPrice,expiry,nullptr,{{QStringLiteral("rmbVip"),true}});
+  ok &= require(!quote.known && quote.availabilityKnown && !quote.available,"active override improperly opened an offline offer");
+  auto priced = good(QStringLiteral("future/public"),query(QStringLiteral("1019_0")),{},1);
+  priced.priceRule=priceRule;
+  result=observeActivityShopGood(priced,{},during);
+  ok &= require(result.priceKnown && result.priceCurrent && result.standardCost==QStringLiteral("8:2:99"),
+      "public price did not reach native shop observation without an account request");
+  ShopConditionContext conditions;conditions.priceEvaluationAt=during;
+  const auto prepared=PreparedShopConditions::prepare(CompiledShopCatalog::compile({priced}),{},
+      AccountResourceView({{QStringLiteral("8:2"),100}},true),conditions);
+  ok &= require(prepared.goods().first().account.costCondition.state==ShopConditionState::Satisfied &&
+      prepared.goods().first().account.requirements.first().required==99 && prepared.goods().first().account.resourcesEnough,
+      "current public quote did not reach affordability calculation");
+  // Reclassification of a known cultivation row must retain its old choice key.
+  priced.enhanceType=QStringLiteral("83");priced.raceIds={1234};priced.rewardRaw=QStringLiteral("public-reward");
+  const auto oldKey=priced.stableKey();
+  priced.manualSelectionRequired=true;priced.selectionIdentityIncludesReward=false;priced.acquisitionKind=QStringLiteral("progress");
+  ok &= require(priced.stableKey()==oldKey,"progress correction lost the original selection identity");
+  if (ok) std::puts("PASS: isolated activity observations, conditional current quotes and stable selection identities");
   return ok ? 0 : 1;
 }

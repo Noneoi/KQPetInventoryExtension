@@ -69,12 +69,10 @@ QString materialTable(const PetCultivationRequirements& requirements, const Mate
   QString html = QStringLiteral("<h3>所需材料</h3><table width='100%' cellspacing='0'><tr>"
       "<th width='43%'>材料</th><th>需要</th><th>背包已有</th><th>还差</th></tr>");
   for (const auto& material : totals) {
-    const auto stock = inventory.counts.constFind(cultivationMaterialKey(material.type, material.id, material.extra));
-    const bool stockKnown = material.scope == QStringLiteral("account") && material.type > 0 && material.id > 0 &&
-        material.extra >= 0 && (stock != inventory.counts.cend() ? stock.value() >= 0 : material.extra == 0
-            ? inventory.knownTypes.contains(material.type)
-            : inventory.knownExtraGroups.contains(QStringLiteral("%1:%2").arg(material.type).arg(material.extra)));
-    const qint64 owned = stockKnown && stock != inventory.counts.cend() ? stock.value() : 0;
+    const auto stock = material.scope == QStringLiteral("account")
+        ? cultivationMaterialOwned(inventory,material.type,material.id,material.extra) : std::nullopt;
+    const bool stockKnown = stock.has_value();
+    const qint64 owned = stock.value_or(0);
     const bool missingKnown = material.known && stockKnown;
     const qint64 missing = missingKnown ? qMax<qint64>(0, material.required - owned) : 0;
     html += QStringLiteral("<tr><td><b>%1</b></td><td>%2</td><td>%3</td><td%4>%5</td></tr>")

@@ -1,5 +1,6 @@
 #pragma once
 #include "catalog_types.h"
+#include "account_resource_view.h"
 
 struct ActivityShopCost {
   QString key, name;
@@ -11,6 +12,8 @@ struct ActivityShopObservation {
   bool quotaKnown = false, historical = false;
   QString standardCost;
   bool priceKnown = false, priceCurrent = false;
+  QString priceReason;
+  bool optionalPayment = false;
   bool applicabilityKnown = true, applicable = true;
   QList<ActivityShopCost> costs;
   QDateTime observedAt;
@@ -20,4 +23,5 @@ QString activityRequestSignature(const QJsonObject& request);
 QJsonValue activityObservedValue(const ShopExchangeGood& good, const QJsonObject& descriptor,
     const QJsonObject& packet, bool* historical = nullptr, bool* verified = nullptr,
     QDateTime* observedAt = nullptr);
-ActivityShopObservation observeActivityShopGood(const ShopExchangeGood& good, const QJsonObject& packet);
+ActivityShopObservation observeActivityShopGood(const ShopExchangeGood& good, const QJsonObject& packet,
+    const QDateTime& at = {}, const AccountResourceView* resources = nullptr);

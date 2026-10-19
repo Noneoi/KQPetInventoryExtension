@@ -1,0 +1,171 @@
+{
+  "privateAccountData": false,
+  "oracleScope": "Weekly windows derive from official UI declaration; synthetic clock uncertainty is an explicit fixture premise.",
+  "weeklyBoundaries": [
+    {
+      "observedServerTime": "2026-10-15T23:59:59+08:00",
+      "periodId": "dailyTaskWeekly:2026-10-09",
+      "validFromUtc": "2026-10-08T22:00:00+00:00",
+      "validUntilUtc": "2026-10-15T22:00:00+00:00"
+    },
+    {
+      "observedServerTime": "2026-10-16T00:00:00+08:00",
+      "periodId": "dailyTaskWeekly:2026-10-09",
+      "validFromUtc": "2026-10-08T22:00:00+00:00",
+      "validUntilUtc": "2026-10-15T22:00:00+00:00"
+    },
+    {
+      "observedServerTime": "2026-10-16T02:00:00+08:00",
+      "periodId": "dailyTaskWeekly:2026-10-09",
+      "validFromUtc": "2026-10-08T22:00:00+00:00",
+      "validUntilUtc": "2026-10-15T22:00:00+00:00"
+    },
+    {
+      "observedServerTime": "2026-10-16T05:59:59.999+08:00",
+      "periodId": "dailyTaskWeekly:2026-10-09",
+      "validFromUtc": "2026-10-08T22:00:00+00:00",
+      "validUntilUtc": "2026-10-15T22:00:00+00:00"
+    },
+    {
+      "observedServerTime": "2026-10-16T06:00:00+08:00",
+      "periodId": "dailyTaskWeekly:2026-10-16",
+      "validFromUtc": "2026-10-15T22:00:00+00:00",
+      "validUntilUtc": "2026-10-22T22:00:00+00:00"
+    },
+    {
+      "observedServerTime": "2026-10-18T23:59:59+08:00",
+      "periodId": "dailyTaskWeekly:2026-10-16",
+      "validFromUtc": "2026-10-15T22:00:00+00:00",
+      "validUntilUtc": "2026-10-22T22:00:00+00:00"
+    },
+    {
+      "observedServerTime": "2026-10-19T00:00:00+08:00",
+      "periodId": "dailyTaskWeekly:2026-10-16",
+      "validFromUtc": "2026-10-15T22:00:00+00:00",
+      "validUntilUtc": "2026-10-22T22:00:00+00:00"
+    },
+    {
+      "observedServerTime": "2026-10-23T06:00:00+08:00",
+      "periodId": "dailyTaskWeekly:2026-10-23",
+      "validFromUtc": "2026-10-22T22:00:00+00:00",
+      "validUntilUtc": "2026-10-29T22:00:00+00:00"
+    },
+    {
+      "observedServerTime": "2027-01-01T05:59:59.999+08:00",
+      "periodId": "dailyTaskWeekly:2026-12-25",
+      "validFromUtc": "2026-12-24T22:00:00+00:00",
+      "validUntilUtc": "2026-12-31T22:00:00+00:00"
+    },
+    {
+      "observedServerTime": "2027-01-01T06:00:00+08:00",
+      "periodId": "dailyTaskWeekly:2027-01-01",
+      "validFromUtc": "2026-12-31T22:00:00+00:00",
+      "validUntilUtc": "2027-01-07T22:00:00+00:00"
+    }
+  ],
+  "matchedActiveClock": {
+    "account": "SYNTHETIC_ACCOUNT",
+    "sessionEpoch": 7,
+    "sourceEpoch": 3,
+    "command": "getCurrentTime",
+    "parameters": {},
+    "sentMonotonicMs": 1000,
+    "receivedMonotonicMs": 1240,
+    "packet": {
+      "_cmd": "getCurrentTime",
+      "t": 1792101660000
+    },
+    "timestampQuantizationErrorMs": 1,
+    "timestampQuantizationNote": "Synthetic fixture premise, not measured server precision.",
+    "causalResponseMatchProven": true,
+    "derivedAtReceive": {
+      "lowerUtcMs": 1792101659999,
+      "upperUtcMs": 1792101660241,
+      "midpointUtcMs": 1792101660120,
+      "uncertaintyMs": 121
+    }
+  },
+  "mustNotGrantCurrent": [
+    {
+      "case": "passive-only",
+      "packet": {
+        "_cmd": "getCurrentTime",
+        "t": 1792101660000
+      },
+      "receivedMonotonicMs": 1240,
+      "reason": "No observed matching send; network/host age has no finite upper bound."
+    },
+    {
+      "case": "epoch-changed",
+      "requestEpoch": 7,
+      "receiveEpoch": 8,
+      "reason": "Different session."
+    },
+    {
+      "case": "late-orphan-response",
+      "requestExpired": true,
+      "reason": "Cannot reassign old command-only response to a new request."
+    },
+    {
+      "case": "same-command-external-request",
+      "causalResponseMatchProven": false,
+      "reason": "No echoed nonce; local command slot alone does not prove causal match."
+    },
+    {
+      "case": "daily-open-hour-unknown",
+      "clockBounded": true,
+      "reason": "Exact reset hour is still unverified."
+    },
+    {
+      "case": "weekly-boundary-overlap",
+      "serverLower": "2026-10-16T05:59:59.900+08:00",
+      "serverUpper": "2026-10-16T06:00:00.140+08:00",
+      "reason": "Interval crosses Friday 06:00."
+    },
+    {
+      "case": "quota-request-crosses-boundary",
+      "clockBounded": true,
+      "quotaSendServerLower": "2026-10-16T05:59:59.900+08:00",
+      "quotaReceiveServerUpper": "2026-10-16T06:00:00.140+08:00",
+      "reason": "Quota packet has no period id; a post-reset receive does not prove post-reset generation."
+    },
+    {
+      "case": "server-precision-unreviewed",
+      "timestampQuantizationErrorMs": null,
+      "reason": "Millisecond unit is not evidence of producer accuracy/granularity."
+    },
+    {
+      "case": "total-limit",
+      "reason": "No recurring reset is not a finite valid-until year 9999."
+    }
+  ],
+  "malformedTimePackets": [
+    {
+      "_cmd": "getCurrentTime"
+    },
+    {
+      "_cmd": "getCurrentTime",
+      "t": null
+    },
+    {
+      "_cmd": "getCurrentTime",
+      "t": true
+    },
+    {
+      "_cmd": "getCurrentTime",
+      "t": -1
+    },
+    {
+      "_cmd": "getCurrentTime",
+      "t": 1.5
+    },
+    {
+      "_cmd": "getCurrentTime",
+      "t": 9007199254740992
+    },
+    {
+      "_cmd": "55_4",
+      "t": 1792101660000
+    }
+  ]
+}

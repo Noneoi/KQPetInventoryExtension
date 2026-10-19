@@ -22,6 +22,7 @@ quint64 goodPayloadBytes(const CompiledShopGood& value) {
       quint64(QJsonDocument(good.activityQueries).toJson(QJsonDocument::Compact).size() +
         QJsonDocument(good.quotaObservation).toJson(QJsonDocument::Compact).size() +
         QJsonDocument(good.observationWhen).toJson(QJsonDocument::Compact).size() +
+        QJsonDocument(good.priceRule).toJson(QJsonDocument::Compact).size() +
         QJsonDocument(good.activityCosts).toJson(QJsonDocument::Compact).size() +
         QJsonDocument(good.priceOptions).toJson(QJsonDocument::Compact).size()) * 4 + quint64(good.raceIds.capacity()) * sizeof(int) +
       textBytes(value.stableKey) + conditionBytes(value.costCondition) +
